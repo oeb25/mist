@@ -1,4 +1,4 @@
-# Mint
+# 🍃 Mint
 
 > Mint is the inprogress codename for my master thesis: A language and editor experience for working with formal program verification, with high focus on usability, user-friendliness, error reporting, and quality-of-life feature.
 
