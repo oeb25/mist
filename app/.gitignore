@@ -23,5 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 
-# z3 copied filed
+# copied files
 public/z3-built.*
+public/coi-serviceworker.js
