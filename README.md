@@ -29,7 +29,7 @@ The following is a list of ideas for areas of improvements and alterations, whic
     - Formal verification is great for proving the absence of bugs, but in some cases the bugs are plainly obvious but still hard for the verifier to communicate to the user, and the time needed to find these errors are sometimes less than ideal.
     - Fuzzing provides an alternative to this, by quickly trying a vast number of inputs to you methods, and might quickly uncover some edge case. Here it will use the execution provided in the last point.
     - Additionally, as the errors occur from a concrete instantiation of the variables, they constitute counter-examples as well as stacktraces, which are perfect for debugging!
-- Algebraic data structures
+- Abstract data types
     - ... might be over kill, but some variant of `struct` and `enum` would be great for usability.
     - These would have ghost fields and invariants.
 - Quantifier pattern/trigger hints
