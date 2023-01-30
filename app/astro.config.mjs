@@ -9,5 +9,6 @@ import tailwind from "@astrojs/tailwind";
 // https://astro.build/config
 export default defineConfig({
   integrations: [compress(), mdx(), react(), tailwind()],
+  site: "https://oeb25.github.io",
   base: "/mint",
 });

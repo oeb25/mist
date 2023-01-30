@@ -45,3 +45,5 @@ The following is a list of ideas for areas of improvements and alterations, whic
 - Provide sugar for common permission patterns
     - This could include having references, where the exact given permission is automatically given back at the end of the scope (like RAII).
     - In some cases, where a method might be called recursively, this might require halving the permission at each recursive call, sort of like an implicitly added ghost argument.
+- Precondition inference
+    - Use weakest-precondition to find and display the necessary conditions for some failing assertion to succeed.
