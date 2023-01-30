@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { run } from "./z3";
+import { run } from "../lib/z3";
 
 const query = `
 (declare-const x Int)
@@ -10,7 +10,7 @@ const query = `
 
 run(query);
 
-export const App = () => {
+export const Z3Playground = () => {
   const [code, setCode] = useState(query);
   const [result, setResult] = useState<string[]>([]);
   const [status, setStatus] = useState<"evaluating" | { doneIn: number }>(
