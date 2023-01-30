@@ -17,9 +17,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2.3.1
 
-      - uses: extractions/setup-just@v1
+      - uses: taiki-e/install-action@v2
         with:
-          just-version: 1.9
+          tool: just
 
       # - name: Set stable toolchain
       #   uses: actions-rs/toolchain@v1
