@@ -24,6 +24,8 @@
     "astro": "^2.0.2",
     "astro-compress": "^1.1.28",
     "async-mutex": "^0.4.0",
+    "mint-wasm": "file:./wasm/pkg/",
+    "monaco-editor": "^0.34.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "tailwindcss": "^3.2.4",
@@ -33,7 +35,8 @@
     "@tailwindcss/typography": "^0.5.9",
     "coi-serviceworker": "^0.1.6",
     "prettier": "^2.8.3",
-    "prettier-plugin-tailwindcss": "^0.2.2"
+    "prettier-plugin-tailwindcss": "^0.2.2",
+    "vite-plugin-wasm": "^3.1.1"
   },
   "prettier": {
     "plugins": [

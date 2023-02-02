@@ -1,8 +1,38 @@
 ---
 import Layout from "../layouts/Layout.astro";
-import { Z3Playground } from "../components/Z3Playground";
+import { ChevronRightIcon } from "@heroicons/react/24/outline";
+
+interface Frontmatter {
+  title: string;
+  date?: string;
+}
+
+const posts = await Astro.glob<Frontmatter>("./posts/*.mdx");
 ---
 
-<Layout title="Z3 WASM Demo">
-  <Z3Playground client:only="react" />
+<Layout title="Mint">
+  <main class="mx-auto w-full max-w-prose space-y-5 py-10">
+    <h2 class="text-4xl text-lime-900">Articles</h2>
+    <div class="flex flex-col space-y-10">
+      {
+        posts
+          .map((p) => (
+            <a href={p.url} class="group">
+              <h3 class="relative flex items-center space-x-2 py-2 text-2xl text-lime-700 group-hover:text-lime-800">
+                <ChevronRightIcon className="w-6 text-lime-200 transition group-hover:text-lime-800" />
+                <span>{p.frontmatter.title}</span>
+              </h3>
+              {p.frontmatter.date && (
+                <p class="ml-3 text-lime-600/50">
+                  {new Intl.DateTimeFormat().format(
+                    new Date(p.frontmatter.date)
+                  )}
+                </p>
+              )}
+            </a>
+          ))
+          .reverse()
+      }
+    </div>
+  </main>
 </Layout>

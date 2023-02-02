@@ -1,0 +1,32 @@
+---
+layout: "../../layouts/Content.astro"
+title: Run Z3 with WASM
+date: 2023-01-15
+---
+
+import { Z3Playground } from "../../components/Z3Playground";
+
+This is a demo page for interacting with [Z3](https://github.com/Z3Prover/z3) in
+the browser through [WASM](https://webassembly.org/).
+
+<Z3Playground client:only="react" />
+
+## How does this work?
+
+Z3 is a [SMT
+solver](https://en.wikipedia.org/wiki/Satisfiability_modulo_theories) written in
+C++. While C++ does not natively run in the browser, WebAssembly enables a
+native-like execution environment by compiling with a special compiler like
+[Emscripten](https://emscripten.org/).
+
+Fortunately Z3 provides [this as a package on
+npm](https://www.npmjs.com/package/z3-solver). It is, however, a little bit
+finicky to get working with [Vite](https://vitejs.dev/) (the frontend tooling I
+prefer). This is because it is made to load the wasm file at runtime, and Vite
+only bundles the files you explicitly tell it to.
+
+I've [written about
+it](https://github.com/Z3Prover/z3/discussions/6551#discussioncomment-4852578)
+on the z3 repo discussions, and I think that this is an area where we could take
+inspiration from how [wasm-pack](https://github.com/rustwasm/wasm-pack) exports
+for bundlers.

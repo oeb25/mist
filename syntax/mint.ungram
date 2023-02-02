@@ -1,0 +1,107 @@
+// Mint Un-Grammar.
+
+SourceFile =
+  Item*
+
+Item =
+  Const
+| Fn
+
+Name = 'ident'
+
+NameRef =
+ 'ident'// | 'int_number'
+
+Const =
+  'const' Name ':' Type
+  ('=' initializer:Expr)?
+  ';'
+
+Fn =
+ 'fn' Name ParamList
+ (body:Block | ';')
+
+ParamList =
+ '(' Param* ')'
+
+Param = Name ':' Type ','?
+
+Block =
+ '{'
+   statements:Stmt*
+ '}'
+
+Type =
+  NameRef
+| Primitive
+
+Primitive =
+  'int'
+| 'bool'
+
+Stmt =
+  LetStmt
+| Item
+| ExprStmt
+| AssertStmt
+| AssumeStmt
+
+LetStmt =
+ 'let' Name (':' Type)?
+ ('=' initializer:Expr)?
+ ';'
+
+ExprStmt =
+  Expr ';'
+
+AssertStmt =
+ 'assert' Expr ';'
+
+AssumeStmt =
+ 'assume' Expr ';'
+
+Expr =
+  Literal
+| IfExpr
+| BinExpr
+| CallExpr
+| ParenExpr
+| IdentExpr
+
+IfExpr =
+  'if' condition:Expr then_branch:Block
+  ('else' else_branch:IfExprElse)?
+
+IfExprElse =
+  IfExpr | Block
+
+BinExpr =
+  lhs:Expr
+  op:(
+    '||' | '&&'
+  | '==' | '!=' | '<=' | '>=' | '<' | '>'
+  | '+' | '*' | '-' | '/' | '%' | '<<' | '>>' | '^' | '|' | '&'
+  | '=' | '+=' | '/=' | '*=' | '%=' | '>>=' | '<<=' | '-=' | '|=' | '&=' | '^='
+  )
+  rhs:Expr
+
+CallExpr =
+  Expr ArgList
+
+ArgList =
+  '(' Arg* ')'
+
+Arg =
+  Expr ','?
+
+ParenExpr =
+  '(' Expr ')'
+
+IdentExpr =
+  Name
+
+Literal =
+  value:(
+    'int_number'
+  | 'true' | 'false'
+  )

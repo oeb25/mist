@@ -1,2 +1,7 @@
 [workspace]
-members = []
+members = ["syntax"]
+resolver = "2"
+
+[workspace.dependencies]
+color-eyre = "0.6.2"
+mint-syntax = { path = "./syntax" }

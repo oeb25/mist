@@ -1,0 +1,139 @@
+---
+layout: "../../layouts/Content.astro"
+title: My experience with LALRPOP
+date: 2023-01-31
+---
+
+import { MintPlayground } from "../../components/MintPlayground";
+
+Previously I've used [LALRPOP](https://github.com/lalrpop/lalrpop/) for most of
+my projects. I love how clean the grammar is, and how easy it is to specify
+precedence _(in most cases)_. It allows me to get a parser in just a few hours,
+even with decent error reporting!
+
+Where LALRPOP falls short for me, is when there's amiguity in the grammar. You
+have to be very particular in how different nonterminals interact, as the
+productions inside one will influence the productions inside other nonterminals
+where it is used.
+
+To see this in action, take a look at the following small expression language:
+
+```rs
+pub Expr: String = {
+  #[precedence(level = "0")]
+  r"[1-9][0-9]*" => <>.to_string(),
+  r"[a-z]+" => <>.to_string(),
+  #[precedence(level = "1")]
+  Expr "*" Expr => format!("{:?}", (<>)),
+  Expr "/" Expr => format!("{:?}", (<>)),
+  #[precedence(level = "2")]
+  Expr "-" Expr => format!("{:?}", (<>)),
+  Expr "+" Expr => format!("{:?}", (<>)),
+}
+```
+
+So let's see...
+
+```rs
+❯ cargo build
+   Compiling parsing v0.1.0
+error: failed to run custom build command for `parsing v0.1.0`
+
+Caused by:
+  process didn't exit successfully: `.../build-script-build` (exit status: 1)
+  --- stdout
+
+/src/parser.lalrpop:15:2: 15:39: Ambiguous grammar detected
+
+  The following symbols can be reduced in two ways:
+    Expr "+" Expr "+" Expr
+
+  They could be reduced like so:
+    Expr "+" Expr "+" Expr
+    ├─Expr──────┘        │
+    └─Expr───────────────┘
+
+  Alternatively, they could be reduced like so:
+    Expr "+" Expr "+" Expr
+    │        └─Expr──────┤
+    └─Expr───────────────┘
+
+  Hint: This looks like a precedence error related to `Expr`. See the LALRPOP manual for
+  advice on encoding precedence.
+
+/src/parser.lalrpop:15:2: 15:39: Ambiguous grammar detected
+
+  The following symbols can be reduced in two ways:
+    Expr "+" Expr "-" Expr
+
+  They could be reduced like so:
+    Expr "+" Expr "-" Expr
+    ├─Expr──────┘        │
+    └─Expr───────────────┘
+
+  Alternatively, they could be reduced like so:
+    Expr "+" Expr "-" Expr
+    │        └─Expr──────┤
+    └─Expr───────────────┘
+
+  LALRPOP does not yet support ambiguous grammars. See the LALRPOP manual for advice on
+  making your grammar unambiguous.
+
+// and so on for all of the other permutations of operators for each precedence ...
+```
+
+_These are some nicely formatted errors,_ but errors nonetheless! In this case,
+it does now know the associativity of the operators. That is, will `1 - 2 + 3`
+be parsed as `(1 - 2) + 3` or `1 - (2 + 3)`? Fortunately, LALRPOP has
+`#[assoc(side="left")]` and `#[assoc(side="right")]` annotations!
+
+```rs
+pub Expr: String = {
+  #[precedence(level = "0")]
+  r"[1-9][0-9]*" => <>.to_string(),
+  r"[a-z]+" => <>.to_string(),
+  #[precedence(level = "1")] #[assoc(side="left")]
+  Expr "*" Expr => format!("{:?}", (<>)),
+  Expr "/" Expr => format!("{:?}", (<>)),
+  #[precedence(level = "2")] #[assoc(side="left")]
+  Expr "-" Expr => format!("{:?}", (<>)),
+  Expr "+" Expr => format!("{:?}", (<>)),
+}
+```
+
+Let's try this out with the example above:
+
+```rs
+❯ cargo run "1 - 2 + 3"
+   Compiling parser v0.1.0
+    Finished dev [unoptimized + debuginfo] target(s) in 0.44s
+     Running `parser '1 - 2 + 3'`
+((1, -, 2), +, 3)
+```
+
+_Cool, that works!_
+
+Where this breaks down is in larger grammars. I've been working on a parser for
+the [Viper](https://www.pm.inf.ethz.ch/research/viper.html) language
+[Silver](https://github.com/viperproject/silver). You can see my progress on the
+grammar
+[here](https://gist.github.com/oeb25/d005407173ac470899ca358c63406bcf#file-silver-lalrpop-L265-L266)
+before I stopped working on this version. On line 265 I have a production
+commented out for a construct that is ambiguous when written in this style, and
+below it is the pseudo-fix. With the ambiguous production enabled, LALRPOP
+produces _3711 lines of errors_. And these errors are not limited to `AccExpr`;
+they even mess up `if-else` statements which are not part of the `Expr`
+nonterminal.
+
+To me, this scenario is a bit of a red flag. Without modularity in the
+nonterminals, this means that you in principle have to consider the entire
+grammar when adding a single rule. This is a bit of an overstatement, but when
+these ambiguity errors do occur, this is how it feels.
+
+With that said, I beleive LALRPOP will remain my first choice when writing a
+parser for a small and/or simple language. For more complex languages,
+especially where error-ressilient parsing is required, I will consider other
+solutions!
+
+But what are the other solutions? In my [next post](2023-02-01-parsing) I
+explain the approch I've been trying for Mint.

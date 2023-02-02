@@ -1,0 +1,25 @@
+---
+import TableOfContents from "../components/TableOfContents.astro";
+import Layout from "./Layout.astro";
+
+const { frontmatter, headings } = Astro.props;
+---
+
+<Layout title={frontmatter.title}>
+  <article
+    class="prose prose-lime lg:prose-pre:-mx-14 mx-auto max-w-prose py-10"
+  >
+    <h1>{frontmatter.title}</h1>
+
+    {
+      headings.length > 1 && (
+        <>
+          <TableOfContents headings={headings} />
+          <hr />
+        </>
+      )
+    }
+
+    <slot />
+  </article>
+</Layout>

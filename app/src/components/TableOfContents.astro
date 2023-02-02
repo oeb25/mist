@@ -1,0 +1,33 @@
+---
+import type { Heading } from "./TableOfContentsHeading.astro";
+import TableOfContentsHeading from "./TableOfContentsHeading.astro";
+
+export interface Props {
+  headings: Heading[];
+}
+
+const { headings } = Astro.props;
+const toc = buildToc(headings);
+
+function buildToc(headings: Props["headings"]) {
+  const toc: Heading[] = [];
+  const parentHeadings = new Map<number, Heading>();
+  headings.forEach((h) => {
+    const heading: Heading = { ...h, subheadings: [] };
+    parentHeadings.set(heading.depth, heading);
+    if (heading.depth === 2) {
+      toc.push(heading);
+    } else {
+      parentHeadings.get(heading.depth - 1)?.subheadings?.push(heading);
+    }
+  });
+  return toc;
+}
+---
+
+<nav>
+  <h2>Table of contents</h2>
+  <ul>
+    {toc.map((heading) => <TableOfContentsHeading heading={heading} />)}
+  </ul>
+</nav>

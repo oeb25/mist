@@ -15,9 +15,18 @@ const { title } = Astro.props;
     <meta name="generator" content={Astro.generator} />
     <title>🍃 {title}</title>
   </head>
-  <body>
+  <body class="bg-lime-50">
+    <nav class="container mx-auto mb-5 border-b border-lime-800 pt-10 pb-5">
+      <a
+        class="flex items-center space-x-3 text-5xl font-thin text-lime-800"
+        href="/"
+      >
+        <span class="text-3xl">🍃</span>
+        <span>Mint</span>
+      </a>
+    </nav>
     <slot />
-    <script src="/mint/coi-serviceworker.js" is:inline></script>
+    <script src="/coi-serviceworker.js" is:inline></script>
   </body>
 </html>
 <style is:global></style>

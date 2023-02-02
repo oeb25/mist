@@ -1,0 +1,21 @@
+[package]
+name = "wasm"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+console_error_panic_hook = "0.1.7"
+wasm-bindgen = "0.2.83"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+miette = { version = "5.3.0", features = ["fancy"] }
+tracing-wasm = "0.2.1"
+tracing = "0.1.37"
+typeshare = "1.0.0"
+
+mint-syntax = { path = "../../syntax" }
+
+[workspace]

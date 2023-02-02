@@ -4,14 +4,34 @@ import initZ3 from "z3-solver/build/z3-built";
 
 type Z3Instance = Awaited<ReturnType<typeof init>>;
 
+let stored = init(async () => {
+  const files = {
+    "z3-built.js": await import("z3-solver/build/z3-built?url"),
+    "z3-built.wasm": await import("z3-solver/build/z3-built.wasm?url"),
+    "z3-built.worker.js": await import("z3-solver/build/z3-built.worker?url"),
+  };
+  return initZ3({
+    locateFile: (f) => {
+      return `/${f}`;
+    },
+    mainScriptUrlOrBlob: "/z3-built.js",
+  });
+});
+// let stored = init(async () => {
+//   const files = {
+//     "z3-built.js": await import("z3-solver/build/z3-built?url"),
+//     "z3-built.wasm": await import("z3-solver/build/z3-built.wasm?url"),
+//     "z3-built.worker.js": await import("z3-solver/build/z3-built.worker?url"),
+//   };
+//   return initZ3({
+//     locateFile: (f) => {
+//       if (!(f in files)) throw new Error(`unknown z3 file: ${f}`);
+//       return files[f as keyof typeof files].default;
+//     },
+//     mainScriptUrlOrBlob: files["z3-built.js"].default,
+//   });
+// });
 const lock = new Mutex();
-let stored = init(
-  async () =>
-    await initZ3({
-      locateFile: (f) => f,
-      mainScriptUrlOrBlob: "z3-built.js",
-    })
-);
 const borrow = async <T>(f: (x: Z3Instance) => Promise<T>): Promise<T> => {
   const release = await lock.acquire();
   return f(await stored).finally(release);

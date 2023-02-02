@@ -1,0 +1,30 @@
+---
+layout: "../../layouts/Content.astro"
+title: Parsing
+date: 2023-02-01
+---
+
+import { MintPlayground } from "../../components/MintPlayground";
+
+## Background
+
+In the past I've used [LALRPOP](https://github.com/lalrpop/lalrpop/) as my go-to
+for anything parsing. You can read more about my experience
+[here](/posts/2023-01-31-lalrpop). For parsing in Mint, however, I wanted to try
+something new.
+
+<MintPlayground client:only="react" />
+
+## Error reporting
+
+<MintPlayground
+  client:only="react"
+  src={[
+    "let x = 12;",
+    "",
+    "fn main() {",
+    "    let x = 12",
+    "    let y = 13;",
+    "}",
+  ].join("\n")}
+/>
