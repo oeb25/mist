@@ -7,7 +7,7 @@ mod sourcegen_ast;
 fn parse_hello() -> color_eyre::Result<()> {
     color_eyre::install()?;
 
-    let src = include_str!("../examples/hello.mint");
+    let src = include_str!("../examples/list.mint");
 
     let (file, _errors) = Parser::new(src).parse();
 
@@ -17,10 +17,6 @@ fn parse_hello() -> color_eyre::Result<()> {
         match item {
             crate::generated::Item::Const(_) => todo!(),
             crate::generated::Item::Fn(my_fn) => {
-                dbg!(my_fn.name());
-                dbg!(my_fn.body());
-                dbg!(my_fn.fn_token());
-
                 for stmt in my_fn.body().unwrap().statements() {
                     match stmt {
                         crate::generated::Stmt::LetStmt(l) => {
@@ -29,11 +25,11 @@ fn parse_hello() -> color_eyre::Result<()> {
                         }
                         crate::generated::Stmt::AssertStmt(a) => {
                             dbg!(a.assert_token());
-                            dbg!(a.expr());
+                            dbg!(a.comma_expr());
                         }
                         crate::generated::Stmt::AssumeStmt(a) => {
                             dbg!(a.assume_token());
-                            dbg!(a.expr());
+                            dbg!(a.comma_expr());
                         }
                         crate::generated::Stmt::ExprStmt(e) => {
                             dbg!(e.expr());
@@ -41,9 +37,19 @@ fn parse_hello() -> color_eyre::Result<()> {
                         crate::generated::Stmt::Item(i) => {
                             dbg!(i);
                         }
+                        crate::generated::Stmt::ReturnStmt(i) => {
+                            dbg!(i);
+                        }
+                        crate::generated::Stmt::WhileStmt(i) => {
+                            dbg!(i);
+                        }
                     }
                 }
             }
+            crate::generated::Item::Struct(s) => {
+                dbg!(s);
+            }
+            crate::generated::Item::Macro(_) => todo!(),
         }
     }
 

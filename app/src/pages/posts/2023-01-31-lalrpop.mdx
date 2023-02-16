@@ -83,7 +83,7 @@ Caused by:
 ```
 
 _These are some nicely formatted errors,_ but errors nonetheless! In this case,
-it does now know the associativity of the operators. That is, will `1 - 2 + 3`
+it does not know the associativity of the operators. That is, will `1 - 2 + 3`
 be parsed as `(1 - 2) + 3` or `1 - (2 + 3)`? Fortunately, LALRPOP has
 `#[assoc(side="left")]` and `#[assoc(side="right")]` annotations!
 
@@ -113,6 +113,8 @@ Let's try this out with the example above:
 
 _Cool, that works!_
 
+---
+
 Where this breaks down is in larger grammars. I've been working on a parser for
 the [Viper](https://www.pm.inf.ethz.ch/research/viper.html) language
 [Silver](https://github.com/viperproject/silver). You can see my progress on the
@@ -126,7 +128,7 @@ they even mess up `if-else` statements which are not part of the `Expr`
 nonterminal.
 
 To me, this scenario is a bit of a red flag. Without modularity in the
-nonterminals, this means that you in principle have to consider the entire
+nonterminals, it means that you in principle have to consider the entire
 grammar when adding a single rule. This is a bit of an overstatement, but when
 these ambiguity errors do occur, this is how it feels.
 
@@ -136,4 +138,4 @@ especially where error-ressilient parsing is required, I will consider other
 solutions!
 
 But what are the other solutions? In my [next post](2023-02-01-parsing) I
-explain the approch I've been trying for Mint.
+explain the approch I've been exploring for Mint.

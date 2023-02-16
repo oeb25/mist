@@ -6,6 +6,8 @@ SourceFile =
 Item =
   Const
 | Fn
+| Struct
+| Macro
 
 Name = 'ident'
 
@@ -13,31 +15,69 @@ NameRef =
  'ident'// | 'int_number'
 
 Const =
+  Attr*
   'const' Name ':' Type
   ('=' initializer:Expr)?
   ';'
 
 Fn =
+  Attr*
  'fn' Name ParamList
+ ('->' ret:Type)?
+ Condition*
  (body:Block | ';')
+
+Attr =
+  'ghost'
+| 'pure'
 
 ParamList =
  '(' Param* ')'
 
-Param = Name ':' Type ','?
+Param = Name (':' Type)? ','?
+
+Condition =
+  Requires
+| Ensures
+
+Requires =
+  'requires' CommaExpr
+Ensures =
+  'ensures' CommaExpr
+
+CommaExpr =
+  Expr ','?
+
+Struct =
+  Attr*
+  'struct' Name '{' StructField* '}'
+
+StructField = Name ':' Type ','?
+
+Macro =
+  'macro' Name ParamList Block
 
 Block =
  '{'
    statements:Stmt*
+   tail_expr:Expr?
  '}'
 
 Type =
   NameRef
 | Primitive
+| Optional
+| RefType
 
 Primitive =
   'int'
 | 'bool'
+
+Optional =
+  Type '?'
+
+RefType =
+  '&' 'mut'? Type
 
 Stmt =
   LetStmt
@@ -45,6 +85,8 @@ Stmt =
 | ExprStmt
 | AssertStmt
 | AssumeStmt
+| ReturnStmt
+| WhileStmt
 
 LetStmt =
  'let' Name (':' Type)?
@@ -55,18 +97,35 @@ ExprStmt =
   Expr ';'
 
 AssertStmt =
- 'assert' Expr ';'
+ 'assert' CommaExpr ';'
 
 AssumeStmt =
- 'assume' Expr ';'
+ 'assume' CommaExpr ';'
+
+ReturnStmt =
+ 'return' Expr ';'
+
+WhileStmt =
+ 'while' Expr
+ Invariant*
+ Block
+
+Invariant =
+ 'invariant' CommaExpr
 
 Expr =
   Literal
 | IfExpr
+| WhileExpr
 | BinExpr
 | CallExpr
+| IndexExpr
+| StructExpr
 | ParenExpr
+| RefExpr
 | IdentExpr
+| NullExpr
+| QuantifierExpr
 
 IfExpr =
   'if' condition:Expr then_branch:Block
@@ -74,6 +133,9 @@ IfExpr =
 
 IfExprElse =
   IfExpr | Block
+
+WhileExpr =
+  'while' condition:Expr body:Block
 
 BinExpr =
   lhs:Expr
@@ -94,11 +156,31 @@ ArgList =
 Arg =
   Expr ','?
 
+IndexExpr =
+  base:Expr '[' index:Expr ']'
+
+StructExpr =
+  Name '{' fields:StructExprField* '}'
+
+StructExprField =
+  Name ':' Type?
+
 ParenExpr =
   '(' Expr ')'
 
+RefExpr =
+  '&' 'mut'? Expr
+
 IdentExpr =
   Name
+
+NullExpr = 'null'
+
+QuantifierExpr =
+  Quantifier ParamList Expr
+
+Quantifier =
+  'forall' | 'exists'
 
 Literal =
   value:(

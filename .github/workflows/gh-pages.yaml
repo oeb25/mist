@@ -19,12 +19,7 @@ jobs:
 
       - uses: taiki-e/install-action@v2
         with:
-          tool: just
-
-      # - name: Set stable toolchain
-      #   uses: actions-rs/toolchain@v1
-      #   with:
-      #     toolchain: stable
+          tool: just,typeshare
 
       - name: Build app once
         run: |

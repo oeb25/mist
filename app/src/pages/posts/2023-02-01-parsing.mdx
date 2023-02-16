@@ -2,18 +2,46 @@
 layout: "../../layouts/Content.astro"
 title: Parsing
 date: 2023-02-01
+draft: true
 ---
 
-import { MintPlayground } from "../../components/MintPlayground";
-
-## Background
+import { MintPlayground, SAMPLES } from "../../components/MintPlayground";
 
 In the past I've used [LALRPOP](https://github.com/lalrpop/lalrpop/) as my go-to
 for anything parsing. You can read more about my experience
 [here](/posts/2023-01-31-lalrpop). For parsing in Mint, however, I wanted to try
 something new.
 
-<MintPlayground client:only="react" />
+For a quick spoiler, checkout this is demo of what we are working towards:
+
+<MintPlayground client:only="react" large src={SAMPLES.euclid} />
+
+## Concrete syntax trees
+
+Concrete syntax trees are a way of representing parsed source code in a
+structured way, where no information about its original structure is lost. This
+is in contrast to abstract syntax trees, which more directly represent the
+constructs of a parsed file, but leaves out elements such as spaces and
+semicolons.
+
+There are positives and negatives to concrete syntax trees, but their primary
+strength is retaining source locations and superfluous language constructs (such
+as comments). Additionally, they allow for constructing partial syntax trees,
+when the input for example contains errors. Thus in the context of an IDE
+experience, the tooling can still provide meaningful annotation while the
+program might contain syntax errors.
+
+Another point is that they allow for efficient tree rewriting while holding on
+to source locations, comments, and similar. This makes them good for mutating
+source code with features such as refactoring or code completion, something that
+is hard to do if your toolchain only works with complete and valid source
+programs.
+
+Now, I'm mentioning these as benefits of concrete syntax trees, but in fact
+these are more the things they enable, and what libraries choose to do with
+them; which brings us to the next point.
+
+## Rowan, ungrammar, and rust-analyzer
 
 ## Error reporting
 

@@ -1,7 +1,8 @@
 use crate::{
     generated::{
-        ExprStmt, Item, LetStmt, Stmt,
+        AssertStmt, AssumeStmt, ExprStmt, Item, LetStmt, ReturnStmt, Stmt,
         SyntaxKind::{self, *},
+        WhileStmt,
     },
     support::AstNode,
     SourceFile, SyntaxNode,
@@ -11,14 +12,20 @@ use crate::{
 impl AstNode for Stmt {
     fn can_cast(kind: SyntaxKind) -> bool {
         match kind {
-            LET_STMT | EXPR_STMT => true,
+            LET_STMT | EXPR_STMT | ASSERT_STMT | ASSUME_STMT | RETURN_STMT | WHILE_STMT => true,
             _ => Item::can_cast(kind),
         }
     }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
+        dbg!(syntax.kind());
+
         let res = match syntax.kind() {
             LET_STMT => Stmt::LetStmt(LetStmt { syntax }),
             EXPR_STMT => Stmt::ExprStmt(ExprStmt { syntax }),
+            ASSERT_STMT => Stmt::AssertStmt(AssertStmt { syntax }),
+            ASSUME_STMT => Stmt::AssumeStmt(AssumeStmt { syntax }),
+            RETURN_STMT => Stmt::ReturnStmt(ReturnStmt { syntax }),
+            WHILE_STMT => Stmt::WhileStmt(WhileStmt { syntax }),
             _ => {
                 let item = Item::cast(syntax)?;
                 Stmt::Item(item)
@@ -33,6 +40,8 @@ impl AstNode for Stmt {
             Stmt::Item(it) => it.syntax(),
             Stmt::AssertStmt(it) => &it.syntax,
             Stmt::AssumeStmt(it) => &it.syntax,
+            Stmt::ReturnStmt(it) => &it.syntax,
+            Stmt::WhileStmt(it) => &it.syntax,
         }
     }
 }

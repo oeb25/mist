@@ -9,11 +9,6 @@ pub fn init_hooks() {
 }
 
 #[wasm_bindgen]
-pub fn hello_world() {
-    tracing::info!("Hello, WASM!")
-}
-
-#[wasm_bindgen]
 pub fn parse(src: &str) -> String {
     let (ast, errors) = mint_syntax::parse(src);
     let markers = errors

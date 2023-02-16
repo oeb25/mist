@@ -14,6 +14,7 @@ export default defineConfig({
     plugins: [wasm()],
   },
   markdown: {
+    drafts: true,
     shikiConfig: {
       theme: "vitesse-dark",
     },

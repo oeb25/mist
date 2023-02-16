@@ -15,7 +15,7 @@ miette = { version = "5.3.0", features = ["fancy"] }
 tracing-wasm = "0.2.1"
 tracing = "0.1.37"
 typeshare = "1.0.0"
-
+color-eyre = "0.6.2"
 mint-syntax = { path = "../../syntax" }
 
 [workspace]

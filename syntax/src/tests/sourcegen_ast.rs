@@ -1,4 +1,4 @@
-use std::{fs, io::Write};
+use std::{fs, io::Write, path::PathBuf};
 
 use heck::{ToShoutySnakeCase, ToSnakeCase};
 use itertools::Itertools;
@@ -28,7 +28,11 @@ fn sourcegen_ast() -> color_eyre::Result<()> {
     let tokens = generate_tokens(&ast);
     let nodes = generate_nodes(&ast);
 
-    let mut output = fs::File::create(concat!(env!("CARGO_MANIFEST_DIR"), "/src/generated.rs"))?;
+    let output_path = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src/generated.rs"));
+    let backup_path = output_path.with_extension("rs.bak");
+    fs::copy(&output_path, &backup_path)?;
+
+    let mut output = fs::File::create(&output_path)?;
     writeln!(output, "{preamble}\n")?;
 
     write!(output, "{kinds}")?;
@@ -38,6 +42,38 @@ fn sourcegen_ast() -> color_eyre::Result<()> {
 
     writeln!(output, "// Nodes\n\n")?;
     writeln!(output, "{nodes}")?;
+
+    let Ok(output) = std::process::Command::new("rustfmt")
+        .arg(&output_path)
+        .output()
+    else {
+        fs::copy(&backup_path, &output_path)?;
+        fs::remove_file(&backup_path)?;
+        panic!("failed to run rustfmt")
+    };
+
+    if !output.status.success() {
+        fs::copy(&backup_path, &output_path)?;
+        fs::remove_file(&backup_path)?;
+        panic!("{output:?}")
+    }
+
+    let Ok(post_check) = std::process::Command::new("cargo")
+        .args(["check", "-p", "mint-syntax"])
+        .output()
+    else {
+        fs::copy(&backup_path, &output_path)?;
+        fs::remove_file(&backup_path)?;
+        panic!("failed to run cargo check")
+    };
+
+    if !post_check.status.success() {
+        fs::copy(&backup_path, &output_path)?;
+        fs::remove_file(&backup_path)?;
+        panic!("{post_check:?}")
+    }
+
+    fs::remove_file(&backup_path)?;
 
     Ok(())
 }
@@ -103,7 +139,7 @@ fn generate_syntax_kinds(grammar: KindsSrc) -> String {
         .map(|name| {
             let tok = format_ident!("{}", name);
             match *name {
-                "INT_NUMBER" => (quote!(#[regex(r"[1-9][0-9]*")] #tok), tok),
+                "INT_NUMBER" => (quote!(#[regex(r"0|[1-9][0-9]*")] #tok), tok),
                 _ => (quote!(#tok), tok),
             }
         })
@@ -117,7 +153,7 @@ fn generate_syntax_kinds(grammar: KindsSrc) -> String {
             match *name {
                 "ERROR" => quote!(#[error] #tok),
                 "WHITESPACE" => quote!(#[regex(r"[ \t\n\f]+")] #tok),
-                "IDENT" => quote!(#[regex(r"[a-zA-z_][a-zA-z_0-9]*")] #tok),
+                "IDENT" => quote!(#[regex(r"[a-zA-Z_][a-zA-Z_0-9]*")] #tok),
                 "COMMENT" => quote!(#[regex(r"//.*\n")] #tok),
                 _ => quote!(#tok),
             }
