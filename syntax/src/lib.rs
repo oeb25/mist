@@ -14,9 +14,9 @@ pub fn parse(src: &str) -> (SourceFile, Vec<ParseError>) {
 }
 
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Hash, Clone, Copy)]
-pub struct MintLanguage;
+pub struct MistLanguage;
 
-impl rowan::Language for MintLanguage {
+impl rowan::Language for MistLanguage {
     type Kind = SyntaxKind;
 
     fn kind_from_raw(raw: rowan::SyntaxKind) -> Self::Kind {
@@ -28,9 +28,9 @@ impl rowan::Language for MintLanguage {
     }
 }
 
-type SyntaxToken = rowan::SyntaxToken<MintLanguage>;
-type SyntaxNode = rowan::SyntaxNode<MintLanguage>;
-type SyntaxNodeChildren = rowan::SyntaxNodeChildren<MintLanguage>;
+type SyntaxToken = rowan::SyntaxToken<MistLanguage>;
+type SyntaxNode = rowan::SyntaxNode<MistLanguage>;
+type SyntaxNodeChildren = rowan::SyntaxNodeChildren<MistLanguage>;
 
 // #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 // #[allow(non_camel_case_types)]

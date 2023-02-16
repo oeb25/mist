@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { MINT_ID } from "../lib/code/mint-language";
+import { MIST_ID } from "../lib/code/mist-language";
 import { VITESSE_DARK } from "../lib/code/vitesse-theme";
 
 export const Highlighted = React.lazy(async () => {
@@ -17,7 +17,7 @@ export const Highlighted = React.lazy(async () => {
     useEffect(() => {
       monaco.editor.setTheme(VITESSE_DARK);
       monaco.editor
-        .colorize(source || "", language || MINT_ID, {})
+        .colorize(source || "", language || MIST_ID, {})
         .then(setHtml);
     }, [source, language]);
 

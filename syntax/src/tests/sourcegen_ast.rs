@@ -10,7 +10,7 @@ use super::ast_src::{AstEnumSrc, AstNodeSrc, AstSrc, Cardinality, Field, KindsSr
 
 #[test]
 fn sourcegen_ast() -> color_eyre::Result<()> {
-    let grammar: Grammar = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/mint.ungram"))
+    let grammar: Grammar = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/mist.ungram"))
         .parse()
         .unwrap();
 
@@ -59,7 +59,7 @@ fn sourcegen_ast() -> color_eyre::Result<()> {
     }
 
     let Ok(post_check) = std::process::Command::new("cargo")
-        .args(["check", "-p", "mint-syntax"])
+        .args(["check", "-p", "mist-syntax"])
         .output()
     else {
         fs::copy(&backup_path, &output_path)?;

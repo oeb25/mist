@@ -10,7 +10,7 @@ pub fn init_hooks() {
 
 #[wasm_bindgen]
 pub fn parse(src: &str) -> String {
-    let (ast, errors) = mint_syntax::parse(src);
+    let (ast, errors) = mist_syntax::parse(src);
     let markers = errors
         .into_iter()
         .flat_map(|e| {

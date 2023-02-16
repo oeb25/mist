@@ -5,14 +5,14 @@ import "monaco-editor/esm/vs/editor/editor.all.js";
 import "monaco-editor/esm/vs/editor/standalone/browser/accessibilityHelp/accessibilityHelp.js";
 
 import type { MarkerData } from "../lib/types";
-import { MINT_ID } from "../lib/code/mint-language";
+import { MIST_ID } from "../lib/code/mist-language";
 import { VITESSE_DARK } from "../lib/code/vitesse-theme";
 
 export const StretchEditor = ({
   source,
   onChange,
   markers = [],
-  language = MINT_ID,
+  language = MIST_ID,
 }: {
   source: string;
   onChange?: (source: string) => void;
@@ -118,5 +118,5 @@ function updateMarkers(
     }
   );
 
-  monaco.editor.setModelMarkers(editor.getModel()!, "mint", markerDecs);
+  monaco.editor.setModelMarkers(editor.getModel()!, "mist", markerDecs);
 }

@@ -16,6 +16,6 @@ tracing-wasm = "0.2.1"
 tracing = "0.1.37"
 typeshare = "1.0.0"
 color-eyre = "0.6.2"
-mint-syntax = { path = "../../syntax" }
+mist-syntax = { path = "../../syntax" }
 
 [workspace]

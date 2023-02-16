@@ -7,13 +7,13 @@ const { frontmatter, headings } = Astro.props;
 
 <Layout title={frontmatter.title}>
   <article
-    class="prose prose-lime dark:prose-invert lg:prose-pre:-mx-14 md:prose-pre:-mx-7 prose-code:whitespace-pre prose-code:before:content-[''] prose-code:after:content-[''] mx-auto max-w-prose py-10"
+    class="prose prose-teal dark:prose-invert lg:prose-pre:-mx-14 md:prose-pre:-mx-7 prose-code:whitespace-pre prose-code:before:content-[''] prose-code:after:content-[''] mx-auto max-w-prose py-10"
   >
     <h1>{frontmatter.title}</h1>
 
     {
       frontmatter.draft && (
-        <p class="rounded border border-lime-300 bg-lime-100 p-3 text-lg italic opacity-90 dark:border-lime-900 dark:text-slate-900">
+        <p class="rounded border border-teal-300 bg-teal-100 p-3 text-lg italic opacity-90 dark:border-teal-900 dark:bg-teal-200 dark:text-slate-900">
           This post is still a draft
         </p>
       )

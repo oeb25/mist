@@ -24,7 +24,7 @@
     "astro": "^2.0.2",
     "astro-compress": "^1.1.28",
     "async-mutex": "^0.4.0",
-    "mint-wasm": "file:./wasm/pkg/",
+    "mist-wasm": "file:./wasm/pkg/",
     "monaco-editor": "^0.34.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

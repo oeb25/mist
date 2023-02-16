@@ -1,10 +1,10 @@
-# 🍃 Mint
+# ☁️ Mist
 
-> Mint is the inprogress codename for my master thesis: A language and editor experience for working with formal program verification, with high focus on usability, user-friendliness, error reporting, and quality-of-life feature.
+> Mist is the inprogress codename for my master thesis: A language and editor experience for working with formal program verification, with high focus on usability, user-friendliness, error reporting, and quality-of-life feature.
 
 ## Project summary
 
-Mint is a language that builds on the work done by previous formal verifications stacks such as [Viper](https://viper.ethz.ch/). The intent of the language is to offer the same level of control as Viper, but to ease the experience of working with the language and toolchain as a whole. The primary focus will be to guide the user towards correct specifications, by providing tools to avoid strange situations and errors, and help the user when such situations inevitably occur.
+Mist is a language that builds on the work done by previous formal verifications stacks such as [Viper](https://viper.ethz.ch/). The intent of the language is to offer the same level of control as Viper, but to ease the experience of working with the language and toolchain as a whole. The primary focus will be to guide the user towards correct specifications, by providing tools to avoid strange situations and errors, and help the user when such situations inevitably occur.
 
 ## Project goals
 

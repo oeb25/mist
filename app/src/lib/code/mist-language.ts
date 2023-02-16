@@ -1,14 +1,14 @@
 import * as monaco from "monaco-editor";
 
-export const MINT_ID = "mint";
+export const MIST_ID = "mist";
 
 monaco.languages.register({
-  id: MINT_ID,
-  extensions: ["mint"],
+  id: MIST_ID,
+  extensions: ["mist"],
   aliases: [],
-  mimetypes: ["application/mint"],
+  mimetypes: ["application/mist"],
 });
-monaco.languages.setLanguageConfiguration(MINT_ID, {
+monaco.languages.setLanguageConfiguration(MIST_ID, {
   comments: {
     lineComment: "//",
     blockComment: ["/*", "*/"],
@@ -40,7 +40,7 @@ monaco.languages.setLanguageConfiguration(MINT_ID, {
   },
   wordPattern: /[a-zA-Z_@$ΣΛλ][a-zA-Z0-9_]*/,
 });
-monaco.languages.setMonarchTokensProvider(MINT_ID, {
+monaco.languages.setMonarchTokensProvider(MIST_ID, {
   defaultToken: "",
   brackets: [
     { token: "delimiter.curly", open: "{", close: "}" },

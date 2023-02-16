@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { ParseResult } from "../lib/types";
 
-export const MintPlayground = React.lazy(async () => {
+export const MistPlayground = React.lazy(async () => {
   const [
     { StretchEditor },
     { Highlighted },
@@ -11,12 +11,12 @@ export const MintPlayground = React.lazy(async () => {
     import("./StretchEditor"),
     import("./Highlighted"),
     import("../lib/code/syntax-tree-language"),
-    import("mint-wasm"),
+    import("mist-wasm"),
   ]);
 
   init_hooks();
 
-  const MintPlayground = ({
+  const MistPlayground = ({
     src: initialSrc = SAMPLE,
     large = false,
   }: {
@@ -55,7 +55,7 @@ export const MintPlayground = React.lazy(async () => {
     );
   };
 
-  return { default: MintPlayground };
+  return { default: MistPlayground };
 });
 
 function useDebounce<T>(value: T, durationMs: number): T {

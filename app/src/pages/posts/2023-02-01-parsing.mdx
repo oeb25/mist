@@ -5,16 +5,16 @@ date: 2023-02-01
 draft: true
 ---
 
-import { MintPlayground, SAMPLES } from "../../components/MintPlayground";
+import { MistPlayground, SAMPLES } from "../../components/MistPlayground";
 
 In the past I've used [LALRPOP](https://github.com/lalrpop/lalrpop/) as my go-to
 for anything parsing. You can read more about my experience
-[here](/posts/2023-01-31-lalrpop). For parsing in Mint, however, I wanted to try
+[here](/posts/2023-01-31-lalrpop). For parsing in Mist, however, I wanted to try
 something new.
 
 For a quick spoiler, checkout this is demo of what we are working towards:
 
-<MintPlayground client:only="react" large src={SAMPLES.euclid} />
+<MistPlayground client:only="react" large src={SAMPLES.euclid} />
 
 ## Concrete syntax trees
 
@@ -45,7 +45,7 @@ them; which brings us to the next point.
 
 ## Error reporting
 
-<MintPlayground
+<MistPlayground
   client:only="react"
   src={[
     "let x = 12;",

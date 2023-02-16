@@ -11,23 +11,23 @@ interface Frontmatter {
 const posts = await Astro.glob<Frontmatter>("./posts/*.mdx");
 ---
 
-<Layout title="Mint">
+<Layout title="Mist">
   <main class="mx-auto w-full max-w-prose space-y-5 py-10">
-    <h2 class="text-4xl text-lime-900 dark:text-lime-600">Articles</h2>
+    <h2 class="text-4xl text-teal-900 dark:text-teal-600">Articles</h2>
     <div class="flex flex-col space-y-10">
       {
         posts
           .map((p) => (
             <a href={p.url} class="group">
-              <h3 class="relative flex items-baseline space-x-2 py-2 text-2xl text-lime-700 group-hover:text-lime-800 dark:group-hover:text-lime-600">
-                <ChevronRightIcon className="w-6 text-lime-200 transition group-hover:text-lime-800 dark:text-lime-800 dark:group-hover:text-lime-200" />
+              <h3 class="relative flex items-baseline space-x-2 py-2 text-2xl text-teal-700 group-hover:text-teal-800 dark:group-hover:text-teal-600">
+                <ChevronRightIcon className="w-6 text-teal-200 transition group-hover:text-teal-800 dark:text-teal-800 dark:group-hover:text-teal-200" />
                 <span>{p.frontmatter.title}</span>
                 {p.frontmatter.draft && (
                   <span class="text-base italic opacity-70">Draft</span>
                 )}
               </h3>
               {p.frontmatter.date && (
-                <p class="ml-3 text-lime-600/50">
+                <p class="ml-3 text-teal-600/50">
                   {new Intl.DateTimeFormat(void 0, {
                     dateStyle: "long",
                   }).format(new Date(p.frontmatter.date))}

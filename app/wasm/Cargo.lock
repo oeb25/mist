@@ -470,7 +470,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mint-syntax"
+name = "mist-syntax"
 version = "0.1.0"
 dependencies = [
  "bitflags",
@@ -901,7 +901,7 @@ dependencies = [
  "color-eyre",
  "console_error_panic_hook",
  "miette",
- "mint-syntax",
+ "mist-syntax",
  "serde",
  "serde_json",
  "tracing",
