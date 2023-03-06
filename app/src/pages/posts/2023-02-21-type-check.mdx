@@ -1,0 +1,10 @@
+---
+layout: "../../layouts/Content.astro"
+title: Type Checking
+date: 2023-02-21
+draft: true
+---
+
+import { MistTypeCheck, SAMPLES } from "../../components/MistPlayground";
+
+<MistTypeCheck client:only="react" large src={SAMPLES.euclid} />

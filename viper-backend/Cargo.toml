@@ -1,0 +1,15 @@
+[package]
+name = "mist-viper-backend"
+version = { workspace = true }
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+mist-syntax = { workspace = true }
+mist-core = { workspace = true }
+salsa = { workspace = true }
+miette = { workspace = true }
+silvers = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }

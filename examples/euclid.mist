@@ -29,6 +29,14 @@ ghost fn lemma_divides(x: Int, y: Int)
   lemma_gcd_lower(x, y);
 }
 
+ghost fn lemma_gcd(x: int, y: int)
+  requires x > 0, y > 0
+  ensures gcd(x + y, y) == gcd(x, y)
+{
+  lemma_gcd_lower(x, y)
+  lemma_gcd_upper(x, y)
+}
+
 ghost fn lemma_gcd_upper(x: Int, y: Int)
   requires x > 0, y > 0
   ensures gcd(x + y, y) >= gcd(x, y)

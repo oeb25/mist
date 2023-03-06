@@ -1,13 +1,13 @@
 struct List {
     next: List?,
-    elem: Int,
+    elem: int,
 }
 
-fn head(this: &mut List) -> Int {
+fn head(this: &mut List) -> int {
     return this.elem;
 }
 
-fn append(this: &mut List, e: Int) {
+fn append(this: &mut List, e: int) {
     if this.next == null {
         let n = List {
             next: null,
@@ -19,7 +19,7 @@ fn append(this: &mut List, e: Int) {
     }
 }
 
-fn prepend(this: List, e: Int) -> List {
+fn prepend(this: List, e: int) -> List {
     return List { next: this, elem: e };
 }
 

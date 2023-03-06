@@ -6,7 +6,7 @@ use rowan::{Checkpoint, GreenNodeBuilder};
 use thiserror::Error;
 
 use crate::{
-    generated::SourceFile,
+    ast::SourceFile,
     support::{AstNode, SourceSpan},
     SyntaxKind::{self, *},
     SyntaxNode, T,
@@ -135,7 +135,9 @@ impl<'src> Parser<'src> {
                         );
                     }
                     attr_seen.insert(Attrs::PURE);
+                    self.builder.start_node(ATTR.into());
                     self.bump();
+                    self.builder.finish_node();
                 }
                 Some(T![ghost]) => {
                     if attr_seen.contains(Attrs::GHOST) {
@@ -147,7 +149,9 @@ impl<'src> Parser<'src> {
                         );
                     }
                     attr_seen.insert(Attrs::GHOST);
+                    self.builder.start_node(ATTR.into());
                     self.bump();
+                    self.builder.finish_node();
                 }
                 _ => break,
             }
@@ -191,19 +195,15 @@ impl<'src> Parser<'src> {
             self.skip_ws();
             match self.current() {
                 Some(T![requires]) => {
-                    self.builder.start_node(CONDITION.into());
                     self.builder.start_node(REQUIRES.into());
                     self.bump();
                     self.comma_expr(Location::NO_STRUCT);
-                    self.builder.finish_node();
                     self.builder.finish_node();
                 }
                 Some(T![ensures]) => {
-                    self.builder.start_node(CONDITION.into());
-                    self.builder.start_node(REQUIRES.into());
+                    self.builder.start_node(ENSURES.into());
                     self.bump();
                     self.comma_expr(Location::NO_STRUCT);
-                    self.builder.finish_node();
                     self.builder.finish_node();
                 }
                 _ => break,
@@ -266,10 +266,12 @@ impl<'src> Parser<'src> {
             |t| t == T!['}'],
             |this| match this.current() {
                 Some(T![ident]) => {
+                    this.builder.start_node(STRUCT_FIELD.into());
                     this.name();
                     this.skip_ws();
                     this.expect_control(T![:]);
                     this.ty();
+                    this.builder.finish_node();
                     ControlFlow::Continue(())
                 }
                 Some(T!['}']) => ControlFlow::Break(()),
@@ -457,7 +459,12 @@ impl<'src> Parser<'src> {
         self.skip_ws();
         match self.current() {
             Some(IDENT) => {
-                self.builder.start_node(NAME_REF.into());
+                self.builder.start_node(NAMED_TYPE.into());
+                self.name();
+                self.builder.finish_node();
+            }
+            Some(T![int] | T![bool]) => {
+                self.builder.start_node(PRIMITIVE.into());
                 self.bump();
                 self.builder.finish_node();
             }
@@ -550,8 +557,6 @@ impl<'src> Parser<'src> {
     }
 
     fn let_stmt(&mut self) {
-        eprintln!("parsing let stmt");
-
         assert_eq!(self.current(), Some(T![let]));
 
         self.builder.start_node(LET_STMT.into());
@@ -571,8 +576,6 @@ impl<'src> Parser<'src> {
     }
 
     fn assume_stmt(&mut self) {
-        eprintln!("parsing assume");
-
         assert_eq!(self.current(), Some(T![assume]));
 
         self.builder.start_node(ASSUME_STMT.into());
@@ -585,8 +588,6 @@ impl<'src> Parser<'src> {
     }
 
     fn assert_stmt(&mut self) {
-        eprintln!("parsing assert");
-
         assert_eq!(self.current(), Some(T![assert]));
 
         self.builder.start_node(ASSERT_STMT.into());
@@ -599,8 +600,6 @@ impl<'src> Parser<'src> {
     }
 
     fn return_stmt(&mut self) {
-        eprintln!("parsing return");
-
         assert_eq!(self.current(), Some(T![return]));
 
         self.builder.start_node(RETURN_STMT.into());
@@ -613,8 +612,6 @@ impl<'src> Parser<'src> {
     }
 
     fn while_stmt(&mut self) {
-        eprintln!("parsing while");
-
         assert_eq!(self.current(), Some(T![while]));
 
         self.builder.start_node(WHILE_STMT.into());
@@ -650,13 +647,14 @@ impl<'src> Parser<'src> {
             self.skip_ws();
             if let Some(T![,]) = self.current() {
                 self.bump();
+                self.builder.finish_node();
             } else {
+                self.builder.finish_node();
                 break;
             }
+            self.builder.start_node(COMMA_EXPR.into());
             self.expr(loc);
         }
-
-        self.builder.finish_node();
     }
 
     fn expr(&mut self, loc: Location) {
@@ -665,15 +663,20 @@ impl<'src> Parser<'src> {
     fn expr_bp(&mut self, loc: Location, min_bp: u8) {
         self.skip_ws();
 
-        eprintln!(
-            "Start parsing expr with first token being: {:?}",
-            self.current()
-        );
+        // eprintln!(
+        //     "Start parsing expr with first token being: {:?}",
+        //     self.current()
+        // );
 
         let mut lhs = self.builder.checkpoint();
         match self.current() {
             Some(T![false] | T![true]) => {
                 self.builder.start_node(LITERAL.into());
+                self.bump();
+                self.builder.finish_node();
+            }
+            Some(T![result]) => {
+                self.builder.start_node(RESULT_EXPR.into());
                 self.bump();
                 self.builder.finish_node();
             }
@@ -685,8 +688,7 @@ impl<'src> Parser<'src> {
 
                 match self.current() {
                     Some(T!['{']) if !loc.contains(Location::NO_STRUCT) => {
-                        self.builder
-                            .start_node_at(checkpoint, STRUCT_EXPR_FIELD.into());
+                        self.builder.start_node_at(checkpoint, STRUCT_EXPR.into());
 
                         self.expect_control(T!['{']);
 
@@ -694,9 +696,11 @@ impl<'src> Parser<'src> {
                             |t| t == T!['}'],
                             |this| match this.current() {
                                 Some(T![ident]) => {
+                                    this.builder.start_node(STRUCT_EXPR_FIELD.into());
                                     this.name();
                                     this.expect_control(T![:]);
                                     this.expr_bp(Location::NONE, 0);
+                                    this.builder.finish_node();
                                     ControlFlow::Continue(())
                                 }
                                 Some(T!['}']) => ControlFlow::Break(()),
@@ -761,7 +765,9 @@ impl<'src> Parser<'src> {
                         }
                         T![forall] | T![exists] => {
                             self.builder.start_node(QUANTIFIER_EXPR.into());
+                            self.builder.start_node(QUANTIFIER.into());
                             self.bump();
+                            self.builder.finish_node();
                             self.skip_ws();
                             self.param_list();
                             self.expr_bp(loc, r_bp);
@@ -814,9 +820,15 @@ impl<'src> Parser<'src> {
                         self.expect_control(T![']']);
                         self.builder.finish_node();
                     }
+                    T![.] => {
+                        self.builder.start_node_at(lhs, FIELD_EXPR.into());
+                        self.bump();
+                        self.name();
+                        self.builder.finish_node();
+                    }
                     _ => todo!(),
                 }
-                lhs = next;
+                // lhs = next;
 
                 continue;
             }
@@ -830,11 +842,12 @@ impl<'src> Parser<'src> {
 
                 match op {
                     op => {
-                        eprintln!("normal infix op was: '{op}'");
+                        // eprintln!("normal infix op was: '{op}'");
                         self.expr_bp(loc, r_bp);
                     }
                 }
                 self.builder.finish_node();
+                // lhs = next;
                 continue;
             };
 
@@ -1065,6 +1078,8 @@ bitflags::bitflags! {
     }
 }
 
+// TODO: https://github.com/rust-lang/rust-analyzer/blob/20b0ae4afe3f9e4c5ee5fc90586e55f2515f403b/crates/syntax/src/ast/prec.rs
+
 fn prefix_binding_power(op: Option<SyntaxKind>) -> Option<(SyntaxKind, (), u8)> {
     let op = op?;
     match op {
@@ -1081,6 +1096,7 @@ fn postfix_binding_power(op: Option<SyntaxKind>) -> Option<(SyntaxKind, u8, ())>
         T![!] => (11, ()),
         T!['['] => (11, ()),
         T!['('] => (11, ()),
+        T![.] => (14, ()),
         _ => return None,
     };
 
@@ -1093,13 +1109,12 @@ fn infix_binding_power(op: Option<SyntaxKind>) -> Option<(SyntaxKind, u8, u8)> {
         T![=] => (2, 1),
         T![&&] => (2, 1),
         T![||] => (2, 1),
-        T![==] | T![!=] => (2, 1),
-        T![>] => (2, 1),
-        T![>=] | T![<=] => (2, 1),
+        T![==] | T![!=] => (4, 3),
+        T![>] => (4, 3),
+        T![>=] | T![<=] => (4, 3),
         T![?] => (4, 3),
         T![+] | T![-] => (5, 6),
         T![*] | T![/] => (7, 8),
-        T![.] => (14, 13),
         _ => return None,
     };
 

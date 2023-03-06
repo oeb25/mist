@@ -16,7 +16,7 @@ app: app-typeshare
     tmuxinator
 
 app-tmux-astro:
-    cd app; npm run dev
+    cd app; npm install && npm run dev
 app-tmux-wasm:
     cd app/wasm/; watchexec -w ../.. -e rs "wasm-pack build --dev --target bundler"
 
@@ -30,3 +30,10 @@ SITE_ID := "43017e79-2762-45e6-9ba4-3bacedda3b96"
 
 app-deploy: app-build
     cd app/dist; netlify deploy --prod -s {{SITE_ID}}
+
+# core
+core-test:
+    FORCE_COLOR=3 cargo nextest run -p mist-core --success-output immediate
+
+core-watch-test:
+    FORCE_COLOR=3 cargo watch -c -x "nextest run -p mist-core --success-output immediate"

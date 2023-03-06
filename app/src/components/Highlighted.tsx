@@ -23,6 +23,7 @@ export const Highlighted = React.lazy(async () => {
 
     return React.createElement("div", {
       id: "output",
+      style: { fontFamily: 'Menlo, Monaco, "Courier New", monospace' },
       dangerouslySetInnerHTML: { __html: html },
     });
   };

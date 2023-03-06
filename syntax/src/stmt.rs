@@ -1,11 +1,11 @@
 use crate::{
-    generated::{
-        AssertStmt, AssumeStmt, ExprStmt, Item, LetStmt, ReturnStmt, Stmt,
+    ast::{
+        AssertStmt, AssumeStmt, ExprStmt, Item, LetStmt, ReturnStmt, SourceFile, Stmt,
         SyntaxKind::{self, *},
         WhileStmt,
     },
     support::AstNode,
-    SourceFile, SyntaxNode,
+    SyntaxNode,
 };
 
 // Stmt is the only nested enum, so it's easier to just hand-write it
@@ -17,8 +17,6 @@ impl AstNode for Stmt {
         }
     }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
-        dbg!(syntax.kind());
-
         let res = match syntax.kind() {
             LET_STMT => Stmt::LetStmt(LetStmt { syntax }),
             EXPR_STMT => Stmt::ExprStmt(ExprStmt { syntax }),

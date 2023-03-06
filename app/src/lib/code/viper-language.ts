@@ -1,14 +1,14 @@
 import * as monaco from "monaco-editor";
 
-export const MIST_ID = "mist";
+export const VIPER_ID = "viper";
 
 monaco.languages.register({
-  id: MIST_ID,
-  extensions: ["mist"],
+  id: VIPER_ID,
+  extensions: ["vpr"],
   aliases: [],
-  mimetypes: ["application/mist"],
+  mimetypes: ["application/viper"],
 });
-monaco.languages.setLanguageConfiguration(MIST_ID, {
+monaco.languages.setLanguageConfiguration(VIPER_ID, {
   comments: {
     lineComment: "//",
     blockComment: ["/*", "*/"],
@@ -40,7 +40,7 @@ monaco.languages.setLanguageConfiguration(MIST_ID, {
   },
   wordPattern: /[a-zA-Z_@$ΣΛλ][a-zA-Z0-9_]*/,
 });
-monaco.languages.setMonarchTokensProvider(MIST_ID, {
+monaco.languages.setMonarchTokensProvider(VIPER_ID, {
   defaultToken: "",
   brackets: [
     { token: "delimiter.curly", open: "{", close: "}" },
@@ -50,18 +50,15 @@ monaco.languages.setMonarchTokensProvider(MIST_ID, {
   ],
 
   keywords: [
-    "const",
-    "struct",
-    "return",
-    "mut",
-    "fn",
+    "predicate",
+    "function",
+    "method",
+    "returns",
     "assume",
     "assert",
-    "let",
+    "var",
     "if",
     "else",
-    "ghost",
-    "pure",
     "requires",
     "ensures",
     "result",
@@ -70,8 +67,6 @@ monaco.languages.setMonarchTokensProvider(MIST_ID, {
     "exists",
     "while",
     "invariant",
-    "true",
-    "false",
   ],
   operators: [
     "-",

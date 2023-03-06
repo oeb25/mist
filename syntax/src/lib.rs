@@ -1,15 +1,16 @@
-pub use generated::SourceFile;
-pub(crate) use generated::SyntaxKind;
-use parser::{ParseError, Parser};
+pub(crate) use ast::SyntaxKind;
+pub use parser::ParseError;
+use parser::Parser;
+pub use support::SourceSpan;
 
-mod generated;
+pub mod ast;
 mod parser;
 mod stmt;
 mod support;
 #[cfg(test)]
 mod tests;
 
-pub fn parse(src: &str) -> (SourceFile, Vec<ParseError>) {
+pub fn parse(src: &str) -> (ast::SourceFile, Vec<ParseError>) {
     Parser::new(src).parse()
 }
 

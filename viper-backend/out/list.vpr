@@ -1,0 +1,166 @@
+field next: Ref
+field elem: Int
+
+predicate List(this: Ref)
+{
+    acc(this.next) && acc(this.elem) && (this.next != null ==> List(this.next))
+}
+
+method head(this: Ref) returns (returned_value: Int)
+  requires acc(List(this), write)
+  ensures  acc(List(this), write)
+{
+  returned_value := (unfolding List(this) in this.elem)
+  assume false
+}
+method append(this: Ref, e: Int) returns ()
+  requires acc(List(this), write)
+  ensures  acc(List(this), write)
+{
+  if (((unfolding List(this) in this.next) == null)) {
+    var n: Ref
+    n := new(next, elem)
+    n.next := null
+    fold List(n)
+    unfold List(this)
+    this.elem := e
+    fold List(this)
+    unfold List(this)
+    this.next := n
+    fold List(this)
+  } else {
+    unfold List(this)
+    append(this.next, e)
+    fold List(this)
+    // append(unfolding List(this) in this.next, e)
+  }
+}
+method append2(this: Ref, e: Int) returns ()
+  requires acc(List(this), write)
+  ensures  acc(List(this), write)
+{
+  unfold List(this)
+  if ((this.next == null)) {
+    var n: Ref
+    n := new(next, elem)
+    n.next := null
+    this.elem := e
+    fold List(n)
+    this.next := n
+  } else {
+    append(this.next, e)
+  }
+  fold List(this)
+}
+method prepend(this: Ref, e: Int) returns (returned_value: Ref)
+  requires acc(List(this), write)
+  ensures  acc(List(returned_value), write)
+{
+  var unique_name_123: Ref
+  unique_name_123 := new(next, elem)
+  unique_name_123.next := this
+  unique_name_123.elem := e
+  returned_value := unique_name_123
+  assume false
+}
+method create() returns (returned_value: Ref)
+  ensures  acc(List(returned_value), write)
+{
+  var unique_name_123: Ref
+  unique_name_123 := new()
+  returned_value := unique_name_123
+  assume false
+}
+method concat(this: Ref, that: Ref) returns ()
+  requires acc(List(this), write)
+  requires acc(List(that), write)
+  ensures  acc(List(this), write)
+{
+  if (((unfolding List(this) in this.next) == null)) {
+    unfold List(this)
+    this.next := unfolding List(that) in that.next
+    fold List(this)
+    unfold List(that)
+    that.next := null
+    fold List(that)
+    unfold List(this)
+    this.elem := unfolding List(that) in that.elem
+    fold List(this)
+  } else {
+    unfold List(this)
+    concat(this.next, that)
+    fold List(this)
+    // concat(unfolding List(this) in this.next, that)
+  }
+}
+method concat2(this: Ref, that: Ref) returns ()
+  requires acc(List(this), write)
+  requires acc(List(that), write)
+  ensures  acc(List(this), write)
+{
+  unfold List(this)
+  unfold List(that)
+  if ((this.next == null)) {
+    this.next := that.next
+    that.next := null
+    this.elem := that.elem
+  } else {
+    fold List(that)
+    concat(this.next, that)
+  }
+  fold List(this)
+}
+method reverse(this: Ref) returns (returned_value: Ref)
+  requires acc(List(this), write)
+  ensures  acc(List(returned_value), write)
+{
+  returned_value := reverse_helper(this, null)
+  assume false
+}
+method reverse_helper(this: Ref, last: Ref) returns (returned_value: Ref)
+  requires acc(List(this), write)
+  requires ((last != null) ==> acc(List(last), write))
+  ensures  acc(List(returned_value), write)
+{
+  if (((unfolding List(this) in this.next) == null)) {
+    if ((last == null)) {
+      returned_value := this
+      assume false
+    } else {
+      returned_value := last
+      assume false
+    }
+  } else {
+    var n: Ref
+    n := unfolding List(this) in this.next
+    unfold List(this)
+    this.next := null
+    fold List(this)
+    returned_value := reverse_helper(n, this)
+    assume false
+  }
+}
+method reverse_helper2(this: Ref, last: Ref) returns (returned_value: Ref)
+  requires acc(List(this), write)
+  requires ((last != null) ==> acc(List(last), write))
+  ensures  acc(List(returned_value), write)
+{
+  unfold List(this)
+  if (this.next == null) {
+    if ((last == null)) {
+      returned_value := this
+      assume false
+    } else {
+      returned_value := last
+      assume false
+    }
+  } else {
+    var n: Ref
+    n := this.next
+    this.next := null
+    fold List(this)
+    returned_value := reverse_helper(n, this)
+    assume false
+  }
+  unfold List(returned_value)
+}

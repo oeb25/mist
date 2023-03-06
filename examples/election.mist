@@ -1,5 +1,5 @@
 // TODO: votes should be Seq[Int]
-fn count_votes(votes: Seq, candidate: Int, low: Int, hight: Int) -> Int
+fn count_votes(votes: Seq, candidate: Int, low: Int, high: Int) -> Int
   requires 0 <= low, low <= high, high <= votes
 {
   if low == high {

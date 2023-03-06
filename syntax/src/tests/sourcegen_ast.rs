@@ -28,7 +28,7 @@ fn sourcegen_ast() -> color_eyre::Result<()> {
     let tokens = generate_tokens(&ast);
     let nodes = generate_nodes(&ast);
 
-    let output_path = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src/generated.rs"));
+    let output_path = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ast/generated.rs"));
     let backup_path = output_path.with_extension("rs.bak");
     fs::copy(&output_path, &backup_path)?;
 

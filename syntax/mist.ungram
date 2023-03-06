@@ -11,8 +11,8 @@ Item =
 
 Name = 'ident'
 
-NameRef =
- 'ident'// | 'int_number'
+// NameRef =
+//  'ident'// | 'int_number'
 
 Const =
   Attr*
@@ -41,9 +41,9 @@ Condition =
 | Ensures
 
 Requires =
-  'requires' CommaExpr
+  'requires' CommaExpr*
 Ensures =
-  'ensures' CommaExpr
+  'ensures' CommaExpr*
 
 CommaExpr =
   Expr ','?
@@ -64,10 +64,13 @@ Block =
  '}'
 
 Type =
-  NameRef
+  NamedType
 | Primitive
 | Optional
 | RefType
+
+NamedType =
+  Name
 
 Primitive =
   'int'
@@ -97,10 +100,10 @@ ExprStmt =
   Expr ';'
 
 AssertStmt =
- 'assert' CommaExpr ';'
+ 'assert' CommaExpr* ';'
 
 AssumeStmt =
- 'assume' CommaExpr ';'
+ 'assume' CommaExpr* ';'
 
 ReturnStmt =
  'return' Expr ';'
@@ -111,7 +114,7 @@ WhileStmt =
  Block
 
 Invariant =
- 'invariant' CommaExpr
+ 'invariant' CommaExpr*
 
 Expr =
   Literal
@@ -120,11 +123,13 @@ Expr =
 | BinExpr
 | CallExpr
 | IndexExpr
+| FieldExpr
 | StructExpr
 | ParenExpr
 | RefExpr
 | IdentExpr
 | NullExpr
+| ResultExpr
 | QuantifierExpr
 
 IfExpr =
@@ -159,11 +164,14 @@ Arg =
 IndexExpr =
   base:Expr '[' index:Expr ']'
 
+FieldExpr =
+  Expr '.' field:Name
+
 StructExpr =
   Name '{' fields:StructExprField* '}'
 
 StructExprField =
-  Name ':' Type?
+  Name ':' Expr ','?
 
 ParenExpr =
   '(' Expr ')'
@@ -175,6 +183,8 @@ IdentExpr =
   Name
 
 NullExpr = 'null'
+
+ResultExpr = 'result'
 
 QuantifierExpr =
   Quantifier ParamList Expr

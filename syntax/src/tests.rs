@@ -1,4 +1,7 @@
-use crate::parser::Parser;
+use crate::{
+    ast::{Item, Stmt},
+    parser::Parser,
+};
 
 mod ast_src;
 mod sourcegen_ast;
@@ -7,7 +10,7 @@ mod sourcegen_ast;
 fn parse_hello() -> color_eyre::Result<()> {
     color_eyre::install()?;
 
-    let src = include_str!("../examples/list.mist");
+    let src = include_str!("../../examples/list.mist");
 
     let (file, _errors) = Parser::new(src).parse();
 
@@ -15,41 +18,41 @@ fn parse_hello() -> color_eyre::Result<()> {
 
     for item in file.items() {
         match item {
-            crate::generated::Item::Const(_) => todo!(),
-            crate::generated::Item::Fn(my_fn) => {
+            Item::Const(_) => todo!(),
+            Item::Fn(my_fn) => {
                 for stmt in my_fn.body().unwrap().statements() {
                     match stmt {
-                        crate::generated::Stmt::LetStmt(l) => {
+                        Stmt::LetStmt(l) => {
                             dbg!(l.name());
                             dbg!(l.initializer());
                         }
-                        crate::generated::Stmt::AssertStmt(a) => {
+                        Stmt::AssertStmt(a) => {
                             dbg!(a.assert_token());
-                            dbg!(a.comma_expr());
+                            dbg!(a.comma_exprs());
                         }
-                        crate::generated::Stmt::AssumeStmt(a) => {
+                        Stmt::AssumeStmt(a) => {
                             dbg!(a.assume_token());
-                            dbg!(a.comma_expr());
+                            dbg!(a.comma_exprs());
                         }
-                        crate::generated::Stmt::ExprStmt(e) => {
+                        Stmt::ExprStmt(e) => {
                             dbg!(e.expr());
                         }
-                        crate::generated::Stmt::Item(i) => {
+                        Stmt::Item(i) => {
                             dbg!(i);
                         }
-                        crate::generated::Stmt::ReturnStmt(i) => {
+                        Stmt::ReturnStmt(i) => {
                             dbg!(i);
                         }
-                        crate::generated::Stmt::WhileStmt(i) => {
+                        Stmt::WhileStmt(i) => {
                             dbg!(i);
                         }
                     }
                 }
             }
-            crate::generated::Item::Struct(s) => {
+            Item::Struct(s) => {
                 dbg!(s);
             }
-            crate::generated::Item::Macro(_) => todo!(),
+            Item::Macro(_) => todo!(),
         }
     }
 

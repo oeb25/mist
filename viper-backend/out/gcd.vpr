@@ -1,0 +1,97 @@
+define divides_prop(x, y, z) ( z >= 0 && x * z == y )
+function gcd(x: Int, y: Int): Int
+  requires (x > 0)
+  requires (y > 0)
+  ensures  (result >= 1)
+  ensures  divides(result, x)
+  ensures  divides(result, y)
+  ensures forall z: Int :: z >= 1 && divides(z, x) && divides(z, y) ==> z <= result
+function divides(x: Int, y: Int): Bool
+  requires (x > 0)
+  requires (y > 0)
+  ensures  (result == exists z: Int  :: divides_prop(x, y, z))
+method lemma_show_divides(x: Int, y: Int, z: Int) returns ()
+  requires (x > 0)
+  requires (y > 0)
+  requires divides_prop(x, y, z)
+  ensures  divides(x, y)
+method lemma_divides(x: Int, y: Int) returns (returned_value: Int)
+  requires (x > 0)
+  requires (y > 0)
+  requires divides(x, y)
+  ensures  divides_prop(x, y, returned_value)
+method lemma_gcd(x: Int, y: Int) returns ()
+  requires (x > 0)
+  requires (y > 0)
+  ensures  (gcd((x + y), y) == gcd(x, y))
+{
+    lemma_gcd_lower(x,y)
+    lemma_gcd_upper(x,y)
+}
+method lemma_gcd_upper(x: Int, y: Int) returns ()
+  requires (x > 0)
+  requires (y > 0)
+  ensures  (gcd((x + y), y) >= gcd(x, y))
+{
+  var z: Int
+  z := (x + y)
+  var m: Int
+  m := gcd((x + y), y)
+  var n: Int
+  n := gcd(y, x)
+  var c: Int
+  c := lemma_divides(n, y)
+  var d: Int
+  d := lemma_divides(n, x)
+  lemma_show_divides(n, (x + y), (c + d))
+}
+method lemma_gcd_lower(x: Int, y: Int) returns ()
+  requires (x > 0)
+  requires (y > 0)
+  ensures  (gcd((x + y), y) <= gcd(x, y))
+{
+  var z: Int
+  z := (x + y)
+  var m: Int
+  m := gcd((x + y), y)
+  var c: Int
+  c := lemma_divides(m, z)
+  var d: Int
+  d := lemma_divides(m, y)
+  lemma_show_divides(m, x, (c - d))
+}
+method lemma_gcd_idempotent(x: Int) returns ()
+  requires (x > 0)
+  ensures  (gcd(x, x) == x)
+{
+  lemma_show_divides(x, x, 1)
+}
+method euclid(n: Int, m: Int) returns (returned_value: Int)
+  requires (n > 0)
+  requires (m > 0)
+  ensures  (returned_value == gcd(n, m))
+{
+  var a: Int
+  a := n
+  var b: Int
+  b := m
+  while ((a != b))
+    invariant (a > 0)
+    invariant (b > 0)
+    invariant (gcd(a, b) == gcd(n, m))
+  {
+    if ((a > b)) {
+      a := (a - b)
+      lemma_gcd(a, b)
+    } else {
+      b := (b - a)
+      lemma_gcd(b, a)
+    }
+  }
+  assert (a == b)
+  assert (gcd(a, b) == gcd(n, m))
+  lemma_gcd_idempotent(a)
+  assert (gcd(n, m) == a)
+  returned_value := a
+  assume false
+}
