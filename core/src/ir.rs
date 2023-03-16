@@ -279,6 +279,7 @@ pub fn find_type(db: &dyn crate::Db, program: Program, ty: mist_syntax::ast::Typ
 // }
 
 bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct Attrs: u32 {
         const NONE = 0b00;
         const GHOST = 0b01;
