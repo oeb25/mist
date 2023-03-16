@@ -1,33 +1,47 @@
-pure fn gcd(x: Int, y: Int) -> Int
+pure fn gcd(x: int, y: int) -> int
   requires x > 0, y > 0
   ensures
     result >= 1,
     divides(result, x),
     divides(result, y),
-    forall(z: Int) if z >= 1 && divides(z, x) && divides(z, y) {
+    forall(z: int) if z >= 1 && divides(z, x) && divides(z, y) {
       z <= result
-    };
+    } else { true };
 
 
-macro divides_prop(x, y, z) { z >= 0 && x * z == y }
+pure fn main() {
+  let x = 12;
+  if true {
+    let y = 13;
 
-pure fn divides(x: Int, y: Int) -> Bool
+    assert x < y;
+
+    return x + y;
+  } else {
+    let z = 1;
+    return x + z;
+  }
+}
+
+// macro divides_prop(x, y, z) { z >= 0 && x * z == y }
+// pure fn divides_prop(x: int, y: int, z: int) -> bool { z >= 0 && x * z == y }
+pure fn divides_prop(x: int, y: int, z: int) -> bool
+  ensures result == (z >= 0 && x * z == y);
+
+pure fn divides(x: int, y: int) -> bool
   requires x > 0, y > 0
-  ensures  result == exists(z: Int) divides_prop(x, y, z);
+  ensures  result == exists(z: int) divides_prop(x, y, z);
 
 
-ghost fn lemma_show_divides(x: Int, y: Int, z: Int)
+ghost fn lemma_show_divides(x: int, y: int, z: int)
   requires x > 0, y > 0,
            divides_prop(x, y, z)
   ensures  divides(x, y);
 
-ghost fn lemma_divides(x: Int, y: Int)
+ghost fn lemma_divides(x: int, y: int) -> int
   requires x > 0, y > 0
-  ensures  gcd(x + y, y) == gcd(x, y)
-{
-  lemma_gcd_lower(x, y);
-  lemma_gcd_lower(x, y);
-}
+  requires divides(x, y)
+  ensures divides_prop(x, y, result);
 
 ghost fn lemma_gcd(x: int, y: int)
   requires x > 0, y > 0
@@ -37,7 +51,7 @@ ghost fn lemma_gcd(x: int, y: int)
   lemma_gcd_upper(x, y)
 }
 
-ghost fn lemma_gcd_upper(x: Int, y: Int)
+ghost fn lemma_gcd_upper(x: int, y: int)
   requires x > 0, y > 0
   ensures gcd(x + y, y) >= gcd(x, y)
 {
@@ -51,7 +65,7 @@ ghost fn lemma_gcd_upper(x: Int, y: Int)
   lemma_show_divides(n, x + y, c + d);
 }
 
-ghost fn lemma_gcd_lower(x: Int, y: Int)
+ghost fn lemma_gcd_lower(x: int, y: int)
   requires x > 0, y > 0
   ensures gcd(x + y, y) <= gcd(x, y)
 {
@@ -64,7 +78,7 @@ ghost fn lemma_gcd_lower(x: Int, y: Int)
   lemma_show_divides(m, x, c - d);
 }
 
-ghost fn lemma_gcd_idempotent(x: Int)
+ghost fn lemma_gcd_idempotent(x: int)
   requires x > 0
   ensures gcd(x, x) == x
 {
@@ -73,11 +87,11 @@ ghost fn lemma_gcd_idempotent(x: Int)
 
 macro V(x, y) { x + y }
 
-fn euclid(n: Int, m: Int) -> Int
+fn euclid(n: int, m: int) -> int
   requires n > 0, m > 0
   ensures result == gcd(n, m)
 {
-  let a = m;
+  let a = n;
   let b = m;
   while a != b
     invariant a > 0, b > 0,

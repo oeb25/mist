@@ -1,4 +1,5 @@
 use salsa::DebugWithDb;
+use tracing_test::traced_test;
 
 use crate::ir::function_body;
 
@@ -21,4 +22,29 @@ fn basic() {
     }
     functions[0].name(&db);
     eprintln!("Functions = {:?}", functions.debug_all(&db));
+}
+
+#[test]
+#[traced_test]
+fn call_with_index_argument() {
+    let db = crate::db::Database::default();
+
+    let src = "fn a(x: int) { a(x[0]); }";
+    let source = crate::ir::SourceProgram::new(&db, src.to_string());
+    let program = crate::ir::parse_program(&db, source);
+    let functions = crate::ir::functions(&db, program);
+    eprintln!("Functions = {:?}", functions.debug_all(&db));
+}
+
+#[test]
+#[traced_test]
+fn two_calls_missing_semi() {
+    let db = crate::db::Database::default();
+
+    let src = "fn f() { f() f() }";
+    let source = crate::ir::SourceProgram::new(&db, src.to_string());
+    let program = crate::ir::parse_program(&db, source);
+    let functions = crate::ir::functions(&db, program);
+    eprintln!("Functions = {:#?}", functions.debug_all(&db));
+    assert_eq!(program.errors(&db).len(), 1);
 }

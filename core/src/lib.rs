@@ -3,6 +3,7 @@ pub mod ir;
 #[cfg(test)]
 mod tests;
 mod typecheck;
+pub mod util;
 
 pub use salsa;
 pub use typecheck::{TypeCheckError, TypeCheckErrors};
@@ -23,6 +24,7 @@ pub struct Jar(
     crate::ir::struct_fields,
     crate::ir::functions,
     crate::ir::function_body,
+    crate::ir::structs,
     crate::ir::find_type,
     crate::ir::find_named_type,
     crate::typecheck::TypeCheckErrors,

@@ -82,10 +82,14 @@ export const MistTypeCheck = React.lazy(async () => {
   }) => {
     const [src, setSrc] = useState(initialSrc);
 
-    const parseResult: ParseResult = useMemo(
-      () => JSON.parse(type_check(src)),
-      [src]
-    );
+    const parseResult: ParseResult = useMemo(() => {
+      try {
+        return JSON.parse(type_check(src));
+      } catch (e) {
+        console.error(e);
+        return { parseTree: "", markers: [] };
+      }
+    }, [src]);
 
     const parseTree = useDebounce(parseResult.parseTree, 100);
 

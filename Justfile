@@ -1,5 +1,6 @@
+[private]
 @default:
-    @just --choose
+    just --choose
 
 watch-sourcegen-ast:
     cargo watch --ignore generated.* --clear -s "cargo test sourcegen_ast -- --nocapture; rustfmt src/generated.rs"
@@ -15,8 +16,10 @@ app-build-wasm:
 app: app-typeshare
     tmuxinator
 
+[private]
 app-tmux-astro:
     cd app; npm install && npm run dev
+[private]
 app-tmux-wasm:
     cd app/wasm/; watchexec -w ../.. -e rs "wasm-pack build --dev --target bundler"
 
@@ -33,7 +36,7 @@ app-deploy: app-build
 
 # core
 core-test:
-    FORCE_COLOR=3 cargo nextest run -p mist-core --success-output immediate
+    FORCE_COLOR=3 cargo nextest run -p mist-core # --success-output immediate
 
 core-watch-test:
     FORCE_COLOR=3 cargo watch -c -x "nextest run -p mist-core --success-output immediate"

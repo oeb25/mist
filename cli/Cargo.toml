@@ -1,0 +1,23 @@
+[package]
+name = "mist-cli"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+mist-syntax = { workspace = true }
+mist-core = { workspace = true }
+mist-viper-backend = { workspace = true }
+miette = { workspace = true }
+thiserror = { workspace = true }
+viperserver = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+clap = { version = "4.1.8", features = ["derive", "env"] }
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
+itertools = "0.10.5"
+tempfile = "3.4.0"
+futures-util = "0.3.26"
+spinners = "4.1.0"
+dotenvy = "0.15.6"

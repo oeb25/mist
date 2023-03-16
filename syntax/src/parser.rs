@@ -527,7 +527,7 @@ impl<'src> Parser<'src> {
                 self.if_expr();
                 self.builder.finish_node();
             }
-            Some(T![ident] | INT_NUMBER) => {
+            Some(T![ident] | T![true] | T![false] | INT_NUMBER) => {
                 let expr_checkpoint = self.builder.checkpoint();
                 self.expr(Location::NONE);
 
@@ -1110,7 +1110,7 @@ fn infix_binding_power(op: Option<SyntaxKind>) -> Option<(SyntaxKind, u8, u8)> {
         T![&&] => (2, 1),
         T![||] => (2, 1),
         T![==] | T![!=] => (4, 3),
-        T![>] => (4, 3),
+        T![>] | T![<] => (4, 3),
         T![>=] | T![<=] => (4, 3),
         T![?] => (4, 3),
         T![+] | T![-] => (5, 6),

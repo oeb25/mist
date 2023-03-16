@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use itertools::Itertools;
 use la_arena::{Arena, ArenaMap, Idx};
 use miette::Diagnostic;
 use mist_syntax::{
@@ -10,7 +9,6 @@ use mist_syntax::{
     },
     SourceSpan,
 };
-use salsa::DebugWithDb;
 use thiserror::Error;
 
 use crate::ir::{
@@ -19,11 +17,11 @@ use crate::ir::{
     TypeData, Variable, VariableId,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct FunctionContext {
     declarations: Trace<Variable, mist_syntax::ast::Name>,
     types: ArenaMap<Idx<Variable>, Type>,
-    trace: Trace<Expr, Option<mist_syntax::ast::Expr>>,
+    trace: Trace<Expr, ExprOrSpan>,
 }
 
 impl std::ops::Index<ExprIdx> for FunctionContext {
@@ -72,7 +70,7 @@ pub struct TypeCheckExpr<'w> {
     scope_stack: Vec<HashMap<String, Idx<Variable>>>,
     declarations: Trace<Variable, mist_syntax::ast::Name>,
     types: ArenaMap<Idx<Variable>, Type>,
-    trace: Trace<Expr, Option<mist_syntax::ast::Expr>>,
+    trace: Trace<Expr, ExprOrSpan>,
 }
 
 impl From<TypeCheckExpr<'_>> for FunctionContext {
@@ -103,6 +101,33 @@ impl<T, V> Trace<T, V> {
         let id = self.arena.alloc(data);
         self.map.insert(id, value);
         id
+    }
+}
+impl<T, V> Default for Trace<T, V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, derive_more::From)]
+enum ExprOrSpan {
+    Expr(mist_syntax::ast::Expr),
+    Span(SourceSpan),
+}
+
+impl ExprOrSpan {
+    fn span(&self) -> SourceSpan {
+        match self {
+            ExprOrSpan::Expr(expr) => expr.span(),
+            ExprOrSpan::Span(span) => *span,
+        }
+    }
+
+    fn into_expr(self) -> Option<mist_syntax::ast::Expr> {
+        match self {
+            ExprOrSpan::Expr(expr) => Some(expr),
+            ExprOrSpan::Span(_) => None,
+        }
     }
 }
 
@@ -169,7 +194,7 @@ impl<'a> TypeCheckExpr<'a> {
                 else_branch: else_branch.map(Box::new),
             }),
         );
-        self.trace.alloc(Some(source.clone()), expr)
+        self.trace.alloc(source.clone().into(), expr)
     }
     pub fn expr_ty(&self, expr: ExprIdx) -> Type {
         self.trace.arena[expr].ty
@@ -183,7 +208,7 @@ impl<'a> TypeCheckExpr<'a> {
             expr
         } else {
             return self.expr_error(
-                fallback_span,
+                fallback_span.into(),
                 None,
                 None,
                 TypeCheckErrorKind::MissingExpression,
@@ -262,14 +287,19 @@ impl<'a> TypeCheckExpr<'a> {
                 match self.trace.arena[fn_expr].ty.data(self.db) {
                     TypeData::Function { params, return_ty } => {
                         if args.len() != params.len() {
-                            todo!()
+                            return self.expr_error(
+                                it.expr()
+                                    .map(Into::into)
+                                    .unwrap_or_else(|| it.span().into()),
+                                None,
+                                None,
+                                TypeCheckErrorKind::NotYetImplemented(
+                                    "argument count mismatch".to_string(),
+                                ),
+                            );
                         }
                         for (a, b) in args.iter().zip(params) {
-                            self.expect_ty(
-                                self.trace.map[*a].as_ref().unwrap().span(),
-                                *b,
-                                self.trace.arena[*a].ty,
-                            );
+                            self.expect_ty(self.trace.map[*a].span(), *b, self.trace.arena[*a].ty);
                         }
                         Expr {
                             ty: *return_ty,
@@ -289,7 +319,19 @@ impl<'a> TypeCheckExpr<'a> {
                     t => todo!("`{t:?}` is not a function"),
                 }
             }
-            mist_syntax::ast::Expr::IndexExpr(_) => todo!(),
+            mist_syntax::ast::Expr::IndexExpr(it) => {
+                let base = self.check(it.span(), it.base());
+                let index = self.check(it.span(), it.index());
+
+                self.expect_ty(it.span(), Type::int(self.db), self.expr_ty(index));
+
+                return self.expr_error(
+                    ExprOrSpan::Expr(expr),
+                    None,
+                    None,
+                    TypeCheckErrorKind::NotYetImplemented("index operator".to_string()),
+                );
+            }
             mist_syntax::ast::Expr::FieldExpr(it) => {
                 let expr = self.check(it.span(), it.expr());
                 let field = if let Some(field) = it.field() {
@@ -356,11 +398,27 @@ impl<'a> TypeCheckExpr<'a> {
                 } else {
                     todo!()
                 };
-                let struct_ty = self.find_named_type(name);
+                let struct_ty = self.find_named_type(name.clone());
 
                 let s = match struct_ty.data(self.db) {
                     TypeData::Struct(s) => *s,
-                    _ => todo!(),
+                    _ => {
+                        let expr_err = self.expr_error(
+                            name.span().into(),
+                            None,
+                            None,
+                            TypeCheckErrorKind::UnknownStruct {
+                                name: name.to_string(),
+                            },
+                        );
+
+                        // NOTE: Still check the types of the fields
+                        for f in it.fields() {
+                            let _ = self.check(f.span(), f.expr());
+                        }
+
+                        return expr_err;
+                    }
                 };
 
                 let fields = self.struct_fields(s);
@@ -452,7 +510,7 @@ impl<'a> TypeCheckExpr<'a> {
             }
         };
 
-        self.trace.alloc(Some(expr), new)
+        self.trace.alloc(expr.into(), new)
     }
     fn pretty_ty(&self, ty: Type) -> String {
         ir::pretty::ty(self, self.db, ty)
@@ -536,20 +594,24 @@ impl<'a> TypeCheckExpr<'a> {
             kind,
         };
         TypeCheckErrors::push(self.db, err.clone());
-        eprintln!("{:?}", miette::Error::new(err));
+        // eprintln!("{:?}", miette::Error::new(err));
         Type::new(self.db, TypeData::Error)
     }
     fn expr_error(
         &mut self,
-        span: SourceSpan,
+        expr_or_span: ExprOrSpan,
         label: Option<String>,
         help: Option<String>,
         kind: TypeCheckErrorKind,
     ) -> ExprIdx {
+        let span = expr_or_span.span();
+
         self.push_error(span, label, help, kind);
 
-        self.trace
-            .alloc(None, Expr::new(Type::error(self.db), ExprData::Missing))
+        self.trace.alloc(
+            expr_or_span,
+            Expr::new(Type::error(self.db), ExprData::Missing),
+        )
     }
     pub fn check_boolean_exprs(
         &mut self,
@@ -604,7 +666,16 @@ impl<'a> TypeCheckExpr<'a> {
                         },
                     }
                 }
-                mist_syntax::ast::Stmt::Item(_) => todo!(),
+                mist_syntax::ast::Stmt::Item(it) => {
+                    Statement::new(StatementData::Expr(self.expr_error(
+                        it.span().into(),
+                        None,
+                        None,
+                        TypeCheckErrorKind::NotYetImplemented(
+                            "items in statement position".to_string(),
+                        ),
+                    )))
+                }
                 mist_syntax::ast::Stmt::ExprStmt(it) => {
                     Statement::new(StatementData::Expr(self.check(it.span(), it.expr())))
                 }
@@ -639,10 +710,17 @@ impl<'a> TypeCheckExpr<'a> {
                 },
             })
             .collect();
+        let (tail_expr, return_ty) = if let Some(tail_expr) = block.tail_expr() {
+            let tail_expr = self.check(tail_expr.span(), Some(tail_expr));
+            (Some(tail_expr), self.expr_ty(tail_expr))
+        } else {
+            (None, Type::void(self.db))
+        };
         self.pop_scope();
         Block {
             stmts,
-            return_ty: Type::new(self.db, TypeData::Void),
+            tail_expr,
+            return_ty,
         }
     }
     pub fn declare_variable(&mut self, name: &mist_syntax::ast::Name, ty: Type) -> Idx<Variable> {
@@ -775,4 +853,8 @@ pub enum TypeCheckErrorKind {
     ReturnedValueWithNoReturnValue,
     #[error("the field `{field}` does not exist on struct `{strukt}`")]
     UnknownStructField { field: String, strukt: String },
+    #[error("not yet implemented: {0}")]
+    NotYetImplemented(String),
+    #[error("no struct with name `{name}` was found")]
+    UnknownStruct { name: String },
 }

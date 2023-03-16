@@ -3,11 +3,19 @@ struct List {
     elem: int,
 }
 
+// struct List {
+//     next: &List?,
+//     ghost next_life: Perm,
+//     elem: int,
+// }
+
 fn head(this: &mut List) -> int {
     return this.elem;
 }
 
 fn append(this: &mut List, e: int) {
+
+
     if this.next == null {
         let n = List {
             next: null,

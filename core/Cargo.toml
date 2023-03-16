@@ -11,6 +11,8 @@ mist-syntax = { workspace = true }
 miette = { workspace = true }
 thiserror = { workspace = true }
 salsa = { workspace = true }
+tracing = { workspace = true }
+tracing-test = { workspace = true }
 la-arena = "0.3.0"
 ena = "0.14.0"
 derive-new = "0.5.9"

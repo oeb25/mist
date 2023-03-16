@@ -2,6 +2,7 @@
 
 pub mod db;
 
+use mist_core::util::Position;
 use serde::{Deserialize, Serialize};
 use typeshare::typeshare;
 use wasm_bindgen::prelude::*;
@@ -58,8 +59,8 @@ fn miette_to_markers(src: &str, report: miette::Report) -> Vec<MarkerData> {
         .labels()
         .unwrap_or_else(|| Box::new(vec![].into_iter()))
         .map(|label| {
-            let start = byte_offset_to_position(src, label.offset());
-            let end = byte_offset_to_position(src, label.offset() + label.len());
+            let start = Position::from_byte_offset(src, label.offset());
+            let end = Position::from_byte_offset(src, label.offset() + label.len());
             MarkerData {
                 severity: MarkerSeverity::Error,
                 message: report.to_string(), // label.label().unwrap_or("here").to_string(),
@@ -72,51 +73,6 @@ fn miette_to_markers(src: &str, report: miette::Report) -> Vec<MarkerData> {
             }
         })
         .collect()
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct Position {
-    line: u32,
-    character: u32,
-}
-
-impl Position {
-    fn new(line: u32, character: u32) -> Self {
-        Self { line, character }
-    }
-}
-
-fn position_to_byte_offset(src: &str, pos: Position) -> Option<usize> {
-    let mut lines = pos.line;
-    let mut columns = pos.character;
-    src.char_indices()
-        .find(|&(_, c)| {
-            if lines == 0 {
-                if columns == 0 {
-                    return true;
-                } else {
-                    columns -= 1
-                }
-            } else if c == '\n' {
-                lines -= 1;
-            }
-            false
-        })
-        .map(|(idx, _)| idx)
-}
-fn byte_offset_to_position(src: &str, byte_offset: usize) -> Position {
-    if src[0..byte_offset].is_empty() {
-        return Position::new(0, 0);
-    }
-
-    if src[0..byte_offset].ends_with('\n') {
-        let l = src[0..byte_offset].lines().count();
-        Position::new(l as _, 0)
-    } else {
-        let l = src[0..byte_offset].lines().count() - 1;
-        let c = src[0..byte_offset].lines().last().unwrap().len();
-        Position::new(l as _, c as _)
-    }
 }
 
 #[typeshare]

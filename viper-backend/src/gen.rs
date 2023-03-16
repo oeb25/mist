@@ -10,16 +10,44 @@ use silvers::{
         AbstractLocalVar, AccessPredicate, BinOp, Exp, FieldAccess, LocalVar, LocationAccess,
         PermExp, PredicateAccess, PredicateAccessPredicate, QuantifierExp, ResourceAccess,
     },
-    program::{Field, Function, LocalVarDecl},
+    program::{Field, Function, LocalVarDecl, Predicate},
     statement::{Seqn, Stmt},
     typ::Type as SType,
 };
+use tracing::error;
 
 #[salsa::tracked]
 pub fn viper_file(
     db: &dyn crate::Db,
     program: mist_core::ir::Program,
 ) -> silvers::program::Program {
+    let structs = mist_core::ir::structs(db, program);
+    let mut fields = vec![];
+    let mut predicates = vec![];
+    for s in structs {
+        let lowering = ViperLowering {
+            db,
+            cx: FunctionContext::default(),
+            program,
+            return_variable: None,
+        };
+        predicates.push(Predicate {
+            name: mist_core::ir::struct_name(db, s).to_string(),
+            formal_args: vec![LocalVarDecl {
+                name: "this".to_string(),
+                typ: SType::ref_(),
+            }],
+            body: None,
+        });
+        for field in mist_core::ir::struct_fields(db, program, s) {
+            let ty = lowering.lower_ty(field.ty);
+            fields.push(Field {
+                name: field.name,
+                typ: ty.ty,
+            })
+        }
+    }
+
     let fns = mist_core::ir::functions(db, program);
     let mut methods = vec![];
     let mut functions = vec![];
@@ -31,9 +59,9 @@ pub fn viper_file(
     }
     silvers::program::Program {
         domains: vec![],
-        fields: vec![],
+        fields,
         functions,
-        predicates: vec![],
+        predicates,
         methods,
         extensions: vec![],
     }
@@ -160,22 +188,26 @@ pub fn viper_function(
             mist_core::ir::Condition::Requires(it) => {
                 for &expr in it {
                     let (pre, lowered_expr) = lowering.lower_expr(Default::default(), expr);
-                    assert!(pre.is_empty());
+                    if !pre.is_empty() {
+                        error!("{expr:?} produced a pre statements: {pre:?}")
+                    }
                     if let Some(expr) = lowered_expr {
                         pres.push(expr);
                     } else {
-                        todo!("{it:?}")
+                        error!("{expr:?} produced no expression")
                     }
                 }
             }
             mist_core::ir::Condition::Ensures(it) => {
                 for &expr in it {
                     let (post, lowered_expr) = lowering.lower_expr(Default::default(), expr);
-                    assert!(post.is_empty());
+                    if !post.is_empty() {
+                        error!("{expr:?} produced a post statements: {post:?}")
+                    }
                     if let Some(expr) = lowered_expr {
                         posts.push(expr);
                     } else {
-                        eprintln!("{it:?}")
+                        error!("{expr:?} produced no expression")
                     }
                 }
             }
@@ -183,19 +215,27 @@ pub fn viper_function(
     }
 
     if is_pure {
+        let typ = lowering
+            .lower_ty(
+                function
+                    .ret(db)
+                    .unwrap_or_else(|| Type::new(db, TypeData::Error)),
+            )
+            .ty;
+        let body = if let Some((cx, body)) = function_body(db, program, function) {
+            let lowering = ViperLowering { cx, ..lowering };
+            Some(lowering.lower_block_to_expr(LowerExprFlags::default(), body))
+        } else {
+            None
+        };
+
         ViperFunction::Function(Function {
             name: function.name(db).to_string(),
             formal_args,
-            typ: lowering
-                .lower_ty(
-                    function
-                        .ret(db)
-                        .unwrap_or_else(|| Type::new(db, TypeData::Error)),
-                )
-                .ty,
+            typ,
             pres,
             posts,
-            body: Default::default(),
+            body,
         })
     } else {
         let body = if let Some((cx, body)) = function_body(db, program, function) {
@@ -221,6 +261,7 @@ pub fn viper_function(
 pub enum FinalValuePlacement {
     LocalVar(LocalVar),
     Field(FieldAccess),
+    Expression,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -329,6 +370,7 @@ impl ViperLowering<'_> {
                         Exp::AbstractLocalVar(AbstractLocalVar::LocalVar(lhs))
                     }
                     FinalValuePlacement::Field(_) => todo!(),
+                    FinalValuePlacement::Expression => todo!(),
                 };
 
                 for f in fields {
@@ -364,19 +406,53 @@ impl ViperLowering<'_> {
                     }
                 };
 
-                if let Some(cond) = condition {
-                    stmts.push(Stmt::If {
-                        cond,
-                        thn: then_stmts,
-                        els: else_stmts,
-                    });
+                let condition = if let Some(cond) = condition {
+                    cond
                 } else {
-                    tracing::error!("if-statement had no condition")
-                }
+                    tracing::error!("if-statement had no condition");
+                    return (stmts, None);
+                };
 
-                match flags.final_value_placement {
-                    Some(_) => todo!("{stmts:?} {flags:?}"),
-                    None => (stmts, None),
+                match &flags.final_value_placement {
+                    Some(p) => match p {
+                        FinalValuePlacement::LocalVar(_) => {
+                            todo!("final_value_placement: {p:?} {stmts:?} {flags:?}")
+                        }
+                        FinalValuePlacement::Field(_) => {
+                            todo!("final_value_placement: {p:?} {stmts:?} {flags:?}")
+                        }
+                        FinalValuePlacement::Expression => match it.else_branch.as_deref() {
+                            Some(mist_core::ir::Else::If(_)) => todo!(),
+                            Some(mist_core::ir::Else::Block(else_block)) => (
+                                stmts,
+                                Some(Exp::Cond {
+                                    cond: Box::new(condition),
+                                    thn: Box::new(self.lower_block_to_expr(
+                                        flags.clone(),
+                                        it.then_branch.clone(),
+                                    )),
+                                    els: Box::new(
+                                        self.lower_block_to_expr(flags, else_block.clone()),
+                                    ),
+                                }),
+                            ),
+                            None => (
+                                stmts,
+                                Some(condition.implies(
+                                    self.lower_block_to_expr(flags.clone(), it.then_branch.clone()),
+                                )),
+                            ),
+                        },
+                    },
+                    None => {
+                        stmts.push(Stmt::If {
+                            cond: condition,
+                            thn: then_stmts,
+                            els: else_stmts,
+                        });
+
+                        (stmts, None)
+                    }
                 }
             }
             mist_core::ir::ExprData::Call { expr, args } => {
@@ -398,7 +474,7 @@ impl ViperLowering<'_> {
                         if let Some(a) = a {
                             Some(Box::new(a))
                         } else {
-                            eprintln!("{:?} did not produce any expression", &self.cx[*arg]);
+                            error!("{:?} did not produce any expression", &self.cx[*arg]);
                             None
                         }
                     })
@@ -410,7 +486,10 @@ impl ViperLowering<'_> {
                 let mut stmts = vec![];
 
                 let (lhs_stmts, lhs) = self.lower_expr(flags.with_final_value_placement(None), lhs);
-                let lhs = lhs.unwrap();
+                let lhs = lhs.unwrap_or_else(|| {
+                    error!("no lhs of expression");
+                    Exp::null()
+                });
                 stmts.extend_from_slice(&lhs_stmts);
                 let (rhs_stmts, rhs) = self.lower_expr(flags.with_final_value_placement(None), rhs);
                 let rhs = rhs.unwrap_or_else(Exp::null);
@@ -484,11 +563,13 @@ impl ViperLowering<'_> {
                     .map(|p| LocalVarDecl::new(p.name.to_string(), self.lower_ty(p.ty).ty))
                     .collect();
                 let triggers = vec![];
-                let (pre_stmts, exp) = self.lower_expr(flags, *expr);
+                let (pre_stmts, exp) = self.lower_expr(
+                    flags.with_final_value_placement(Some(FinalValuePlacement::Expression)),
+                    *expr,
+                );
                 let exp = if let Some(exp) = exp {
                     Box::new(exp)
                 } else {
-                    // TODO: Report error
                     tracing::error!(
                         "quantifier did not have any expression: {}",
                         self.cx.pretty_expr(self.db, *expr)
@@ -531,6 +612,59 @@ impl ViperLowering<'_> {
                 }],
                 FinalValuePlacement::LocalVar(var),
             )
+        }
+    }
+
+    pub fn lower_block_to_expr(&self, flags: LowerExprFlags, block: Block) -> Exp {
+        dbg!(&block);
+
+        match block.stmts.len() {
+            0 => {
+                if let Some(tail) = block.tail_expr {
+                    let (stmts, expr) = self.lower_expr(flags, tail);
+                    if !stmts.is_empty() {
+                        tracing::error!("lower_block_to_expr tail-expr had stmts");
+                    }
+                    if let Some(expr) = expr {
+                        expr
+                    } else {
+                        tracing::error!("lower_block_to_expr tail-expr produced no expr");
+                        Exp::null()
+                    }
+                } else {
+                    tracing::error!("lower_block_to_expr not yet implemented for empty blocks without tail-expr");
+                    Exp::null()
+                }
+            }
+            1 => match &block.stmts[0].data {
+                mist_core::ir::StatementData::Return(_) => todo!(),
+                mist_core::ir::StatementData::Expr(expr) => {
+                    let (stmts, expr) = self.lower_expr(flags, *expr);
+                    if !stmts.is_empty() {
+                        tracing::error!("lower_block_to_expr stmt expr had stmts");
+                    }
+                    if let Some(expr) = expr {
+                        expr
+                    } else {
+                        tracing::error!("lower_block_to_expr stmt expr produced no expr");
+                        Exp::null()
+                    }
+                }
+                mist_core::ir::StatementData::Let {
+                    variable,
+                    initializer,
+                } => todo!(),
+                mist_core::ir::StatementData::While {
+                    expr,
+                    invariants,
+                    body,
+                } => todo!(),
+                mist_core::ir::StatementData::Assertion { kind, exprs } => todo!(),
+            },
+            _ => {
+                tracing::error!("lower_block_to_expr not yet implemented");
+                Exp::null()
+            }
         }
     }
 
@@ -631,11 +765,15 @@ impl ViperLowering<'_> {
                     let mut stmts = vec![];
 
                     for expr in exprs {
-                        let (ss, expr) = self.lower_expr(Default::default(), *expr);
+                        let (ss, exp) = self.lower_expr(Default::default(), *expr);
                         stmts.extend_from_slice(&ss);
+                        let exp = exp.unwrap_or_else(|| {
+                            error!("expression of assertion did not produce an expression");
+                            Exp::null()
+                        });
                         match kind {
                             mist_core::ir::AssertionKind::Assert => {
-                                stmts.push(Stmt::Assert { exp: expr.unwrap() })
+                                stmts.push(Stmt::Assert { exp })
                             }
                             mist_core::ir::AssertionKind::Assume => todo!(),
                             mist_core::ir::AssertionKind::Inhale => todo!(),

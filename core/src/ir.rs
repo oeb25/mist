@@ -4,7 +4,10 @@ use derive_new::new;
 use mist_syntax::ast::{operators::BinaryOp, Item, Spanned};
 
 pub use crate::typecheck::FunctionContext;
-use crate::typecheck::{self, TypeCheckError, TypeCheckErrorKind, TypeCheckExpr};
+use crate::{
+    typecheck::{self, TypeCheckError, TypeCheckErrorKind, TypeCheckExpr},
+    TypeCheckErrors,
+};
 
 #[salsa::input]
 pub struct SourceProgram {
@@ -172,6 +175,16 @@ pub fn function_body(
 }
 
 #[salsa::tracked]
+pub fn structs(db: &dyn crate::Db, program: Program) -> Vec<Struct> {
+    top_level_type_decls(db, program)
+        .into_iter()
+        .filter_map(|it| match it.data(db) {
+            TypeDeclData::Struct(s) => Some(s),
+        })
+        .collect()
+}
+
+#[salsa::tracked]
 pub fn find_named_type(db: &dyn crate::Db, program: Program, name: mist_syntax::ast::Name) -> Type {
     for item in top_level_type_decls(db, program) {
         if item.name(db) == &name.to_string() {
@@ -188,7 +201,7 @@ pub fn find_named_type(db: &dyn crate::Db, program: Program, name: mist_syntax::
         help: None,
         kind: TypeCheckErrorKind::UndefinedType(name.to_string()),
     };
-    eprintln!("{:?}", miette::Error::new(err));
+    TypeCheckErrors::push(db, err);
 
     Type::new(db, TypeData::Error)
 }
@@ -385,6 +398,7 @@ impl Else {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Block {
     pub stmts: Vec<Statement>,
+    pub tail_expr: Option<ExprIdx>,
     pub return_ty: Type,
 }
 

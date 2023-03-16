@@ -1,5 +1,5 @@
 [workspace]
-members = ["syntax", "core", "viper-backend"]
+members = ["syntax", "core", "viper-backend", "cli"]
 resolver = "2"
 
 [workspace.package]
@@ -10,11 +10,15 @@ color-eyre = "0.6.2"
 miette = { version = "5.5.0", features = ["fancy"] }
 thiserror = "1.0.38"
 tracing = "0.1.37"
+tracing-test = "0.2.4"
 mist-syntax = { path = "./syntax" }
 mist-core = { path = "./core" }
+mist-viper-backend = { path = "./viper-backend" }
 salsa = { git = "https://github.com/salsa-rs/salsa.git", package = "salsa-2022" }
 # silvers = { git = "https://github.com/oeb25/vipers.git" }
 silvers = { path = "../vipers/silvers" }
+viperserver = { path = "../vipers/server" }
+tokio = { version = "1.25.0", features = ["full"] }
 
 [profile.release]
 debug = true
