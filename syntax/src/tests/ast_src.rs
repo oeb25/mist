@@ -126,7 +126,6 @@ pub(crate) const KINDS_SRC: KindsSrc<'_> = KindsSrc {
         "auto",
         "default",
         "existential",
-        "union",
         "raw",
         "macro_rules",
         "yeet",
@@ -150,7 +149,6 @@ pub(crate) const KINDS_SRC: KindsSrc<'_> = KindsSrc {
     nodes: &[
         "SOURCE_FILE",
         "STRUCT",
-        "UNION",
         "ENUM",
         "FN",
         "MACRO",

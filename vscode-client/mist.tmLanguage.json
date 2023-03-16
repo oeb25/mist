@@ -1,0 +1,54 @@
+{
+  "scopeName": "source.mist",
+  "patterns": [{ "include": "#expression" }],
+  "repository": {
+    "expression": {
+      "patterns": [
+        { "include": "#keywords" },
+        { "include": "#comment" },
+        { "include": "#operator" },
+        { "include": "#variable" },
+
+        { "include": "#grouper" },
+        { "include": "#punctuation" }
+      ]
+    },
+    "keywords": {
+      "match": "\\b(const|struct|return|mut|fn|assume|assert|let|if|else|ghost|pure|requires|ensures|result|macro|forall|exists|while|invariant|true|false)\\b",
+      "name": "keyword"
+    },
+    "operator": {
+      "match": "(-|,|->|:=|!|!=|\\(|\\)|\\{|\\}|\\*|/|\\^|&&|&|\\+|<|<=|=|>|>=|\\|\\||\\||;|:|::|\\?)",
+      "name": "keyword.operator"
+    },
+    "variable": {
+      "match": "[a-zA-Z][a-zA-Z_]*",
+      "name": "identifier"
+    },
+
+    "grouper": {
+      "match": "\\(|\\)|\\[|\\]|\\{|\\}|\\{\\||\\|\\}|_",
+      "name": "punctuation.separator"
+    },
+    "punctuation": {
+      "match": ",|\\.|;|:",
+      "name": "punctuation.separator"
+    },
+    "paren-expression": {
+      "begin": "\\(",
+      "end": "\\)",
+      "beginCaptures": {
+        "0": { "name": "punctuation.paren.open" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.paren.close" }
+      },
+      "name": "expression.group",
+      "patterns": [{ "include": "#expression" }]
+    },
+    "comment": {
+      "match": "//.*",
+      "name": "comment.line"
+    }
+  }
+}

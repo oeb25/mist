@@ -40,3 +40,12 @@ core-test:
 
 core-watch-test:
     FORCE_COLOR=3 cargo watch -c -x "nextest run -p mist-core --success-output immediate"
+
+# LSP
+build-lsp:
+    cd vscode-client && npm run update
+    cargo build --release -p mist-lsp
+
+watch-lsp:
+    cd vscode-client && npm run update
+    cargo watch -i '*.mist' -s "cargo build --release -p mist-lsp && killall mist-lsp && echo killed!"
