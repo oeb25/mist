@@ -515,7 +515,7 @@ impl<'a> TypeCheckExpr<'a> {
     fn pretty_ty(&self, ty: Type) -> String {
         ir::pretty::ty(self, self.db, ty)
     }
-    fn expect_ty(&mut self, span: SourceSpan, expected: Type, actual: Type) -> Type {
+    pub fn expect_ty(&mut self, span: SourceSpan, expected: Type, actual: Type) -> Type {
         self.unify_inner(expected, actual).unwrap_or_else(|| {
             self.push_error(
                 span,
@@ -566,13 +566,7 @@ impl<'a> TypeCheckExpr<'a> {
             (TypeData::Optional { inner }, TypeData::Struct(_)) if *inner == t2 => t1,
             (TypeData::Struct(_), TypeData::Optional { inner }) if *inner == t1 => t2,
             (TypeData::Primitive(p1), TypeData::Primitive(p2)) if p1 == p2 => t1,
-            (TypeData::Struct(s1), TypeData::Struct(s2)) => {
-                if s1 == s2 {
-                    t1
-                } else {
-                    todo!()
-                }
-            }
+            (TypeData::Struct(s1), TypeData::Struct(s2)) if s1 == s2 => t1,
             (TypeData::Null, TypeData::Null) => t1,
             (TypeData::Null, TypeData::Optional { .. }) => t2,
             (TypeData::Optional { .. }, TypeData::Null) => t1,

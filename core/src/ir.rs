@@ -170,6 +170,19 @@ pub fn function_body(
     function.syntax(db).body().map(|body| {
         let mut checker = function_checker(db, program, function);
         let body = checker.check_block(body);
+        if let Some(ret) = function.ret(db) {
+            checker.expect_ty(
+                function
+                    .syntax(db)
+                    .ret()
+                    .map(|ret| ret.span())
+                    .unwrap_or_else(|| function.name(db).span()),
+                ret,
+                body.return_ty,
+            );
+        } else {
+            checker.expect_ty(function.name(db).span(), Type::void(db), body.return_ty);
+        }
         (checker.into(), body)
     })
 }
