@@ -48,6 +48,51 @@ impl LanguageServer for Backend {
 
 impl Backend {
     pub fn new(client: Client) -> Self {
+        use tracing_subscriber::prelude::*;
+
+        #[derive(Clone)]
+        struct ClientLogger {
+            client: Client,
+        }
+
+        impl std::io::Write for ClientLogger {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                let s = std::str::from_utf8(buf).unwrap().to_string();
+
+                let client = self.client.clone();
+                tokio::spawn(async move {
+                    client.log_message(MessageType::LOG, s).await;
+                });
+
+                Ok(buf.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let logger_client = ClientLogger {
+            client: client.clone(),
+        };
+        tracing_subscriber::Registry::default()
+            .with(
+                tracing_subscriber::EnvFilter::builder()
+                    .with_default_directive(tracing_subscriber::filter::LevelFilter::INFO.into())
+                    .from_env_lossy(),
+            )
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_target(false)
+                    .without_time()
+                    .with_ansi(false)
+                    .with_writer(move || logger_client.clone()),
+            )
+            .with(tracing_subscriber::filter::FilterFn::new(|m| {
+                !m.target().contains("salsa")
+            }))
+            .init();
+
         Self {
             client,
             files: Default::default(),
