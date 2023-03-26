@@ -453,6 +453,21 @@ impl<'src> Parser<'src> {
                 );
             }
             self.bump();
+        };
+
+        if is_ref {
+            self.ty();
+            self.builder.finish_node();
+            return;
+        }
+
+        self.skip_ws();
+        if let Some(T![ghost]) = self.current() {
+            self.builder.start_node(GHOST_TYPE.into());
+            self.bump();
+            self.ty();
+            self.builder.finish_node();
+            return;
         }
 
         let checkpoint = self.builder.checkpoint();
@@ -480,10 +495,6 @@ impl<'src> Parser<'src> {
         if let Some(T![?]) = self.current() {
             self.builder.start_node_at(checkpoint, OPTIONAL.into());
             self.bump();
-            self.builder.finish_node();
-        }
-
-        if is_ref {
             self.builder.finish_node();
         }
     }
@@ -563,6 +574,12 @@ impl<'src> Parser<'src> {
         self.bump();
 
         self.name();
+
+        self.skip_ws();
+        if let Some(T![:]) = self.current() {
+            self.bump();
+            self.ty();
+        }
 
         self.skip_ws();
         if let Some(T![=]) = self.current() {

@@ -1,0 +1,34 @@
+ghost fn im_ghost() -> bool {
+    true
+}
+
+fn im_not_ghost() -> bool {
+    im_ghost()
+}
+
+fn implicit_ghost_cast_in_non_ghost() -> ghost bool {
+    true
+}
+
+ghost fn implicit_ghost_cast_in_ghost() -> ghost bool {
+    true
+}
+
+fn a(x: &mut &mut int) -> &mut int { x }
+
+ghost fn ghost_int() -> int {
+    12
+}
+
+fn ghost_math() {
+    let x = ghost_int();
+    let y = 13;
+    let z: int = x + y;
+}
+
+ghost fn unit_ghost();
+fn unit_call() {
+    unit_ghost()
+}
+
+fn no_body_on_non_ghost();

@@ -67,6 +67,7 @@ Type =
   NamedType
 | Primitive
 | Optional
+| GhostType
 | RefType
 
 NamedType =
@@ -78,6 +79,9 @@ Primitive =
 
 Optional =
   Type '?'
+
+GhostType =
+  'ghost' Type
 
 RefType =
   '&' 'mut'? Type

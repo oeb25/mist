@@ -273,6 +273,12 @@ impl<'a> TypeCheckExpr<'a> {
                     }
                 };
 
+                let ty = if self.is_ghost(lhs) || self.is_ghost(rhs) {
+                    ty.ghost(self.db)
+                } else {
+                    ty
+                };
+
                 Expr::new(ty, ExprData::Bin { lhs, op, rhs })
             }
             mist_syntax::ast::Expr::CallExpr(it) => {
@@ -512,7 +518,7 @@ impl<'a> TypeCheckExpr<'a> {
 
         self.trace.alloc(expr.into(), new)
     }
-    fn pretty_ty(&self, ty: Type) -> String {
+    pub(crate) fn pretty_ty(&self, ty: Type) -> String {
         ir::pretty::ty(self, self.db, ty)
     }
     pub fn expect_ty(&mut self, span: SourceSpan, expected: Type, actual: Type) -> Type {
@@ -538,10 +544,10 @@ impl<'a> TypeCheckExpr<'a> {
             )
         })
     }
-    fn unify_inner(&mut self, t1: Type, t2: Type) -> Option<Type> {
-        Some(match (t1.data(self.db), t2.data(self.db)) {
-            (TypeData::Error, _) | (_, TypeData::Error) => t1,
-            (TypeData::Void, TypeData::Void) => t1,
+    fn unify_inner(&mut self, expected: Type, actual: Type) -> Option<Type> {
+        Some(match (expected.data(self.db), actual.data(self.db)) {
+            (TypeData::Error, _) | (_, TypeData::Error) => expected,
+            (TypeData::Void, TypeData::Void) => expected,
             (
                 &TypeData::Ref {
                     is_mut: mut1,
@@ -558,18 +564,32 @@ impl<'a> TypeCheckExpr<'a> {
                     inner: self.unify_inner(inner1, inner2)?,
                 },
             ),
-            (TypeData::Optional { inner: inner1 }, TypeData::Optional { inner: inner2 })
-                if inner1 == inner2 =>
-            {
-                t1
+            (TypeData::Optional(inner1), TypeData::Optional(inner2)) if inner1 == inner2 => {
+                expected
             }
-            (TypeData::Optional { inner }, TypeData::Struct(_)) if *inner == t2 => t1,
-            (TypeData::Struct(_), TypeData::Optional { inner }) if *inner == t1 => t2,
-            (TypeData::Primitive(p1), TypeData::Primitive(p2)) if p1 == p2 => t1,
-            (TypeData::Struct(s1), TypeData::Struct(s2)) if s1 == s2 => t1,
-            (TypeData::Null, TypeData::Null) => t1,
-            (TypeData::Null, TypeData::Optional { .. }) => t2,
-            (TypeData::Optional { .. }, TypeData::Null) => t1,
+            (TypeData::Optional(inner), TypeData::Struct(_)) if *inner == actual => expected,
+            (TypeData::Struct(_), TypeData::Optional(inner)) if *inner == expected => actual,
+            (TypeData::Primitive(p1), TypeData::Primitive(p2)) if p1 == p2 => expected,
+            (TypeData::Struct(s1), TypeData::Struct(s2)) if s1 == s2 => expected,
+            (TypeData::Null, TypeData::Null) => expected,
+            (TypeData::Null, TypeData::Optional(_)) => actual,
+            (TypeData::Optional(_), TypeData::Null) => expected,
+
+            // Ghost
+            (&TypeData::Ghost(t1), &TypeData::Ghost(t2)) => {
+                if let Some(t) = self.unify_inner(t1, t2) {
+                    t.ghost(self.db)
+                } else {
+                    return None;
+                }
+            }
+            (&TypeData::Ghost(t1), _) => {
+                if let Some(t) = self.unify_inner(t1, actual) {
+                    t.ghost(self.db)
+                } else {
+                    return None;
+                }
+            }
             _ => return None,
         })
     }
@@ -587,7 +607,7 @@ impl<'a> TypeCheckExpr<'a> {
             help,
             kind,
         };
-        TypeCheckErrors::push(self.db, err.clone());
+        TypeCheckErrors::push(self.db, err);
         // eprintln!("{:?}", miette::Error::new(err));
         Type::new(self.db, TypeData::Error)
     }
@@ -638,17 +658,18 @@ impl<'a> TypeCheckExpr<'a> {
             .map(|stmt| match stmt {
                 mist_syntax::ast::Stmt::LetStmt(it) => {
                     let name = it.name().unwrap();
-                    let ty = if let Some(ty) = it.ty() {
-                        Some(self.find_type(ty))
-                    } else {
-                        None
-                    };
+                    let ty = it.ty().map(|ty| self.find_type(ty));
                     let initializer = self.check(it.span(), it.initializer());
 
                     let ty = if let Some(ty) = ty {
+                        let span = it
+                            .initializer()
+                            .map(|i| i.span())
+                            .unwrap_or_else(|| it.span());
+                        self.expect_ty(span, ty, self.expr_ty(initializer));
                         ty
                     } else {
-                        self.trace.arena[initializer].ty
+                        self.expr_ty(initializer)
                     };
 
                     let variable = self.declare_variable(&name, ty);
@@ -753,6 +774,10 @@ impl<'a> TypeCheckExpr<'a> {
     fn struct_fields(&self, s: crate::ir::Struct) -> Vec<StructField> {
         crate::ir::struct_fields(self.db, self.program, s)
     }
+
+    fn is_ghost(&self, e: Idx<Expr>) -> bool {
+        self.expr_ty(e).is_ghost(self.db)
+    }
 }
 pub fn check_param_list(
     db: &dyn crate::Db,
@@ -851,4 +876,8 @@ pub enum TypeCheckErrorKind {
     NotYetImplemented(String),
     #[error("no struct with name `{name}` was found")]
     UnknownStruct { name: String },
+    #[error("`ghost` was used where only non-ghost can be used")]
+    GhostUsedInNonGhost,
+    #[error("only `ghost` functions can be declared without a body")]
+    NonGhostFunctionWithoutBody,
 }

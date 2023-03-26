@@ -5,7 +5,7 @@ pub mod operators;
 pub use expr_ext::LiteralKind;
 pub use generated::*;
 
-use crate::{support::AstNode, SourceSpan};
+use crate::{support::AstNode, SourceSpan, SyntaxNode, SyntaxToken};
 
 pub struct Pure<T>(T);
 
@@ -36,7 +36,18 @@ where
     T: AstNode,
 {
     fn span(&self) -> SourceSpan {
-        let range = self.syntax().text_range();
+        self.syntax().span()
+    }
+}
+impl Spanned for SyntaxNode {
+    fn span(&self) -> SourceSpan {
+        let range = self.text_range();
+        SourceSpan::new_start_end(range.start().into(), range.end().into())
+    }
+}
+impl Spanned for SyntaxToken {
+    fn span(&self) -> SourceSpan {
+        let range = self.text_range();
         SourceSpan::new_start_end(range.start().into(), range.end().into())
     }
 }

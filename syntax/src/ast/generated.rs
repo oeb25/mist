@@ -289,6 +289,7 @@ pub enum SyntaxKind {
     ARRAY_TYPE,
     SLICE_TYPE,
     REF_TYPE,
+    GHOST_TYPE,
     INFER_TYPE,
     FN_PTR_TYPE,
     FOR_TYPE,
@@ -1472,6 +1473,33 @@ impl AstNode for Optional {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GhostType {
+    pub(crate) syntax: SyntaxNode,
+}
+impl GhostType {
+    pub fn ghost_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![ghost])
+    }
+    pub fn ty(&self) -> Option<Type> {
+        support::child(&self.syntax)
+    }
+}
+impl AstNode for GhostType {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == GHOST_TYPE
+    }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RefType {
     pub(crate) syntax: SyntaxNode,
 }
@@ -2265,6 +2293,7 @@ pub enum Type {
     NamedType(NamedType),
     Primitive(Primitive),
     Optional(Optional),
+    GhostType(GhostType),
     RefType(RefType),
 }
 impl From<NamedType> for Type {
@@ -2282,6 +2311,11 @@ impl From<Optional> for Type {
         Type::Optional(node)
     }
 }
+impl From<GhostType> for Type {
+    fn from(node: GhostType) -> Type {
+        Type::GhostType(node)
+    }
+}
 impl From<RefType> for Type {
     fn from(node: RefType) -> Type {
         Type::RefType(node)
@@ -2289,13 +2323,17 @@ impl From<RefType> for Type {
 }
 impl AstNode for Type {
     fn can_cast(kind: SyntaxKind) -> bool {
-        matches!(kind, NAMED_TYPE | PRIMITIVE | OPTIONAL | REF_TYPE)
+        matches!(
+            kind,
+            NAMED_TYPE | PRIMITIVE | OPTIONAL | GHOST_TYPE | REF_TYPE
+        )
     }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         let res = match syntax.kind() {
             NAMED_TYPE => Type::NamedType(NamedType { syntax }),
             PRIMITIVE => Type::Primitive(Primitive { syntax }),
             OPTIONAL => Type::Optional(Optional { syntax }),
+            GHOST_TYPE => Type::GhostType(GhostType { syntax }),
             REF_TYPE => Type::RefType(RefType { syntax }),
             _ => return None,
         };
@@ -2306,6 +2344,7 @@ impl AstNode for Type {
             Type::NamedType(it) => &it.syntax,
             Type::Primitive(it) => &it.syntax,
             Type::Optional(it) => &it.syntax,
+            Type::GhostType(it) => &it.syntax,
             Type::RefType(it) => &it.syntax,
         }
     }
@@ -2680,6 +2719,11 @@ impl std::fmt::Display for Primitive {
     }
 }
 impl std::fmt::Display for Optional {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for GhostType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }

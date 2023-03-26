@@ -109,6 +109,34 @@ pub fn functions(db: &dyn crate::Db, program: Program) -> Vec<Function> {
                 let param_list = typecheck::check_param_list(db, program, f.param_list());
                 let ret_ty = f.ret().map(|ty| find_type(db, program, ty));
 
+                match ret_ty {
+                    Some(ty) if !attrs.contains(Attrs::GHOST) && ty.is_ghost(db) => {
+                        let err = TypeCheckError {
+                            input: program.program(db).to_string(),
+                            span: f.ret().unwrap().span(),
+                            label: None,
+                            help: None,
+                            kind: TypeCheckErrorKind::GhostUsedInNonGhost,
+                        };
+                        TypeCheckErrors::push(db, err);
+                    }
+                    _ => {}
+                }
+
+                if !attrs.contains(Attrs::GHOST) && f.body().is_none() {
+                    let err = TypeCheckError {
+                        input: program.program(db).to_string(),
+                        span: f
+                            .semicolon_token()
+                            .map(|t| t.span())
+                            .unwrap_or_else(|| name.span()),
+                        label: None,
+                        help: None,
+                        kind: TypeCheckErrorKind::NonGhostFunctionWithoutBody,
+                    };
+                    TypeCheckErrors::push(db, err);
+                }
+
                 Some(Function::new(db, f, name, attrs, param_list, ret_ty))
             }
             _ => None,
@@ -119,20 +147,22 @@ fn function_checker(db: &dyn crate::Db, program: Program, function: Function) ->
     let mut checker = TypeCheckExpr::new(db, program, function.ret(db));
 
     for f in functions(db, program) {
+        let params = f
+            .param_list(db)
+            .params
+            .iter()
+            .map(|param| param.ty)
+            .collect();
+        let return_ty = f.ret(db).unwrap_or_else(|| Type::new(db, TypeData::Void));
+        let return_ty = if f.attrs(db).contains(Attrs::GHOST) {
+            return_ty.ghost(db)
+        } else {
+            return_ty
+        };
+
         checker.declare_variable(
             f.name(db),
-            Type::new(
-                db,
-                TypeData::Function {
-                    params: f
-                        .param_list(db)
-                        .params
-                        .iter()
-                        .map(|param| param.ty)
-                        .collect(),
-                    return_ty: f.ret(db).unwrap_or_else(|| Type::new(db, TypeData::Void)),
-                },
-            ),
+            Type::new(db, TypeData::Function { params, return_ty }),
         );
     }
 
@@ -252,7 +282,7 @@ pub fn find_type(db: &dyn crate::Db, program: Program, ty: mist_syntax::ast::Typ
         mist_syntax::ast::Type::Optional(it) => {
             if let Some(ty) = it.ty() {
                 let inner = find_type(db, program, ty);
-                Type::new(db, TypeData::Optional { inner })
+                Type::new(db, TypeData::Optional(inner))
             } else {
                 todo!()
             }
@@ -273,6 +303,22 @@ pub fn find_type(db: &dyn crate::Db, program: Program, ty: mist_syntax::ast::Typ
                 };
                 eprintln!("{:?}", miette::Error::new(err));
                 todo!()
+            }
+        }
+        mist_syntax::ast::Type::GhostType(t) => {
+            if let Some(ty) = t.ty() {
+                let inner = find_type(db, program, ty);
+                Type::new(db, TypeData::Ghost(inner))
+            } else {
+                let err = TypeCheckError {
+                    input: program.program(db).to_string(),
+                    span: t.span(),
+                    label: None,
+                    help: None,
+                    kind: TypeCheckErrorKind::UndefinedType("ghost of what".to_string()),
+                };
+                eprintln!("{:?}", miette::Error::new(err));
+                Type::error(db)
             }
         }
     }
@@ -458,8 +504,9 @@ pub struct Type {
 pub enum TypeData {
     Error,
     Void,
+    Ghost(Type),
     Ref { is_mut: bool, inner: Type },
-    Optional { inner: Type },
+    Optional(Type),
     Primitive(Primitive),
     Struct(Struct),
     Null,
@@ -470,6 +517,22 @@ pub enum TypeData {
 pub enum Primitive {
     Int,
     Bool,
+}
+
+impl Type {
+    pub(crate) fn ghost(self, db: &dyn crate::Db) -> Self {
+        match self.data(db) {
+            TypeData::Ghost(_) => self,
+            _ => Type::new(db, TypeData::Ghost(self)),
+        }
+    }
+    pub(crate) fn is_ghost(self, db: &dyn crate::Db) -> bool {
+        match self.data(db) {
+            TypeData::Ghost(_) => true,
+            // TODO: Should we recurse and check if non of the children are ghost?
+            _ => false,
+        }
+    }
 }
 
 #[salsa::tracked]
@@ -518,7 +581,8 @@ pub mod pretty {
                     pp_ty(_pp, db, inner)
                 )
             }
-            &TypeData::Optional { inner } => format!("{}?", pp_ty(_pp, db, inner)),
+            &TypeData::Ghost(inner) => format!("ghost {}", pp_ty(_pp, db, inner)),
+            &TypeData::Optional(inner) => format!("{}?", pp_ty(_pp, db, inner)),
             TypeData::Primitive(t) => format!("{t:?}").to_lowercase(),
             TypeData::Struct(s) => struct_name(db, *s).to_string(),
             TypeData::Null => "null".to_string(),

@@ -821,7 +821,8 @@ impl ViperLowering<'_> {
                     },
                 )
             }
-            TypeData::Optional { inner } => self.lower_input_param(
+            &TypeData::Ghost(inner) => self.lower_input_param(inner, flags),
+            TypeData::Optional(inner) => self.lower_input_param(
                 *inner,
                 LowerTypeFlags {
                     optional: true,
@@ -886,8 +887,9 @@ impl ViperLowering<'_> {
                 preconditions: vec![],
                 postconditions: vec![],
             },
-            TypeData::Ref { is_mut, inner } => self.lower_ty(*inner),
-            TypeData::Optional { inner } => self.lower_ty(*inner),
+            TypeData::Ref { is_mut: _, inner } => self.lower_ty(*inner),
+            TypeData::Ghost(inner) => self.lower_ty(*inner),
+            TypeData::Optional(inner) => self.lower_ty(*inner),
             TypeData::Primitive(it) => {
                 let ty = match it {
                     mist_core::ir::Primitive::Int => SType::int(),
