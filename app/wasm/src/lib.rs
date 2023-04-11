@@ -31,8 +31,8 @@ pub fn parse(src: &str) -> String {
 #[wasm_bindgen]
 pub fn type_check(src: &str) -> String {
     let db = mist_viper_backend::db::Database::default();
-    let source = mist_core::ir::SourceProgram::new(&db, src.to_string());
-    let program = mist_core::ir::parse_program(&db, source);
+    let source = mist_core::hir::SourceProgram::new(&db, src.to_string());
+    let program = mist_core::hir::parse_program(&db, source);
 
     let parse_errors = program.errors(&db);
     let viper_file = mist_viper_backend::gen::viper_file(&db, program);

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use mist_core::ir::{Program, SourceProgram};
+use mist_core::hir::{Program, SourceProgram};
 use mist_syntax::SourceSpan;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::request::{GotoDeclarationParams, GotoDeclarationResponse};
@@ -258,7 +258,7 @@ impl Backend {
 
     fn program(&self, db: &dyn crate::Db, uri: Url) -> Option<Program> {
         let source = self.source_program(db, uri)?;
-        Some(mist_core::ir::parse_program(db, source))
+        Some(mist_core::hir::parse_program(db, source))
     }
 
     async fn update_text(&self, uri: Url, source: String) -> Result<()> {
@@ -268,8 +268,8 @@ impl Backend {
         let errors = {
             let db = self.db();
 
-            let source = mist_core::ir::SourceProgram::new(&db, text.to_string());
-            let program = mist_core::ir::parse_program(&db, source);
+            let source = mist_core::hir::SourceProgram::new(&db, text.to_string());
+            let program = mist_core::hir::parse_program(&db, source);
 
             let parse_errors = program.errors(&db);
             let type_errors = mist_viper_backend::gen::viper_file::accumulated::<

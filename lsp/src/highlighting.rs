@@ -5,7 +5,7 @@ use std::{ops::ControlFlow, sync::Arc};
 use derive_new::new;
 use itertools::Itertools;
 use mist_core::{
-    ir::{self, ExprIdx, ItemContext, SourceProgram, VariableRef},
+    hir::{self, ExprIdx, ItemContext, SourceProgram, VariableRef},
     salsa,
     util::Position,
     visit::{PostOrder, Visitor, Walker},
@@ -20,7 +20,7 @@ use TokenType as TT;
 
 #[salsa::tracked]
 pub fn highlighting(db: &dyn crate::Db, source: SourceProgram) -> Arc<HighlightResult> {
-    let program = ir::parse_program(db, source);
+    let program = hir::parse_program(db, source);
 
     let mut hf = Highlighter::new(db, source.text(db));
     PostOrder::new(db).walk_program(&mut hf, program);
@@ -166,7 +166,7 @@ impl<'src> Visitor<()> for Highlighter<'src> {
         ControlFlow::Continue(())
     }
 
-    fn visit_param(&mut self, _: &ItemContext, param: &ir::Param) -> ControlFlow<()> {
+    fn visit_param(&mut self, _: &ItemContext, param: &hir::Param) -> ControlFlow<()> {
         self.push(&param.name, TT::Parameter, None);
 
         ControlFlow::Continue(())
@@ -176,23 +176,23 @@ impl<'src> Visitor<()> for Highlighter<'src> {
         let span = cx.expr_span(expr);
         let expr = cx.expr(expr);
         match &expr.data {
-            ir::ExprData::Literal(_) => {
+            hir::ExprData::Literal(_) => {
                 let tt = match expr.ty.data(self.db) {
-                    ir::TypeData::Function { .. } => TT::Function,
-                    ir::TypeData::Primitive(_) => TT::Number,
-                    ir::TypeData::Null => TT::Number,
+                    hir::TypeData::Function { .. } => TT::Function,
+                    hir::TypeData::Primitive(_) => TT::Number,
+                    hir::TypeData::Null => TT::Number,
                     _ => return ControlFlow::Continue(()),
                 };
 
                 self.push(span, tt, None);
             }
-            ir::ExprData::Result => {
+            hir::ExprData::Result => {
                 self.push(span, TT::Keyword, None);
             }
-            ir::ExprData::Struct { struct_span, .. } => {
+            hir::ExprData::Struct { struct_span, .. } => {
                 self.push(*struct_span, TT::Type, None);
             }
-            ir::ExprData::If(it) => {
+            hir::ExprData::If(it) => {
                 if it.is_ghost {
                     self.inlay_hints.push(InlayHint {
                         position: Position::from_byte_offset(self.src, it.if_span.offset()),
@@ -209,12 +209,12 @@ impl<'src> Visitor<()> for Highlighter<'src> {
         ControlFlow::Continue(())
     }
 
-    fn visit_ty(&mut self, _: &ItemContext, ty: ir::Type) -> ControlFlow<()> {
+    fn visit_ty(&mut self, _: &ItemContext, ty: hir::Type) -> ControlFlow<()> {
         match ty.data(self.db) {
-            ir::TypeData::Primitive(_) => {
+            hir::TypeData::Primitive(_) => {
                 self.push_opt(ty.span(self.db), TT::Type, Some(TM::DefaultLibrary));
             }
-            ir::TypeData::Struct(_) => {
+            hir::TypeData::Struct(_) => {
                 self.push_opt(ty.span(self.db), TT::Type, None);
             }
             _ => {}
@@ -223,8 +223,8 @@ impl<'src> Visitor<()> for Highlighter<'src> {
         ControlFlow::Continue(())
     }
 
-    fn visit_stmt(&mut self, cx: &ItemContext, stmt: &ir::Statement) -> ControlFlow<()> {
-        if let ir::StatementData::Let {
+    fn visit_stmt(&mut self, cx: &ItemContext, stmt: &hir::Statement) -> ControlFlow<()> {
+        if let hir::StatementData::Let {
             variable,
             explicit_ty,
             ..

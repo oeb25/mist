@@ -14,7 +14,7 @@ use mist_syntax::{
 use thiserror::Error;
 use tracing::debug;
 
-use crate::ir::{
+use crate::hir::{
     self, AssertionKind, Block, Condition, Decreases, Else, Expr, ExprData, ExprIdx, Field,
     FieldParent, Ident, IfExpr, Literal, Param, ParamList, Primitive, Program, Quantifier,
     Statement, StatementData, StructExprField, Type, TypeData, Variable, VariableId, VariableIdx,
@@ -87,18 +87,18 @@ impl std::ops::Index<VariableIdx> for ItemContext {
     }
 }
 impl ItemContext {
-    pub fn new(db: &dyn crate::Db, program: Program, item: ir::Item) -> ItemContext {
+    pub fn new(db: &dyn crate::Db, program: Program, item: hir::Item) -> ItemContext {
         match item {
-            ir::Item::Type(_) => TypeCheckExpr::init(db, program, None).into(),
+            hir::Item::Type(_) => TypeCheckExpr::init(db, program, None).into(),
             // TODO: We should do something about a special `this` or something
-            ir::Item::TypeInvariant(_) => TypeCheckExpr::init(db, program, None).into(),
-            ir::Item::Function(f) => Self::new_function(db, program, f),
+            hir::Item::TypeInvariant(_) => TypeCheckExpr::init(db, program, None).into(),
+            hir::Item::Function(f) => Self::new_function(db, program, f),
         }
     }
     pub fn new_function(
         db: &dyn crate::Db,
         program: Program,
-        function: ir::Function,
+        function: hir::Function,
     ) -> ItemContext {
         TypeCheckExpr::init(db, program, Some(function)).into()
     }
@@ -285,7 +285,7 @@ impl<'a> TypeCheckExpr<'a> {
     pub(crate) fn init(
         db: &'a dyn crate::Db,
         program: Program,
-        function: Option<ir::Function>,
+        function: Option<hir::Function>,
     ) -> Self {
         let mut checker = Self {
             db,
@@ -310,8 +310,8 @@ impl<'a> TypeCheckExpr<'a> {
         }
 
         for item in program.items(db) {
-            let f = match ir::item(db, program, item.clone()) {
-                Some(ir::Item::Function(f)) => f,
+            let f = match hir::item(db, program, item.clone()) {
+                Some(hir::Item::Function(f)) => f,
                 _ => continue,
             };
             let is_ghost = f.attrs(db).is_ghost();
@@ -1084,7 +1084,7 @@ impl<'a> TypeCheckExpr<'a> {
         self.trace.alloc(expr.into(), new)
     }
     pub(crate) fn pretty_ty(&self, ty: Type) -> String {
-        ir::pretty::ty(self, self.db, ty)
+        hir::pretty::ty(self, self.db, ty)
     }
     pub fn expect_ty(&mut self, span: SourceSpan, expected: Type, actual: Type) -> Type {
         self.unify_inner(expected, actual).unwrap_or_else(|| {
@@ -1234,7 +1234,7 @@ impl<'a> TypeCheckExpr<'a> {
         )
     }
     fn find_type(&self, ty: mist_syntax::ast::Type) -> Type {
-        crate::ir::find_type(self.db, self.program, ty)
+        crate::hir::find_type(self.db, self.program, ty)
     }
     fn check_decreases(&mut self, decreases: Option<mist_syntax::ast::Decreases>) -> Decreases {
         if let Some(d) = decreases {
@@ -1388,11 +1388,11 @@ impl<'a> TypeCheckExpr<'a> {
     }
 
     fn find_named_type(&self, name: Ident) -> Type {
-        crate::ir::find_named_type(self.db, self.program, name)
+        crate::hir::find_named_type(self.db, self.program, name)
     }
 
-    fn struct_fields(&self, s: crate::ir::Struct) -> Vec<Field> {
-        crate::ir::struct_fields(self.db, self.program, s)
+    fn struct_fields(&self, s: crate::hir::Struct) -> Vec<Field> {
+        crate::hir::struct_fields(self.db, self.program, s)
     }
 
     fn is_ghost(&self, e: ExprIdx) -> bool {
@@ -1416,7 +1416,7 @@ pub fn check_param_list(
                             todo!()
                         },
                         ty: if let Some(ty) = p.ty() {
-                            crate::ir::find_type(db, program, ty.clone())
+                            crate::hir::find_type(db, program, ty.clone())
                         } else {
                             Type::new(db, TypeData::Error, None)
                         }
@@ -1428,7 +1428,7 @@ pub fn check_param_list(
     }
 }
 
-impl ir::pretty::PrettyPrint for ItemContext {
+impl hir::pretty::PrettyPrint for ItemContext {
     fn resolve_var(&self, idx: VariableIdx) -> String {
         self.declarations.map[idx].name.to_string()
     }
@@ -1438,7 +1438,7 @@ impl ir::pretty::PrettyPrint for ItemContext {
     }
 }
 
-impl ir::pretty::PrettyPrint for TypeCheckExpr<'_> {
+impl hir::pretty::PrettyPrint for TypeCheckExpr<'_> {
     fn resolve_var(&self, idx: VariableIdx) -> String {
         self.declarations.map[idx].name.to_string()
     }
@@ -1450,10 +1450,10 @@ impl ir::pretty::PrettyPrint for TypeCheckExpr<'_> {
 
 impl ItemContext {
     pub fn pretty_expr(&self, db: &dyn crate::Db, expr: ExprIdx) -> String {
-        ir::pretty::expr(self, db, expr)
+        hir::pretty::expr(self, db, expr)
     }
     pub fn pretty_ty(&self, db: &dyn crate::Db, ty: Type) -> String {
-        ir::pretty::ty(self, db, ty)
+        hir::pretty::ty(self, db, ty)
     }
 }
 

@@ -33,7 +33,10 @@ export async function activate(context: ExtensionContext) {
   const traceOutputChannel = window.createOutputChannel(
     "Mist Language Server trace"
   );
-  const command = process.env.SERVER_PATH || "mist-lsp";
+  const command =
+    process.env.SERVER_PATH ||
+    "/Users/oeb25/.cargo-target/debug/mist-lsp" ||
+    "mist-lsp";
   const run: Executable = {
     command,
     options: {

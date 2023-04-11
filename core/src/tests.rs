@@ -1,16 +1,16 @@
 use salsa::DebugWithDb;
 use tracing_test::traced_test;
 
-use crate::ir::function_body;
+use crate::hir::function_body;
 
 // #[test]
 // fn basic() {
 //     let db = crate::db::Database::default();
 
 //     let source =
-//         crate::ir::SourceProgram::new(&db, include_str!("../../examples/list.mist").to_string());
-//     let program = crate::ir::parse_program(&db, source);
-//     let functions = crate::ir::functions(&db, program);
+//         crate::hir::SourceProgram::new(&db, include_str!("../../examples/list.mist").to_string());
+//     let program = crate::hir::parse_program(&db, source);
+//     let functions = crate::hir::functions(&db, program);
 //     for function in &functions {
 //         let param_list = function.param_list(&db);
 //         for param in &param_list.params {
@@ -30,9 +30,9 @@ use crate::ir::function_body;
 //     let db = crate::db::Database::default();
 
 //     let src = "fn a(x: int) { a(x[0]); }";
-//     let source = crate::ir::SourceProgram::new(&db, src.to_string());
-//     let program = crate::ir::parse_program(&db, source);
-//     let functions = crate::ir::functions(&db, program);
+//     let source = crate::hir::SourceProgram::new(&db, src.to_string());
+//     let program = crate::hir::parse_program(&db, source);
+//     let functions = crate::hir::functions(&db, program);
 //     eprintln!("Functions = {:?}", functions.debug_all(&db));
 // }
 
@@ -42,9 +42,9 @@ use crate::ir::function_body;
 //     let db = crate::db::Database::default();
 
 //     let src = "fn f() { f() f() }";
-//     let source = crate::ir::SourceProgram::new(&db, src.to_string());
-//     let program = crate::ir::parse_program(&db, source);
-//     let functions = crate::ir::functions(&db, program);
+//     let source = crate::hir::SourceProgram::new(&db, src.to_string());
+//     let program = crate::hir::parse_program(&db, source);
+//     let functions = crate::hir::functions(&db, program);
 //     eprintln!("Functions = {:#?}", functions.debug_all(&db));
 //     assert_eq!(program.errors(&db).len(), 1);
 // }

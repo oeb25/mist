@@ -2,7 +2,7 @@ use std::ops::ControlFlow;
 
 use derive_new::new;
 use mist_core::{
-    ir::{
+    hir::{
         self, pretty, ExprData, ExprIdx, Field, FieldParent, Ident, ItemContext, Param,
         SourceProgram, Type, TypeData, VariableRef,
     },
@@ -14,7 +14,7 @@ use mist_syntax::{ast::Spanned, SourceSpan};
 
 #[salsa::tracked]
 pub fn hover(db: &dyn crate::Db, source: SourceProgram, byte_offset: usize) -> Option<HoverResult> {
-    let program = ir::parse_program(db, source);
+    let program = hir::parse_program(db, source);
 
     let mut hf = HoverFinder::new(db, byte_offset);
     match PostOrder::new(db).walk_program(&mut hf, program) {
@@ -60,7 +60,7 @@ impl<'a> Visitor<Option<HoverResult>> for HoverFinder<'a> {
                     let struct_ty = pretty::ty(
                         cx,
                         self.db,
-                        ir::struct_ty(self.db, s, s.name(self.db).span()),
+                        hir::struct_ty(self.db, s, s.name(self.db).span()),
                     );
                     let ty = pretty::ty(cx, self.db, field.ty);
                     break_code(

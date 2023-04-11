@@ -1,7 +1,7 @@
 #![feature(control_flow_enum)]
 
 mod db;
-pub mod ir;
+pub mod hir;
 #[cfg(test)]
 mod tests;
 mod typecheck;
@@ -15,27 +15,27 @@ pub use typecheck::{
 
 #[salsa::jar(db = Db)]
 pub struct Jar(
-    crate::ir::SourceProgram,
-    crate::ir::Program,
-    crate::ir::Function,
-    crate::ir::Struct,
-    crate::ir::TypeInvariant,
-    crate::ir::Type,
-    crate::ir::TypeDecl,
-    crate::ir::VariableId,
-    crate::ir::Variable,
-    crate::ir::parse_program,
-    // crate::ir::items,
-    crate::ir::item,
-    // crate::ir::top_level_type_decls,
-    crate::ir::struct_fields,
-    crate::ir::struct_ty,
-    // crate::ir::functions,
-    crate::ir::function_body,
-    crate::ir::ty_inv_block,
-    // crate::ir::structs,
-    crate::ir::find_type,
-    crate::ir::find_named_type,
+    crate::hir::SourceProgram,
+    crate::hir::Program,
+    crate::hir::Function,
+    crate::hir::Struct,
+    crate::hir::TypeInvariant,
+    crate::hir::Type,
+    crate::hir::TypeDecl,
+    crate::hir::VariableId,
+    crate::hir::Variable,
+    crate::hir::parse_program,
+    // crate::hir::items,
+    crate::hir::item,
+    // crate::hir::top_level_type_decls,
+    crate::hir::struct_fields,
+    crate::hir::struct_ty,
+    // crate::hir::functions,
+    crate::hir::function_body,
+    crate::hir::ty_inv_block,
+    // crate::hir::structs,
+    crate::hir::find_type,
+    crate::hir::find_named_type,
     crate::typecheck::TypeCheckErrors,
 );
 

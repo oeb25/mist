@@ -2,7 +2,7 @@ use std::ops::ControlFlow;
 
 use derive_new::new;
 use mist_core::{
-    ir::{self, Ident, ItemContext, SourceProgram, VariableRef},
+    hir::{self, Ident, ItemContext, SourceProgram, VariableRef},
     salsa,
     visit::{PostOrder, Visitor, Walker},
 };
@@ -20,7 +20,7 @@ pub fn goto_declaration(
     source: SourceProgram,
     byte_offset: usize,
 ) -> Option<DeclarationSpans> {
-    let program = ir::parse_program(db, source);
+    let program = hir::parse_program(db, source);
 
     match PostOrder::new(db).walk_program(&mut DeclarationFinder::new(db, byte_offset), program) {
         ControlFlow::Break(result) => result,
@@ -38,7 +38,7 @@ impl Visitor<Option<DeclarationSpans>> for DeclarationFinder<'_> {
     fn visit_field(
         &mut self,
         _cx: &ItemContext,
-        field: &ir::Field,
+        field: &hir::Field,
         reference: &Ident,
     ) -> ControlFlow<Option<DeclarationSpans>> {
         if reference.contains_pos(self.byte_offset) {
@@ -56,11 +56,11 @@ impl Visitor<Option<DeclarationSpans>> for DeclarationFinder<'_> {
     fn visit_ty(
         &mut self,
         _cx: &ItemContext,
-        ty: ir::Type,
+        ty: hir::Type,
     ) -> ControlFlow<Option<DeclarationSpans>> {
         match ty.span(self.db) {
             Some(span) if span.contains(self.byte_offset) => match ty.data(self.db) {
-                ir::TypeData::Struct(s) => {
+                hir::TypeData::Struct(s) => {
                     let Some(original_span) = ty.span(self.db) else { return ControlFlow::Continue(()) };
                     let target_span = s.name(self.db).span();
                     ControlFlow::Break(Some(DeclarationSpans {

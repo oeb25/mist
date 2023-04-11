@@ -3,7 +3,7 @@ use std::ops::ControlFlow;
 use derive_new::new;
 
 use crate::{
-    ir::{
+    hir::{
         self, Block, Decreases, Else, ExprData, ExprIdx, Field, Function, Ident, IfExpr, Param,
         ParamList, Program, Statement, StatementData, Type, TypeData, TypeDecl, TypeInvariant,
         VariableRef,
@@ -254,13 +254,13 @@ where
             visitor.visit_ty_decl(cx, ty_decl)?;
         }
         match ty_decl.data(self.db) {
-            ir::TypeDeclData::Struct(s) => {
+            hir::TypeDeclData::Struct(s) => {
                 self.walk_ty(
                     visitor,
                     cx,
-                    ir::find_named_type(self.db, program, s.name(self.db)),
+                    hir::find_named_type(self.db, program, s.name(self.db)),
                 )?;
-                for f in ir::struct_fields(self.db, program, s) {
+                for f in hir::struct_fields(self.db, program, s) {
                     self.walk_field(visitor, cx, &f, &f.name)?
                 }
             }
@@ -281,9 +281,9 @@ where
         self.walk_ty(
             visitor,
             cx,
-            ir::find_named_type(self.db, program, ty_inv.name(self.db)),
+            hir::find_named_type(self.db, program, ty_inv.name(self.db)),
         )?;
-        self.walk_block(visitor, cx, &ir::ty_inv_block(self.db, program, ty_inv).1)
+        self.walk_block(visitor, cx, &hir::ty_inv_block(self.db, program, ty_inv).1)
     }
 
     fn walk_field<T>(
@@ -555,16 +555,16 @@ fn walk_program<T>(
     program: Program,
 ) -> ControlFlow<T> {
     for item in program.items(db) {
-        let Some(item) = ir::item(db, program, item.clone()) else { continue };
+        let Some(item) = hir::item(db, program, item.clone()) else { continue };
         let cx = ItemContext::new(db, program, item);
         match item {
-            ir::Item::Type(ty_decl) => {
+            hir::Item::Type(ty_decl) => {
                 walker.walk_ty_decl(visitor, program, &cx, ty_decl)?;
             }
-            ir::Item::TypeInvariant(ty_inv) => {
+            hir::Item::TypeInvariant(ty_inv) => {
                 walker.walk_ty_inv(visitor, program, &cx, ty_inv)?;
             }
-            ir::Item::Function(f) => {
+            hir::Item::Function(f) => {
                 walker.walk_function(visitor, program, &cx, f)?;
             }
         }
@@ -598,7 +598,7 @@ fn walk_function<T>(
         }
     }
 
-    let body = ir::function_body(db, program, function);
+    let body = hir::function_body(db, program, function);
     if let Some((cx, body)) = body {
         walker.walk_block(visitor, &cx, &body)?;
     }

@@ -14,8 +14,8 @@ fn main() -> Result<()> {
 
     let db = mist_viper_backend::db::Database::default();
 
-    let source = mist_core::ir::SourceProgram::new(&db, src);
-    let program = mist_core::ir::parse_program(&db, source);
+    let source = mist_core::hir::SourceProgram::new(&db, src);
+    let program = mist_core::hir::parse_program(&db, source);
     let viper_file = mist_viper_backend::gen::viper_file(&db, program);
 
     println!("{viper_file}");

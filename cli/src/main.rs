@@ -61,8 +61,8 @@ async fn cli() -> Result<()> {
             let source = std::fs::read_to_string(&file)
                 .into_diagnostic()
                 .wrap_err_with(|| format!("failed to read `{}`", file.display()))?;
-            let source = mist_core::ir::SourceProgram::new(&db, source);
-            let program = mist_core::ir::parse_program(&db, source);
+            let source = mist_core::hir::SourceProgram::new(&db, source);
+            let program = mist_core::hir::parse_program(&db, source);
         }
         Cli::Fmt { file } => {
             let db = crate::db::Database::default();
@@ -70,8 +70,8 @@ async fn cli() -> Result<()> {
             let source = std::fs::read_to_string(&file)
                 .into_diagnostic()
                 .wrap_err_with(|| format!("failed to read `{}`", file.display()))?;
-            let source = mist_core::ir::SourceProgram::new(&db, source);
-            let program = mist_core::ir::parse_program(&db, source);
+            let source = mist_core::hir::SourceProgram::new(&db, source);
+            let program = mist_core::hir::parse_program(&db, source);
         }
         Cli::Viper {
             viperserver_jar,
@@ -82,8 +82,8 @@ async fn cli() -> Result<()> {
             let src = std::fs::read_to_string(&file)
                 .into_diagnostic()
                 .wrap_err_with(|| format!("failed to read `{}`", file.display()))?;
-            let source = mist_core::ir::SourceProgram::new(&db, src.clone());
-            let program = mist_core::ir::parse_program(&db, source);
+            let source = mist_core::hir::SourceProgram::new(&db, src.clone());
+            let program = mist_core::hir::parse_program(&db, source);
             let viper_src = mist_viper_backend::gen::viper_file(&db, program);
 
             let parse_errors = program.errors(&db);
