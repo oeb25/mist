@@ -59,7 +59,7 @@ fn sourcegen_ast() -> color_eyre::Result<()> {
     }
 
     let Ok(post_check) = std::process::Command::new("cargo")
-        .args(["check", "-p", "mist-syntax"])
+        .args(["check", "--color", "always", "-p", "mist-syntax"])
         .output()
     else {
         fs::copy(&backup_path, &output_path)?;
@@ -70,7 +70,7 @@ fn sourcegen_ast() -> color_eyre::Result<()> {
     if !post_check.status.success() {
         fs::copy(&backup_path, &output_path)?;
         fs::remove_file(&backup_path)?;
-        panic!("{post_check:?}")
+        panic!("{}", std::str::from_utf8(&post_check.stderr).unwrap())
     }
 
     fs::remove_file(&backup_path)?;
@@ -329,6 +329,10 @@ fn generate_nodes(grammar: &AstSrc) -> String {
     let nodes = grammar.nodes.iter().map(|node| {
         let name = format_ident!("{}", node.name);
         let kind = format_ident!("{}", node.name.to_shouty_snake_case());
+        let traits = node.traits.iter().map(|trait_name| {
+            let trait_name = format_ident!("{}", trait_name);
+            quote!(impl crate::ast::#trait_name for #name {})
+        });
 
         let methods = node.fields.iter().map(|field| {
             let method_name = field.method_name();
@@ -360,6 +364,8 @@ fn generate_nodes(grammar: &AstSrc) -> String {
             pub struct #name {
                 pub(crate) syntax: SyntaxNode,
             }
+
+            #(#traits)*
 
             impl #name {
                 #(#methods)*
@@ -482,13 +488,18 @@ fn lower(grammar: &Grammar) -> AstSrc {
             None => {
                 let mut fields = vec![];
                 lower_rule(&mut fields, grammar, None, rule);
-                res.nodes.push(AstNodeSrc { name, fields });
+                res.nodes.push(AstNodeSrc {
+                    name,
+                    traits: Vec::new(),
+                    fields,
+                });
             }
         }
     }
 
     deduplicate_fields(&mut res);
     extract_enums(&mut res);
+    extract_struct_traits(&mut res);
 
     res
 }
@@ -531,6 +542,69 @@ fn extract_enums(ast: &mut AstSrc) {
                 });
             }
         }
+    }
+}
+
+fn extract_struct_traits(ast: &mut AstSrc) {
+    let traits: &[(&str, &[&str])] = &[
+        ("HasAttrs", &["attrs"]),
+        ("HasName", &["name"]),
+        // ("HasVisibility", &["visibility"]),
+        // ("HasGenericParams", &["generic_param_list", "where_clause"]),
+        // ("HasTypeBounds", &["type_bound_list", "colon_token"]),
+        // ("HasModuleItem", &["items"]),
+        // ("HasLoopBody", &["label", "loop_body"]),
+        // ("HasArgList", &["arg_list"]),
+    ];
+
+    for node in &mut ast.nodes {
+        for (name, methods) in traits {
+            extract_struct_trait(node, name, methods);
+        }
+    }
+
+    let nodes_with_doc_comments = [
+        // "SourceFile",
+        // "Fn",
+        // "Struct",
+        // "Union",
+        // "RecordField",
+        // "TupleField",
+        // "Enum",
+        // "Variant",
+        // "Trait",
+        // "TraitAlias",
+        // "Module",
+        // "Static",
+        // "Const",
+        // "TypeAlias",
+        // "Impl",
+        // "ExternBlock",
+        // "ExternCrate",
+        // "MacroCall",
+        // "MacroRules",
+        // "MacroDef",
+        // "Use",
+    ];
+
+    for node in &mut ast.nodes {
+        if nodes_with_doc_comments.contains(&&*node.name) {
+            node.traits.push("HasDocComments".into());
+        }
+    }
+}
+
+fn extract_struct_trait(node: &mut AstNodeSrc, trait_name: &str, methods: &&[&str]) {
+    let mut to_remove = Vec::new();
+    for (i, field) in node.fields.iter().enumerate() {
+        let method_name = field.method_name().to_string();
+        if methods.iter().any(|&it| it == method_name) {
+            to_remove.push(i);
+        }
+    }
+    if to_remove.len() == methods.len() {
+        node.traits.push(trait_name.to_string());
+        node.remove_field(to_remove);
     }
 }
 

@@ -222,12 +222,22 @@ pub enum SyntaxKind {
     REQUIRES_KW,
     #[token("ensures")]
     ENSURES_KW,
+    #[token("decreases")]
+    DECREASES_KW,
+    #[token("invariant")]
+    INVARIANT_KW,
+    #[token("req")]
+    REQ_KW,
+    #[token("ens")]
+    ENS_KW,
+    #[token("dec")]
+    DEC_KW,
+    #[token("inv")]
+    INV_KW,
     #[token("forall")]
     FORALL_KW,
     #[token("exists")]
     EXISTS_KW,
-    #[token("invariant")]
-    INVARIANT_KW,
     #[token("auto")]
     AUTO_KW,
     #[token("default")]
@@ -265,6 +275,7 @@ pub enum SyntaxKind {
     ENUM,
     FN,
     MACRO,
+    TYPE_INVARIANT,
     RET_TYPE,
     EXTERN_CRATE,
     MODULE,
@@ -288,6 +299,7 @@ pub enum SyntaxKind {
     PTR_TYPE,
     ARRAY_TYPE,
     SLICE_TYPE,
+    LIST_TYPE,
     REF_TYPE,
     GHOST_TYPE,
     INFER_TYPE,
@@ -315,6 +327,7 @@ pub enum SyntaxKind {
     CONST_BLOCK_PAT,
     TUPLE_EXPR,
     ARRAY_EXPR,
+    LIST_EXPR,
     PAREN_EXPR,
     PATH_EXPR,
     IDENT_EXPR,
@@ -373,6 +386,7 @@ pub enum SyntaxKind {
     ITEM_LIST,
     ASSOC_ITEM_LIST,
     ATTR,
+    ATTRS,
     META,
     FN_ATTR,
     USE_TREE,
@@ -387,6 +401,7 @@ pub enum SyntaxKind {
     CONDITION,
     REQUIRES,
     ENSURES,
+    DECREASES,
     INVARIANT,
     ABI,
     NAME,
@@ -539,9 +554,14 @@ impl SyntaxKind {
                 | PURE_KW
                 | REQUIRES_KW
                 | ENSURES_KW
+                | DECREASES_KW
+                | INVARIANT_KW
+                | REQ_KW
+                | ENS_KW
+                | DEC_KW
+                | INV_KW
                 | FORALL_KW
                 | EXISTS_KW
-                | INVARIANT_KW
                 | AUTO_KW
                 | DEFAULT_KW
                 | EXISTENTIAL_KW
@@ -668,9 +688,14 @@ impl SyntaxKind {
             "pure" => PURE_KW,
             "requires" => REQUIRES_KW,
             "ensures" => ENSURES_KW,
+            "decreases" => DECREASES_KW,
+            "invariant" => INVARIANT_KW,
+            "req" => REQ_KW,
+            "ens" => ENS_KW,
+            "dec" => DEC_KW,
+            "inv" => INV_KW,
             "forall" => FORALL_KW,
             "exists" => EXISTS_KW,
-            "invariant" => INVARIANT_KW,
             _ => return None,
         };
         Some(kw)
@@ -723,7 +748,7 @@ impl SyntaxKind {
     }
 }
 #[macro_export]
-macro_rules ! T { [;] => { $ crate :: SyntaxKind :: SEMICOLON } ; [,] => { $ crate :: SyntaxKind :: COMMA } ; ['('] => { $ crate :: SyntaxKind :: L_PAREN } ; [')'] => { $ crate :: SyntaxKind :: R_PAREN } ; ['{'] => { $ crate :: SyntaxKind :: L_CURLY } ; ['}'] => { $ crate :: SyntaxKind :: R_CURLY } ; ['['] => { $ crate :: SyntaxKind :: L_BRACK } ; [']'] => { $ crate :: SyntaxKind :: R_BRACK } ; [<] => { $ crate :: SyntaxKind :: L_ANGLE } ; [>] => { $ crate :: SyntaxKind :: R_ANGLE } ; [@] => { $ crate :: SyntaxKind :: AT } ; [#] => { $ crate :: SyntaxKind :: POUND } ; [~] => { $ crate :: SyntaxKind :: TILDE } ; [?] => { $ crate :: SyntaxKind :: QUESTION } ; [$] => { $ crate :: SyntaxKind :: DOLLAR } ; [&] => { $ crate :: SyntaxKind :: AMP } ; [|] => { $ crate :: SyntaxKind :: PIPE } ; [+] => { $ crate :: SyntaxKind :: PLUS } ; [*] => { $ crate :: SyntaxKind :: STAR } ; [/] => { $ crate :: SyntaxKind :: SLASH } ; [^] => { $ crate :: SyntaxKind :: CARET } ; [%] => { $ crate :: SyntaxKind :: PERCENT } ; [_] => { $ crate :: SyntaxKind :: UNDERSCORE } ; [.] => { $ crate :: SyntaxKind :: DOT } ; [..] => { $ crate :: SyntaxKind :: DOT2 } ; [...] => { $ crate :: SyntaxKind :: DOT3 } ; [..=] => { $ crate :: SyntaxKind :: DOT2EQ } ; [:] => { $ crate :: SyntaxKind :: COLON } ; [::] => { $ crate :: SyntaxKind :: COLON2 } ; [=] => { $ crate :: SyntaxKind :: EQ } ; [==] => { $ crate :: SyntaxKind :: EQ2 } ; [=>] => { $ crate :: SyntaxKind :: FAT_ARROW } ; [!] => { $ crate :: SyntaxKind :: BANG } ; [!=] => { $ crate :: SyntaxKind :: NEQ } ; [-] => { $ crate :: SyntaxKind :: MINUS } ; [->] => { $ crate :: SyntaxKind :: THIN_ARROW } ; [<=] => { $ crate :: SyntaxKind :: LTEQ } ; [>=] => { $ crate :: SyntaxKind :: GTEQ } ; [+=] => { $ crate :: SyntaxKind :: PLUSEQ } ; [-=] => { $ crate :: SyntaxKind :: MINUSEQ } ; [|=] => { $ crate :: SyntaxKind :: PIPEEQ } ; [&=] => { $ crate :: SyntaxKind :: AMPEQ } ; [^=] => { $ crate :: SyntaxKind :: CARETEQ } ; [/=] => { $ crate :: SyntaxKind :: SLASHEQ } ; [*=] => { $ crate :: SyntaxKind :: STAREQ } ; [%=] => { $ crate :: SyntaxKind :: PERCENTEQ } ; [&&] => { $ crate :: SyntaxKind :: AMP2 } ; [||] => { $ crate :: SyntaxKind :: PIPE2 } ; [<<] => { $ crate :: SyntaxKind :: SHL } ; [>>] => { $ crate :: SyntaxKind :: SHR } ; [<<=] => { $ crate :: SyntaxKind :: SHLEQ } ; [>>=] => { $ crate :: SyntaxKind :: SHREQ } ; [as] => { $ crate :: SyntaxKind :: AS_KW } ; [async] => { $ crate :: SyntaxKind :: ASYNC_KW } ; [await] => { $ crate :: SyntaxKind :: AWAIT_KW } ; [assert] => { $ crate :: SyntaxKind :: ASSERT_KW } ; [assume] => { $ crate :: SyntaxKind :: ASSUME_KW } ; [box] => { $ crate :: SyntaxKind :: BOX_KW } ; [break] => { $ crate :: SyntaxKind :: BREAK_KW } ; [const] => { $ crate :: SyntaxKind :: CONST_KW } ; [continue] => { $ crate :: SyntaxKind :: CONTINUE_KW } ; [crate] => { $ crate :: SyntaxKind :: CRATE_KW } ; [do] => { $ crate :: SyntaxKind :: DO_KW } ; [dyn] => { $ crate :: SyntaxKind :: DYN_KW } ; [else] => { $ crate :: SyntaxKind :: ELSE_KW } ; [enum] => { $ crate :: SyntaxKind :: ENUM_KW } ; [extern] => { $ crate :: SyntaxKind :: EXTERN_KW } ; [false] => { $ crate :: SyntaxKind :: FALSE_KW } ; [fn] => { $ crate :: SyntaxKind :: FN_KW } ; [for] => { $ crate :: SyntaxKind :: FOR_KW } ; [if] => { $ crate :: SyntaxKind :: IF_KW } ; [impl] => { $ crate :: SyntaxKind :: IMPL_KW } ; [in] => { $ crate :: SyntaxKind :: IN_KW } ; [let] => { $ crate :: SyntaxKind :: LET_KW } ; [loop] => { $ crate :: SyntaxKind :: LOOP_KW } ; [macro] => { $ crate :: SyntaxKind :: MACRO_KW } ; [match] => { $ crate :: SyntaxKind :: MATCH_KW } ; [mod] => { $ crate :: SyntaxKind :: MOD_KW } ; [move] => { $ crate :: SyntaxKind :: MOVE_KW } ; [mut] => { $ crate :: SyntaxKind :: MUT_KW } ; [pub] => { $ crate :: SyntaxKind :: PUB_KW } ; [ref] => { $ crate :: SyntaxKind :: REF_KW } ; [return] => { $ crate :: SyntaxKind :: RETURN_KW } ; [self] => { $ crate :: SyntaxKind :: SELF_KW } ; [Self] => { $ crate :: SyntaxKind :: SELF_TYPE_KW } ; [static] => { $ crate :: SyntaxKind :: STATIC_KW } ; [struct] => { $ crate :: SyntaxKind :: STRUCT_KW } ; [super] => { $ crate :: SyntaxKind :: SUPER_KW } ; [trait] => { $ crate :: SyntaxKind :: TRAIT_KW } ; [true] => { $ crate :: SyntaxKind :: TRUE_KW } ; [try] => { $ crate :: SyntaxKind :: TRY_KW } ; [type] => { $ crate :: SyntaxKind :: TYPE_KW } ; [unsafe] => { $ crate :: SyntaxKind :: UNSAFE_KW } ; [use] => { $ crate :: SyntaxKind :: USE_KW } ; [where] => { $ crate :: SyntaxKind :: WHERE_KW } ; [while] => { $ crate :: SyntaxKind :: WHILE_KW } ; [yield] => { $ crate :: SyntaxKind :: YIELD_KW } ; [int] => { $ crate :: SyntaxKind :: INT_KW } ; [bool] => { $ crate :: SyntaxKind :: BOOL_KW } ; [null] => { $ crate :: SyntaxKind :: NULL_KW } ; [result] => { $ crate :: SyntaxKind :: RESULT_KW } ; [ghost] => { $ crate :: SyntaxKind :: GHOST_KW } ; [pure] => { $ crate :: SyntaxKind :: PURE_KW } ; [requires] => { $ crate :: SyntaxKind :: REQUIRES_KW } ; [ensures] => { $ crate :: SyntaxKind :: ENSURES_KW } ; [forall] => { $ crate :: SyntaxKind :: FORALL_KW } ; [exists] => { $ crate :: SyntaxKind :: EXISTS_KW } ; [invariant] => { $ crate :: SyntaxKind :: INVARIANT_KW } ; [auto] => { $ crate :: SyntaxKind :: AUTO_KW } ; [default] => { $ crate :: SyntaxKind :: DEFAULT_KW } ; [existential] => { $ crate :: SyntaxKind :: EXISTENTIAL_KW } ; [raw] => { $ crate :: SyntaxKind :: RAW_KW } ; [macro_rules] => { $ crate :: SyntaxKind :: MACRO_RULES_KW } ; [yeet] => { $ crate :: SyntaxKind :: YEET_KW } ; [lifetime_ident] => { $ crate :: SyntaxKind :: LIFETIME_IDENT } ; [ident] => { $ crate :: SyntaxKind :: IDENT } ; [shebang] => { $ crate :: SyntaxKind :: SHEBANG } ; }
+macro_rules ! T { [;] => { $ crate :: SyntaxKind :: SEMICOLON } ; [,] => { $ crate :: SyntaxKind :: COMMA } ; ['('] => { $ crate :: SyntaxKind :: L_PAREN } ; [')'] => { $ crate :: SyntaxKind :: R_PAREN } ; ['{'] => { $ crate :: SyntaxKind :: L_CURLY } ; ['}'] => { $ crate :: SyntaxKind :: R_CURLY } ; ['['] => { $ crate :: SyntaxKind :: L_BRACK } ; [']'] => { $ crate :: SyntaxKind :: R_BRACK } ; [<] => { $ crate :: SyntaxKind :: L_ANGLE } ; [>] => { $ crate :: SyntaxKind :: R_ANGLE } ; [@] => { $ crate :: SyntaxKind :: AT } ; [#] => { $ crate :: SyntaxKind :: POUND } ; [~] => { $ crate :: SyntaxKind :: TILDE } ; [?] => { $ crate :: SyntaxKind :: QUESTION } ; [$] => { $ crate :: SyntaxKind :: DOLLAR } ; [&] => { $ crate :: SyntaxKind :: AMP } ; [|] => { $ crate :: SyntaxKind :: PIPE } ; [+] => { $ crate :: SyntaxKind :: PLUS } ; [*] => { $ crate :: SyntaxKind :: STAR } ; [/] => { $ crate :: SyntaxKind :: SLASH } ; [^] => { $ crate :: SyntaxKind :: CARET } ; [%] => { $ crate :: SyntaxKind :: PERCENT } ; [_] => { $ crate :: SyntaxKind :: UNDERSCORE } ; [.] => { $ crate :: SyntaxKind :: DOT } ; [..] => { $ crate :: SyntaxKind :: DOT2 } ; [...] => { $ crate :: SyntaxKind :: DOT3 } ; [..=] => { $ crate :: SyntaxKind :: DOT2EQ } ; [:] => { $ crate :: SyntaxKind :: COLON } ; [::] => { $ crate :: SyntaxKind :: COLON2 } ; [=] => { $ crate :: SyntaxKind :: EQ } ; [==] => { $ crate :: SyntaxKind :: EQ2 } ; [=>] => { $ crate :: SyntaxKind :: FAT_ARROW } ; [!] => { $ crate :: SyntaxKind :: BANG } ; [!=] => { $ crate :: SyntaxKind :: NEQ } ; [-] => { $ crate :: SyntaxKind :: MINUS } ; [->] => { $ crate :: SyntaxKind :: THIN_ARROW } ; [<=] => { $ crate :: SyntaxKind :: LTEQ } ; [>=] => { $ crate :: SyntaxKind :: GTEQ } ; [+=] => { $ crate :: SyntaxKind :: PLUSEQ } ; [-=] => { $ crate :: SyntaxKind :: MINUSEQ } ; [|=] => { $ crate :: SyntaxKind :: PIPEEQ } ; [&=] => { $ crate :: SyntaxKind :: AMPEQ } ; [^=] => { $ crate :: SyntaxKind :: CARETEQ } ; [/=] => { $ crate :: SyntaxKind :: SLASHEQ } ; [*=] => { $ crate :: SyntaxKind :: STAREQ } ; [%=] => { $ crate :: SyntaxKind :: PERCENTEQ } ; [&&] => { $ crate :: SyntaxKind :: AMP2 } ; [||] => { $ crate :: SyntaxKind :: PIPE2 } ; [<<] => { $ crate :: SyntaxKind :: SHL } ; [>>] => { $ crate :: SyntaxKind :: SHR } ; [<<=] => { $ crate :: SyntaxKind :: SHLEQ } ; [>>=] => { $ crate :: SyntaxKind :: SHREQ } ; [as] => { $ crate :: SyntaxKind :: AS_KW } ; [async] => { $ crate :: SyntaxKind :: ASYNC_KW } ; [await] => { $ crate :: SyntaxKind :: AWAIT_KW } ; [assert] => { $ crate :: SyntaxKind :: ASSERT_KW } ; [assume] => { $ crate :: SyntaxKind :: ASSUME_KW } ; [box] => { $ crate :: SyntaxKind :: BOX_KW } ; [break] => { $ crate :: SyntaxKind :: BREAK_KW } ; [const] => { $ crate :: SyntaxKind :: CONST_KW } ; [continue] => { $ crate :: SyntaxKind :: CONTINUE_KW } ; [crate] => { $ crate :: SyntaxKind :: CRATE_KW } ; [do] => { $ crate :: SyntaxKind :: DO_KW } ; [dyn] => { $ crate :: SyntaxKind :: DYN_KW } ; [else] => { $ crate :: SyntaxKind :: ELSE_KW } ; [enum] => { $ crate :: SyntaxKind :: ENUM_KW } ; [extern] => { $ crate :: SyntaxKind :: EXTERN_KW } ; [false] => { $ crate :: SyntaxKind :: FALSE_KW } ; [fn] => { $ crate :: SyntaxKind :: FN_KW } ; [for] => { $ crate :: SyntaxKind :: FOR_KW } ; [if] => { $ crate :: SyntaxKind :: IF_KW } ; [impl] => { $ crate :: SyntaxKind :: IMPL_KW } ; [in] => { $ crate :: SyntaxKind :: IN_KW } ; [let] => { $ crate :: SyntaxKind :: LET_KW } ; [loop] => { $ crate :: SyntaxKind :: LOOP_KW } ; [macro] => { $ crate :: SyntaxKind :: MACRO_KW } ; [match] => { $ crate :: SyntaxKind :: MATCH_KW } ; [mod] => { $ crate :: SyntaxKind :: MOD_KW } ; [move] => { $ crate :: SyntaxKind :: MOVE_KW } ; [mut] => { $ crate :: SyntaxKind :: MUT_KW } ; [pub] => { $ crate :: SyntaxKind :: PUB_KW } ; [ref] => { $ crate :: SyntaxKind :: REF_KW } ; [return] => { $ crate :: SyntaxKind :: RETURN_KW } ; [self] => { $ crate :: SyntaxKind :: SELF_KW } ; [Self] => { $ crate :: SyntaxKind :: SELF_TYPE_KW } ; [static] => { $ crate :: SyntaxKind :: STATIC_KW } ; [struct] => { $ crate :: SyntaxKind :: STRUCT_KW } ; [super] => { $ crate :: SyntaxKind :: SUPER_KW } ; [trait] => { $ crate :: SyntaxKind :: TRAIT_KW } ; [true] => { $ crate :: SyntaxKind :: TRUE_KW } ; [try] => { $ crate :: SyntaxKind :: TRY_KW } ; [type] => { $ crate :: SyntaxKind :: TYPE_KW } ; [unsafe] => { $ crate :: SyntaxKind :: UNSAFE_KW } ; [use] => { $ crate :: SyntaxKind :: USE_KW } ; [where] => { $ crate :: SyntaxKind :: WHERE_KW } ; [while] => { $ crate :: SyntaxKind :: WHILE_KW } ; [yield] => { $ crate :: SyntaxKind :: YIELD_KW } ; [int] => { $ crate :: SyntaxKind :: INT_KW } ; [bool] => { $ crate :: SyntaxKind :: BOOL_KW } ; [null] => { $ crate :: SyntaxKind :: NULL_KW } ; [result] => { $ crate :: SyntaxKind :: RESULT_KW } ; [ghost] => { $ crate :: SyntaxKind :: GHOST_KW } ; [pure] => { $ crate :: SyntaxKind :: PURE_KW } ; [requires] => { $ crate :: SyntaxKind :: REQUIRES_KW } ; [ensures] => { $ crate :: SyntaxKind :: ENSURES_KW } ; [decreases] => { $ crate :: SyntaxKind :: DECREASES_KW } ; [invariant] => { $ crate :: SyntaxKind :: INVARIANT_KW } ; [req] => { $ crate :: SyntaxKind :: REQ_KW } ; [ens] => { $ crate :: SyntaxKind :: ENS_KW } ; [dec] => { $ crate :: SyntaxKind :: DEC_KW } ; [inv] => { $ crate :: SyntaxKind :: INV_KW } ; [forall] => { $ crate :: SyntaxKind :: FORALL_KW } ; [exists] => { $ crate :: SyntaxKind :: EXISTS_KW } ; [auto] => { $ crate :: SyntaxKind :: AUTO_KW } ; [default] => { $ crate :: SyntaxKind :: DEFAULT_KW } ; [existential] => { $ crate :: SyntaxKind :: EXISTENTIAL_KW } ; [raw] => { $ crate :: SyntaxKind :: RAW_KW } ; [macro_rules] => { $ crate :: SyntaxKind :: MACRO_RULES_KW } ; [yeet] => { $ crate :: SyntaxKind :: YEET_KW } ; [lifetime_ident] => { $ crate :: SyntaxKind :: LIFETIME_IDENT } ; [ident] => { $ crate :: SyntaxKind :: IDENT } ; [shebang] => { $ crate :: SyntaxKind :: SHEBANG } ; }
 pub use T; // Tokens
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -972,15 +997,11 @@ impl AstNode for SourceFile {
 pub struct Const {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasAttrs for Const {}
+impl crate::ast::HasName for Const {}
 impl Const {
-    pub fn attrs(&self) -> AstChildren<Attr> {
-        support::children(&self.syntax)
-    }
     pub fn const_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![const])
-    }
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.syntax)
     }
     pub fn colon_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T ! [:])
@@ -1017,15 +1038,11 @@ impl AstNode for Const {
 pub struct Fn {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasAttrs for Fn {}
+impl crate::ast::HasName for Fn {}
 impl Fn {
-    pub fn attrs(&self) -> AstChildren<Attr> {
-        support::children(&self.syntax)
-    }
     pub fn fn_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![fn])
-    }
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.syntax)
     }
     pub fn param_list(&self) -> Option<ParamList> {
         support::child(&self.syntax)
@@ -1038,6 +1055,9 @@ impl Fn {
     }
     pub fn conditions(&self) -> AstChildren<Condition> {
         support::children(&self.syntax)
+    }
+    pub fn decreases(&self) -> Option<Decreases> {
+        support::child(&self.syntax)
     }
     pub fn body(&self) -> Option<Block> {
         support::child(&self.syntax)
@@ -1065,15 +1085,11 @@ impl AstNode for Fn {
 pub struct Struct {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasAttrs for Struct {}
+impl crate::ast::HasName for Struct {}
 impl Struct {
-    pub fn attrs(&self) -> AstChildren<Attr> {
-        support::children(&self.syntax)
-    }
     pub fn struct_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![struct])
-    }
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.syntax)
     }
     pub fn l_curly_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T!['{'])
@@ -1101,15 +1117,41 @@ impl AstNode for Struct {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TypeInvariant {
+    pub(crate) syntax: SyntaxNode,
+}
+impl crate::ast::HasName for TypeInvariant {}
+impl TypeInvariant {
+    pub fn invariant_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![invariant])
+    }
+    pub fn block(&self) -> Option<Block> {
+        support::child(&self.syntax)
+    }
+}
+impl AstNode for TypeInvariant {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == TYPE_INVARIANT
+    }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Macro {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasName for Macro {}
 impl Macro {
     pub fn macro_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![macro])
-    }
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.syntax)
     }
     pub fn param_list(&self) -> Option<ParamList> {
         support::child(&self.syntax)
@@ -1158,20 +1200,14 @@ impl AstNode for Name {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Attr {
+pub struct Attrs {
     pub(crate) syntax: SyntaxNode,
 }
-impl Attr {
-    pub fn ghost_token(&self) -> Option<SyntaxToken> {
-        support::token(&self.syntax, T![ghost])
-    }
-    pub fn pure_token(&self) -> Option<SyntaxToken> {
-        support::token(&self.syntax, T![pure])
-    }
-}
-impl AstNode for Attr {
+impl crate::ast::HasAttrs for Attrs {}
+impl Attrs {}
+impl AstNode for Attrs {
     fn can_cast(kind: SyntaxKind) -> bool {
-        kind == ATTR
+        kind == ATTRS
     }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
@@ -1202,6 +1238,39 @@ impl ParamList {
 impl AstNode for ParamList {
     fn can_cast(kind: SyntaxKind) -> bool {
         kind == PARAM_LIST
+    }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Decreases {
+    pub(crate) syntax: SyntaxNode,
+}
+impl Decreases {
+    pub fn decreases_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![decreases])
+    }
+    pub fn dec_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![dec])
+    }
+    pub fn underscore_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![_])
+    }
+    pub fn expr(&self) -> Option<Expr> {
+        support::child(&self.syntax)
+    }
+}
+impl AstNode for Decreases {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == DECREASES
     }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
@@ -1248,13 +1317,39 @@ impl AstNode for Block {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Attr {
+    pub(crate) syntax: SyntaxNode,
+}
+impl Attr {
+    pub fn ghost_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![ghost])
+    }
+    pub fn pure_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![pure])
+    }
+}
+impl AstNode for Attr {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == ATTR
+    }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Param {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasAttrs for Param {}
+impl crate::ast::HasName for Param {}
 impl Param {
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.syntax)
-    }
     pub fn colon_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T ! [:])
     }
@@ -1288,6 +1383,9 @@ impl Requires {
     pub fn requires_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![requires])
     }
+    pub fn req_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![req])
+    }
     pub fn comma_exprs(&self) -> AstChildren<CommaExpr> {
         support::children(&self.syntax)
     }
@@ -1314,6 +1412,9 @@ pub struct Ensures {
 impl Ensures {
     pub fn ensures_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![ensures])
+    }
+    pub fn ens_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![ens])
     }
     pub fn comma_exprs(&self) -> AstChildren<CommaExpr> {
         support::children(&self.syntax)
@@ -1365,10 +1466,9 @@ impl AstNode for CommaExpr {
 pub struct StructField {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasAttrs for StructField {}
+impl crate::ast::HasName for StructField {}
 impl StructField {
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.syntax)
-    }
     pub fn colon_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T ! [:])
     }
@@ -1398,11 +1498,8 @@ impl AstNode for StructField {
 pub struct NamedType {
     pub(crate) syntax: SyntaxNode,
 }
-impl NamedType {
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.syntax)
-    }
-}
+impl crate::ast::HasName for NamedType {}
+impl NamedType {}
 impl AstNode for NamedType {
     fn can_cast(kind: SyntaxKind) -> bool {
         kind == NAMED_TYPE
@@ -1460,6 +1557,36 @@ impl Optional {
 impl AstNode for Optional {
     fn can_cast(kind: SyntaxKind) -> bool {
         kind == OPTIONAL
+    }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ListType {
+    pub(crate) syntax: SyntaxNode,
+}
+impl ListType {
+    pub fn l_brack_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T!['['])
+    }
+    pub fn ty(&self) -> Option<Type> {
+        support::child(&self.syntax)
+    }
+    pub fn r_brack_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![']'])
+    }
+}
+impl AstNode for ListType {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == LIST_TYPE
     }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
@@ -1533,12 +1660,10 @@ impl AstNode for RefType {
 pub struct LetStmt {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasName for LetStmt {}
 impl LetStmt {
     pub fn let_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![let])
-    }
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.syntax)
     }
     pub fn colon_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T ! [:])
@@ -1702,6 +1827,9 @@ impl WhileStmt {
     pub fn invariants(&self) -> AstChildren<Invariant> {
         support::children(&self.syntax)
     }
+    pub fn decreases(&self) -> Option<Decreases> {
+        support::child(&self.syntax)
+    }
     pub fn block(&self) -> Option<Block> {
         support::child(&self.syntax)
     }
@@ -1823,6 +1951,30 @@ impl AstNode for WhileExpr {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PrefixExpr {
+    pub(crate) syntax: SyntaxNode,
+}
+impl PrefixExpr {
+    pub fn expr(&self) -> Option<Expr> {
+        support::child(&self.syntax)
+    }
+}
+impl AstNode for PrefixExpr {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == PREFIX_EXPR
+    }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BinExpr {
     pub(crate) syntax: SyntaxNode,
 }
@@ -1830,6 +1982,30 @@ impl BinExpr {}
 impl AstNode for BinExpr {
     fn can_cast(kind: SyntaxKind) -> bool {
         kind == BIN_EXPR
+    }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RangeExpr {
+    pub(crate) syntax: SyntaxNode,
+}
+impl RangeExpr {
+    pub fn dotdot_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![..])
+    }
+}
+impl AstNode for RangeExpr {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == RANGE_EXPR
     }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
@@ -1857,6 +2033,36 @@ impl CallExpr {
 impl AstNode for CallExpr {
     fn can_cast(kind: SyntaxKind) -> bool {
         kind == CALL_EXPR
+    }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ListExpr {
+    pub(crate) syntax: SyntaxNode,
+}
+impl ListExpr {
+    pub fn l_brack_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T!['['])
+    }
+    pub fn comma_exprs(&self) -> AstChildren<CommaExpr> {
+        support::children(&self.syntax)
+    }
+    pub fn r_brack_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![']'])
+    }
+}
+impl AstNode for ListExpr {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == LIST_EXPR
     }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
@@ -1930,10 +2136,8 @@ impl AstNode for FieldExpr {
 pub struct StructExpr {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasName for StructExpr {}
 impl StructExpr {
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.syntax)
-    }
     pub fn l_curly_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T!['{'])
     }
@@ -2023,11 +2227,8 @@ impl AstNode for RefExpr {
 pub struct IdentExpr {
     pub(crate) syntax: SyntaxNode,
 }
-impl IdentExpr {
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.syntax)
-    }
-}
+impl crate::ast::HasName for IdentExpr {}
+impl IdentExpr {}
 impl AstNode for IdentExpr {
     fn can_cast(kind: SyntaxKind) -> bool {
         kind == IDENT_EXPR
@@ -2182,10 +2383,8 @@ impl AstNode for Arg {
 pub struct StructExprField {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasName for StructExprField {}
 impl StructExprField {
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.syntax)
-    }
     pub fn colon_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T ! [:])
     }
@@ -2243,6 +2442,7 @@ pub enum Item {
     Const(Const),
     Fn(Fn),
     Struct(Struct),
+    TypeInvariant(TypeInvariant),
     Macro(Macro),
 }
 impl From<Const> for Item {
@@ -2260,6 +2460,11 @@ impl From<Struct> for Item {
         Item::Struct(node)
     }
 }
+impl From<TypeInvariant> for Item {
+    fn from(node: TypeInvariant) -> Item {
+        Item::TypeInvariant(node)
+    }
+}
 impl From<Macro> for Item {
     fn from(node: Macro) -> Item {
         Item::Macro(node)
@@ -2267,13 +2472,14 @@ impl From<Macro> for Item {
 }
 impl AstNode for Item {
     fn can_cast(kind: SyntaxKind) -> bool {
-        matches!(kind, CONST | FN | STRUCT | MACRO)
+        matches!(kind, CONST | FN | STRUCT | TYPE_INVARIANT | MACRO)
     }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         let res = match syntax.kind() {
             CONST => Item::Const(Const { syntax }),
             FN => Item::Fn(Fn { syntax }),
             STRUCT => Item::Struct(Struct { syntax }),
+            TYPE_INVARIANT => Item::TypeInvariant(TypeInvariant { syntax }),
             MACRO => Item::Macro(Macro { syntax }),
             _ => return None,
         };
@@ -2284,6 +2490,7 @@ impl AstNode for Item {
             Item::Const(it) => &it.syntax,
             Item::Fn(it) => &it.syntax,
             Item::Struct(it) => &it.syntax,
+            Item::TypeInvariant(it) => &it.syntax,
             Item::Macro(it) => &it.syntax,
         }
     }
@@ -2293,6 +2500,7 @@ pub enum Type {
     NamedType(NamedType),
     Primitive(Primitive),
     Optional(Optional),
+    ListType(ListType),
     GhostType(GhostType),
     RefType(RefType),
 }
@@ -2311,6 +2519,11 @@ impl From<Optional> for Type {
         Type::Optional(node)
     }
 }
+impl From<ListType> for Type {
+    fn from(node: ListType) -> Type {
+        Type::ListType(node)
+    }
+}
 impl From<GhostType> for Type {
     fn from(node: GhostType) -> Type {
         Type::GhostType(node)
@@ -2325,7 +2538,7 @@ impl AstNode for Type {
     fn can_cast(kind: SyntaxKind) -> bool {
         matches!(
             kind,
-            NAMED_TYPE | PRIMITIVE | OPTIONAL | GHOST_TYPE | REF_TYPE
+            NAMED_TYPE | PRIMITIVE | OPTIONAL | LIST_TYPE | GHOST_TYPE | REF_TYPE
         )
     }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
@@ -2333,6 +2546,7 @@ impl AstNode for Type {
             NAMED_TYPE => Type::NamedType(NamedType { syntax }),
             PRIMITIVE => Type::Primitive(Primitive { syntax }),
             OPTIONAL => Type::Optional(Optional { syntax }),
+            LIST_TYPE => Type::ListType(ListType { syntax }),
             GHOST_TYPE => Type::GhostType(GhostType { syntax }),
             REF_TYPE => Type::RefType(RefType { syntax }),
             _ => return None,
@@ -2344,6 +2558,7 @@ impl AstNode for Type {
             Type::NamedType(it) => &it.syntax,
             Type::Primitive(it) => &it.syntax,
             Type::Optional(it) => &it.syntax,
+            Type::ListType(it) => &it.syntax,
             Type::GhostType(it) => &it.syntax,
             Type::RefType(it) => &it.syntax,
         }
@@ -2354,8 +2569,11 @@ pub enum Expr {
     Literal(Literal),
     IfExpr(IfExpr),
     WhileExpr(WhileExpr),
+    PrefixExpr(PrefixExpr),
     BinExpr(BinExpr),
+    RangeExpr(RangeExpr),
     CallExpr(CallExpr),
+    ListExpr(ListExpr),
     IndexExpr(IndexExpr),
     FieldExpr(FieldExpr),
     StructExpr(StructExpr),
@@ -2381,14 +2599,29 @@ impl From<WhileExpr> for Expr {
         Expr::WhileExpr(node)
     }
 }
+impl From<PrefixExpr> for Expr {
+    fn from(node: PrefixExpr) -> Expr {
+        Expr::PrefixExpr(node)
+    }
+}
 impl From<BinExpr> for Expr {
     fn from(node: BinExpr) -> Expr {
         Expr::BinExpr(node)
     }
 }
+impl From<RangeExpr> for Expr {
+    fn from(node: RangeExpr) -> Expr {
+        Expr::RangeExpr(node)
+    }
+}
 impl From<CallExpr> for Expr {
     fn from(node: CallExpr) -> Expr {
         Expr::CallExpr(node)
+    }
+}
+impl From<ListExpr> for Expr {
+    fn from(node: ListExpr) -> Expr {
+        Expr::ListExpr(node)
     }
 }
 impl From<IndexExpr> for Expr {
@@ -2443,8 +2676,11 @@ impl AstNode for Expr {
             LITERAL
                 | IF_EXPR
                 | WHILE_EXPR
+                | PREFIX_EXPR
                 | BIN_EXPR
+                | RANGE_EXPR
                 | CALL_EXPR
+                | LIST_EXPR
                 | INDEX_EXPR
                 | FIELD_EXPR
                 | STRUCT_EXPR
@@ -2461,8 +2697,11 @@ impl AstNode for Expr {
             LITERAL => Expr::Literal(Literal { syntax }),
             IF_EXPR => Expr::IfExpr(IfExpr { syntax }),
             WHILE_EXPR => Expr::WhileExpr(WhileExpr { syntax }),
+            PREFIX_EXPR => Expr::PrefixExpr(PrefixExpr { syntax }),
             BIN_EXPR => Expr::BinExpr(BinExpr { syntax }),
+            RANGE_EXPR => Expr::RangeExpr(RangeExpr { syntax }),
             CALL_EXPR => Expr::CallExpr(CallExpr { syntax }),
+            LIST_EXPR => Expr::ListExpr(ListExpr { syntax }),
             INDEX_EXPR => Expr::IndexExpr(IndexExpr { syntax }),
             FIELD_EXPR => Expr::FieldExpr(FieldExpr { syntax }),
             STRUCT_EXPR => Expr::StructExpr(StructExpr { syntax }),
@@ -2481,8 +2720,11 @@ impl AstNode for Expr {
             Expr::Literal(it) => &it.syntax,
             Expr::IfExpr(it) => &it.syntax,
             Expr::WhileExpr(it) => &it.syntax,
+            Expr::PrefixExpr(it) => &it.syntax,
             Expr::BinExpr(it) => &it.syntax,
+            Expr::RangeExpr(it) => &it.syntax,
             Expr::CallExpr(it) => &it.syntax,
+            Expr::ListExpr(it) => &it.syntax,
             Expr::IndexExpr(it) => &it.syntax,
             Expr::FieldExpr(it) => &it.syntax,
             Expr::StructExpr(it) => &it.syntax,
@@ -2658,6 +2900,11 @@ impl std::fmt::Display for Struct {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
+impl std::fmt::Display for TypeInvariant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
 impl std::fmt::Display for Macro {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
@@ -2668,7 +2915,7 @@ impl std::fmt::Display for Name {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
-impl std::fmt::Display for Attr {
+impl std::fmt::Display for Attrs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }
@@ -2678,7 +2925,17 @@ impl std::fmt::Display for ParamList {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
+impl std::fmt::Display for Decreases {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
 impl std::fmt::Display for Block {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for Attr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }
@@ -2719,6 +2976,11 @@ impl std::fmt::Display for Primitive {
     }
 }
 impl std::fmt::Display for Optional {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for ListType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }
@@ -2783,12 +3045,27 @@ impl std::fmt::Display for WhileExpr {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
+impl std::fmt::Display for PrefixExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
 impl std::fmt::Display for BinExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
+impl std::fmt::Display for RangeExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
 impl std::fmt::Display for CallExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for ListExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }

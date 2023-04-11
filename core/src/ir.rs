@@ -1,13 +1,66 @@
-use bitflags::bitflags;
 use derive_more::Display;
 use derive_new::new;
-use mist_syntax::ast::{operators::BinaryOp, Item, Spanned};
+use mist_syntax::{
+    ast::{
+        self,
+        operators::{BinaryOp, UnaryOp},
+        AttrFlags, HasAttrs, HasName, Spanned,
+    },
+    SourceSpan,
+};
 
-pub use crate::typecheck::FunctionContext;
+pub use crate::typecheck::ItemContext;
 use crate::{
     typecheck::{self, TypeCheckError, TypeCheckErrorKind, TypeCheckExpr},
     TypeCheckErrors,
 };
+
+mod ident {
+    use super::*;
+
+    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct Ident {
+        inner: String,
+        span: SourceSpan,
+    }
+    impl Ident {
+        pub fn as_str(&self) -> &str {
+            &self
+        }
+    }
+    impl From<ast::Name> for Ident {
+        fn from(value: ast::Name) -> Self {
+            Ident {
+                inner: value.to_string(),
+                span: value.span(),
+            }
+        }
+    }
+    impl std::fmt::Display for Ident {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            self.inner.fmt(f)
+        }
+    }
+    impl std::fmt::Debug for Ident {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            self.inner.fmt(f)
+        }
+    }
+    impl std::ops::Deref for Ident {
+        type Target = str;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
+    }
+    impl Spanned for &'_ Ident {
+        fn span(self) -> SourceSpan {
+            self.span
+        }
+    }
+}
+
+pub use ident::*;
 
 #[salsa::input]
 pub struct SourceProgram {
@@ -20,55 +73,148 @@ pub struct Program {
     #[return_ref]
     pub program: mist_syntax::ast::SourceFile,
     #[return_ref]
+    pub items: Vec<ItemId>,
+    #[return_ref]
     pub errors: Vec<mist_syntax::ParseError>,
 }
 
 #[salsa::tracked]
 pub fn parse_program(db: &dyn crate::Db, source: SourceProgram) -> Program {
     let (program, errors) = mist_syntax::parse(source.text(db));
-    Program::new(db, program, errors)
-}
-
-#[salsa::tracked]
-pub fn top_level_type_decls(db: &dyn crate::Db, program: Program) -> Vec<TypeDecl> {
-    program
-        .program(db)
+    let items = program
         .items()
-        .filter_map(|item| match item {
-            Item::Struct(s) => {
-                let name = s.name().unwrap().to_string();
-                let data = TypeDeclData::Struct(Struct::new(db, s));
-                Some(TypeDecl::new(db, name, data))
-            }
-            _ => None,
+        .map(|item| match item {
+            ast::Item::Const(node) => ItemId::Const { ast: node },
+            ast::Item::Fn(node) => ItemId::Fn { ast: node },
+            ast::Item::Struct(node) => ItemId::Struct { ast: node },
+            ast::Item::TypeInvariant(node) => ItemId::TypeInvariant { ast: node },
+            ast::Item::Macro(node) => ItemId::Macro { ast: node },
         })
-        .collect()
+        .collect();
+    Program::new(db, program, items, errors)
 }
 
 #[salsa::tracked]
-pub fn struct_name(db: &dyn crate::Db, s: Struct) -> mist_syntax::ast::Name {
-    s.node(db).name().unwrap()
-}
-
-#[salsa::tracked]
-pub fn struct_fields(db: &dyn crate::Db, program: Program, s: Struct) -> Vec<StructField> {
-    s.node(db)
-        .struct_fields()
-        .map(|f| StructField {
-            name: f.name().unwrap().to_string(),
-            ty: if let Some(ty) = f.ty() {
-                find_type(db, program, ty)
+pub fn item(db: &dyn crate::Db, program: Program, item: ItemId) -> Option<Item> {
+    match item {
+        ItemId::Const { ast } => None,
+        ItemId::Fn { ast: f } => {
+            let name = if let Some(name) = f.name() {
+                name
             } else {
                 todo!()
-            },
+            };
+            let attrs = f.attr_flags();
+            let param_list = typecheck::check_param_list(db, program, f.param_list());
+            let ret_ty = f.ret().map(|ty| find_type(db, program, ty));
+
+            match &ret_ty {
+                Some(ty) if !f.is_ghost() && ty.is_ghost(db) => {
+                    let err = TypeCheckError {
+                        input: program.program(db).to_string(),
+                        span: f.ret().unwrap().span(),
+                        label: None,
+                        help: None,
+                        kind: TypeCheckErrorKind::GhostUsedInNonGhost,
+                    };
+                    TypeCheckErrors::push(db, err);
+                }
+                _ => {}
+            }
+
+            if !f.is_ghost() && f.body().is_none() {
+                let err = TypeCheckError {
+                    input: program.program(db).to_string(),
+                    span: f
+                        .semicolon_token()
+                        .map(|t| t.span())
+                        .unwrap_or_else(|| name.span()),
+                    label: None,
+                    help: None,
+                    kind: TypeCheckErrorKind::NonGhostFunctionWithoutBody,
+                };
+                TypeCheckErrors::push(db, err);
+            }
+
+            Some(Item::Function(Function::new(
+                db,
+                f,
+                name.into(),
+                attrs,
+                param_list,
+                ret_ty,
+            )))
+        }
+        ItemId::Struct { ast: s } => {
+            let name = Ident::from(s.name().unwrap());
+            let data = TypeDeclData::Struct(Struct::new(db, s, name.clone()));
+            Some(Item::Type(TypeDecl::new(db, name, data)))
+        }
+        ItemId::TypeInvariant { ast: i } => {
+            let name = Ident::from(i.name().unwrap());
+            Some(Item::TypeInvariant(TypeInvariant::new(db, i, name.clone())))
+        }
+        ItemId::Macro { ast } => None,
+    }
+}
+
+#[salsa::tracked]
+pub fn struct_fields(db: &dyn crate::Db, program: Program, s: Struct) -> Vec<Field> {
+    s.node(db)
+        .struct_fields()
+        .map(|f| {
+            let is_ghost = f.is_ghost();
+            let name = f.name().unwrap();
+            Field {
+                parent: FieldParent::Struct(s),
+                name: name.into(),
+                is_ghost,
+                ty: if let Some(ty) = f.ty() {
+                    find_type(db, program, ty).with_ghost(db, is_ghost)
+                } else {
+                    Type::error(db)
+                },
+            }
         })
         .collect()
+}
+
+#[salsa::tracked]
+pub fn struct_ty(db: &dyn crate::Db, s: Struct, reference_span: SourceSpan) -> Type {
+    Type::new(db, TypeData::Struct(s), Some(reference_span))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ItemId {
+    Const { ast: ast::Const },
+    Fn { ast: ast::Fn },
+    Struct { ast: ast::Struct },
+    TypeInvariant { ast: ast::TypeInvariant },
+    Macro { ast: ast::Macro },
+}
+impl ItemId {
+    fn name(&self) -> Option<ast::Name> {
+        match self {
+            ItemId::Const { ast } => ast.name(),
+            ItemId::Fn { ast } => ast.name(),
+            ItemId::Struct { ast } => ast.name(),
+            ItemId::TypeInvariant { ast } => ast.name(),
+            ItemId::Macro { ast } => ast.name(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Item {
+    Type(TypeDecl),
+    TypeInvariant(TypeInvariant),
+    Function(Function),
 }
 
 #[salsa::tracked]
 pub struct TypeDecl {
     #[return_ref]
-    pub name: String,
+    pub name: Ident,
     pub data: TypeDeclData,
 }
 
@@ -82,125 +228,25 @@ pub struct Function {
     #[return_ref]
     pub syntax: mist_syntax::ast::Fn,
     #[return_ref]
-    pub name: mist_syntax::ast::Name,
-    pub attrs: Attrs,
+    pub name: Ident,
+    pub attrs: AttrFlags,
     #[return_ref]
     pub param_list: ParamList,
     pub ret: Option<Type>,
 }
 
 #[salsa::tracked]
-pub fn functions(db: &dyn crate::Db, program: Program) -> Vec<Function> {
-    program
-        .program(db)
-        .items()
-        .filter_map(|item| match item {
-            Item::Fn(f) => {
-                let name = if let Some(name) = f.name() {
-                    name
-                } else {
-                    todo!()
-                };
-                let attrs = f.attrs().fold(Attrs::NONE, |acc, a| match a {
-                    a if a.ghost_token().is_some() => acc | Attrs::GHOST,
-                    a if a.pure_token().is_some() => acc | Attrs::PURE,
-                    _ => acc,
-                });
-                let param_list = typecheck::check_param_list(db, program, f.param_list());
-                let ret_ty = f.ret().map(|ty| find_type(db, program, ty));
-
-                match ret_ty {
-                    Some(ty) if !attrs.contains(Attrs::GHOST) && ty.is_ghost(db) => {
-                        let err = TypeCheckError {
-                            input: program.program(db).to_string(),
-                            span: f.ret().unwrap().span(),
-                            label: None,
-                            help: None,
-                            kind: TypeCheckErrorKind::GhostUsedInNonGhost,
-                        };
-                        TypeCheckErrors::push(db, err);
-                    }
-                    _ => {}
-                }
-
-                if !attrs.contains(Attrs::GHOST) && f.body().is_none() {
-                    let err = TypeCheckError {
-                        input: program.program(db).to_string(),
-                        span: f
-                            .semicolon_token()
-                            .map(|t| t.span())
-                            .unwrap_or_else(|| name.span()),
-                        label: None,
-                        help: None,
-                        kind: TypeCheckErrorKind::NonGhostFunctionWithoutBody,
-                    };
-                    TypeCheckErrors::push(db, err);
-                }
-
-                Some(Function::new(db, f, name, attrs, param_list, ret_ty))
-            }
-            _ => None,
-        })
-        .collect()
-}
-fn function_checker(db: &dyn crate::Db, program: Program, function: Function) -> TypeCheckExpr {
-    let mut checker = TypeCheckExpr::new(db, program, function.ret(db));
-
-    for f in functions(db, program) {
-        let params = f
-            .param_list(db)
-            .params
-            .iter()
-            .map(|param| param.ty)
-            .collect();
-        let return_ty = f.ret(db).unwrap_or_else(|| Type::new(db, TypeData::Void));
-        let return_ty = if f.attrs(db).contains(Attrs::GHOST) {
-            return_ty.ghost(db)
-        } else {
-            return_ty
-        };
-
-        checker.declare_variable(
-            f.name(db),
-            Type::new(db, TypeData::Function { params, return_ty }),
-        );
-    }
-
-    for p in &function.param_list(db).params {
-        checker.declare_variable(&p.name, p.ty);
-    }
-    checker
-}
-pub fn function_conditions(
-    db: &dyn crate::Db,
-    program: Program,
-    function: Function,
-) -> (FunctionContext, Vec<Condition>) {
-    let mut checker = function_checker(db, program, function);
-    let conditions = function
-        .syntax(db)
-        .conditions()
-        .map(|c| match c {
-            mist_syntax::ast::Condition::Requires(r) => {
-                Condition::Requires(checker.check_boolean_exprs(r.comma_exprs()))
-            }
-            mist_syntax::ast::Condition::Ensures(r) => {
-                Condition::Ensures(checker.check_boolean_exprs(r.comma_exprs()))
-            }
-        })
-        .collect();
-    (checker.into(), conditions)
-}
-#[salsa::tracked]
 pub fn function_body(
     db: &dyn crate::Db,
     program: Program,
     function: Function,
-) -> Option<(FunctionContext, Block)> {
+) -> Option<(ItemContext, Block)> {
     function.syntax(db).body().map(|body| {
-        let mut checker = function_checker(db, program, function);
-        let body = checker.check_block(body);
+        let mut checker = TypeCheckExpr::init(db, program, Some(function));
+        let body = checker.check_block(body, |f| f);
+        let is_ghost = function.attrs(db).is_ghost();
         if let Some(ret) = function.ret(db) {
+            let ret = ret.with_ghost(db, is_ghost);
             checker.expect_ty(
                 function
                     .syntax(db)
@@ -211,28 +257,58 @@ pub fn function_body(
                 body.return_ty,
             );
         } else {
-            checker.expect_ty(function.name(db).span(), Type::void(db), body.return_ty);
+            checker.expect_ty(
+                function.name(db).span(),
+                Type::void(db).with_ghost(db, is_ghost),
+                body.return_ty,
+            );
         }
         (checker.into(), body)
     })
 }
 
 #[salsa::tracked]
-pub fn structs(db: &dyn crate::Db, program: Program) -> Vec<Struct> {
-    top_level_type_decls(db, program)
-        .into_iter()
-        .filter_map(|it| match it.data(db) {
-            TypeDeclData::Struct(s) => Some(s),
-        })
-        .collect()
+pub fn ty_inv_block(
+    db: &dyn crate::Db,
+    program: Program,
+    ty_inv: TypeInvariant,
+) -> (ItemContext, Block) {
+    let mut checker = TypeCheckExpr::init(db, program, None);
+    if let Some(body) = ty_inv.node(db).block() {
+        let body = checker.check_block(body, |f| f);
+        checker.expect_ty(
+            ty_inv.name(db).span(),
+            Type::bool(db).ghost(db),
+            body.return_ty,
+        );
+        (checker.into(), body)
+    } else {
+        (
+            checker.into(),
+            Block {
+                stmts: vec![],
+                tail_expr: None,
+                return_ty: Type::error(db),
+            },
+        )
+    }
 }
 
 #[salsa::tracked]
-pub fn find_named_type(db: &dyn crate::Db, program: Program, name: mist_syntax::ast::Name) -> Type {
-    for item in top_level_type_decls(db, program) {
-        if item.name(db) == &name.to_string() {
-            match item.data(db) {
-                TypeDeclData::Struct(it) => return Type::new(db, TypeData::Struct(it)),
+pub fn find_named_type(db: &dyn crate::Db, program: Program, name: Ident) -> Type {
+    for item in program.items(db) {
+        let item_name = item.name().map(|n| n.to_string());
+        if item_name.as_deref() == Some(&name) {
+            match item {
+                ItemId::Struct { ast } => {
+                    let item_name = ast.name().unwrap();
+                    let s = Struct::new(db, ast.clone(), item_name.into());
+                    return struct_ty(db, s, name.span());
+                }
+                ItemId::Const { .. }
+                | ItemId::Fn { .. }
+                | ItemId::TypeInvariant { .. }
+                | ItemId::Macro { .. } => return Type::error(db),
             }
         }
     }
@@ -246,43 +322,27 @@ pub fn find_named_type(db: &dyn crate::Db, program: Program, name: mist_syntax::
     };
     TypeCheckErrors::push(db, err);
 
-    Type::new(db, TypeData::Error)
+    Type::new(db, TypeData::Error, Some(name.span()))
 }
 #[salsa::tracked]
 pub fn find_type(db: &dyn crate::Db, program: Program, ty: mist_syntax::ast::Type) -> Type {
-    match ty {
+    let result = match &ty {
         mist_syntax::ast::Type::NamedType(name) => {
-            find_named_type(db, program, name.name().unwrap())
-            // let result = find_type_with_name(db, program, VariableId::new(db, name.to_string()));
-
-            // if let Some(ty) = result {
-            //     ty
-            // } else {
-            //     let range = name.ident_token().unwrap().text_range();
-            //     let err = TypeCheckError {
-            //         input: program.program(db).to_string(),
-            //         span: SourceSpan::new_start_end(range.start().into(), range.end().into()),
-            //         label: None,
-            //         help: None,
-            //         kind: TypeCheckErrorKind::UndefinedType(name.to_string()),
-            //     };
-            //     eprintln!("{:?}", miette::Error::new(err));
-
-            //     Type::new(db, TypeData::Error)
-            // }
+            let name = name.name().unwrap().into();
+            return find_named_type(db, program, name);
         }
         mist_syntax::ast::Type::Primitive(it) => match () {
-            _ if it.int_token().is_some() => Type::new(db, TypeData::Primitive(Primitive::Int)),
-            _ if it.bool_token().is_some() => Type::new(db, TypeData::Primitive(Primitive::Bool)),
+            _ if it.int_token().is_some() => TypeData::Primitive(Primitive::Int),
+            _ if it.bool_token().is_some() => TypeData::Primitive(Primitive::Bool),
             _ => {
                 todo!();
-                Type::new(db, TypeData::Error)
+                TypeData::Error
             }
         },
         mist_syntax::ast::Type::Optional(it) => {
             if let Some(ty) = it.ty() {
                 let inner = find_type(db, program, ty);
-                Type::new(db, TypeData::Optional(inner))
+                TypeData::Optional(inner)
             } else {
                 todo!()
             }
@@ -292,7 +352,7 @@ pub fn find_type(db: &dyn crate::Db, program: Program, ty: mist_syntax::ast::Typ
 
             if let Some(ty) = r.ty() {
                 let inner = find_type(db, program, ty);
-                Type::new(db, TypeData::Ref { is_mut, inner })
+                TypeData::Ref { is_mut, inner }
             } else {
                 let err = TypeCheckError {
                     input: program.program(db).to_string(),
@@ -302,13 +362,33 @@ pub fn find_type(db: &dyn crate::Db, program: Program, ty: mist_syntax::ast::Typ
                     kind: TypeCheckErrorKind::UndefinedType("what is this".to_string()),
                 };
                 eprintln!("{:?}", miette::Error::new(err));
-                todo!()
+
+                TypeData::Ref {
+                    is_mut,
+                    inner: Type::error(db),
+                }
+            }
+        }
+        mist_syntax::ast::Type::ListType(t) => {
+            if let Some(ty) = t.ty() {
+                let inner = find_type(db, program, ty);
+                TypeData::List(inner)
+            } else {
+                let err = TypeCheckError {
+                    input: program.program(db).to_string(),
+                    span: t.span(),
+                    label: None,
+                    help: None,
+                    kind: TypeCheckErrorKind::UndefinedType("list of what".to_string()),
+                };
+                eprintln!("{:?}", miette::Error::new(err));
+                return Type::error(db);
             }
         }
         mist_syntax::ast::Type::GhostType(t) => {
             if let Some(ty) = t.ty() {
                 let inner = find_type(db, program, ty);
-                Type::new(db, TypeData::Ghost(inner))
+                TypeData::Ghost(inner)
             } else {
                 let err = TypeCheckError {
                     input: program.program(db).to_string(),
@@ -318,32 +398,12 @@ pub fn find_type(db: &dyn crate::Db, program: Program, ty: mist_syntax::ast::Typ
                     kind: TypeCheckErrorKind::UndefinedType("ghost of what".to_string()),
                 };
                 eprintln!("{:?}", miette::Error::new(err));
-                Type::error(db)
+                return Type::error(db);
             }
         }
-    }
-}
+    };
 
-// #[salsa::tracked]
-// pub fn find_type_with_name(db: &dyn crate::Db, program: Program, name: VariableId) -> Option<Type> {
-//     let decls = top_level_type_decls(db, program);
-
-//     for decl in decls {
-//         if decl.name(db) == name.text(db) {
-//             return Some(decl.ty(db));
-//         }
-//     }
-
-//     None
-// }
-
-bitflags! {
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct Attrs: u32 {
-        const NONE = 0b00;
-        const GHOST = 0b01;
-        const PURE = 0b10;
-    }
+    Type::new(db, result, Some(ty.span()))
 }
 
 #[salsa::interned]
@@ -357,15 +417,50 @@ pub struct Variable {
     #[id]
     pub name: VariableId,
 }
+pub type VariableIdx = la_arena::Idx<Variable>;
+#[derive(new, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VariableRef {
+    idx: VariableIdx,
+    span: SourceSpan,
+}
+impl Spanned for VariableRef {
+    fn span(self) -> SourceSpan {
+        self.span
+    }
+}
+impl Spanned for &'_ VariableRef {
+    fn span(self) -> SourceSpan {
+        self.span
+    }
+}
+impl From<VariableRef> for VariableIdx {
+    fn from(value: VariableRef) -> Self {
+        value.idx
+    }
+}
+impl From<&'_ VariableRef> for VariableIdx {
+    fn from(value: &VariableRef) -> Self {
+        value.idx
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ParamList {
     pub params: Vec<Param>,
 }
 
+impl std::ops::Deref for ParamList {
+    type Target = [Param];
+
+    fn deref(&self) -> &Self::Target {
+        &self.params
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Param {
-    pub name: mist_syntax::ast::Name,
+    pub is_ghost: bool,
+    pub name: Ident,
     pub ty: Type,
 }
 
@@ -373,6 +468,22 @@ pub struct Param {
 pub enum Condition {
     Requires(Vec<ExprIdx>),
     Ensures(Vec<ExprIdx>),
+}
+
+impl Condition {
+    pub fn exprs(&self) -> &[ExprIdx] {
+        match self {
+            Self::Requires(it) | Self::Ensures(it) => it,
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Decreases {
+    #[default]
+    Unspecified,
+    Expr(ExprIdx),
+    Inferred,
 }
 
 pub type ExprIdx = la_arena::Idx<Expr>;
@@ -385,13 +496,15 @@ pub struct Expr {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ExprData {
     Literal(Literal),
-    Ident(la_arena::Idx<Variable>),
+    Ident(VariableRef),
     Field {
         expr: ExprIdx,
-        field: String,
+        field_name: Ident,
+        field: Option<Field>,
     },
     Struct {
-        strukt: Struct,
+        struct_declaration: Struct,
+        struct_span: SourceSpan,
         fields: Vec<StructExprField>,
     },
     Missing,
@@ -399,6 +512,10 @@ pub enum ExprData {
     Call {
         expr: ExprIdx,
         args: Vec<ExprIdx>,
+    },
+    Unary {
+        op: UnaryOp,
+        inner: ExprIdx,
     },
     Bin {
         lhs: ExprIdx,
@@ -409,12 +526,23 @@ pub enum ExprData {
         is_mut: bool,
         expr: ExprIdx,
     },
+    Index {
+        base: ExprIdx,
+        index: ExprIdx,
+    },
+    List {
+        elems: Vec<ExprIdx>,
+    },
     Quantifier {
         quantifier: Quantifier,
         params: ParamList,
         expr: ExprIdx,
     },
     Result,
+    Range {
+        lhs: Option<ExprIdx>,
+        rhs: Option<ExprIdx>,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Literal {
@@ -431,11 +559,14 @@ pub enum Quantifier {
 }
 #[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StructExprField {
-    pub name: String,
+    pub decl: Field,
+    pub name: Ident,
     pub value: ExprIdx,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IfExpr {
+    pub if_span: SourceSpan,
+    pub is_ghost: bool,
     pub return_ty: Type,
     pub condition: ExprIdx,
     pub then_branch: Block,
@@ -447,7 +578,13 @@ pub enum Else {
     Block(Block),
 }
 impl Else {
-    pub fn return_ty(&self, db: &dyn crate::Db) -> Type {
+    pub fn first_block(&self) -> &Block {
+        match self {
+            Else::If(it) => &it.then_branch,
+            Else::Block(it) => it,
+        }
+    }
+    pub fn return_ty(&self, _db: &dyn crate::Db) -> Type {
         match self {
             Else::If(it) => it.return_ty,
             Else::Block(it) => it.return_ty,
@@ -464,6 +601,7 @@ pub struct Block {
 
 #[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Statement {
+    pub span: SourceSpan,
     pub data: StatementData,
 }
 
@@ -472,12 +610,14 @@ pub enum StatementData {
     Return(Option<ExprIdx>),
     Expr(ExprIdx),
     Let {
-        variable: la_arena::Idx<Variable>,
+        variable: VariableRef,
+        explicit_ty: Option<Type>,
         initializer: ExprIdx,
     },
     While {
         expr: ExprIdx,
         invariants: Vec<Vec<ExprIdx>>,
+        decreases: Decreases,
         body: Block,
     },
     Assertion {
@@ -498,6 +638,7 @@ pub enum AssertionKind {
 pub struct Type {
     #[return_ref]
     pub data: TypeData,
+    pub span: Option<SourceSpan>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -505,12 +646,22 @@ pub enum TypeData {
     Error,
     Void,
     Ghost(Type),
-    Ref { is_mut: bool, inner: Type },
+    Ref {
+        is_mut: bool,
+        inner: Type,
+    },
+    List(Type),
     Optional(Type),
     Primitive(Primitive),
     Struct(Struct),
     Null,
-    Function { params: Vec<Type>, return_ty: Type },
+    Function {
+        attrs: AttrFlags,
+        name: Option<Ident>,
+        params: ParamList,
+        return_ty: Type,
+    },
+    Range(Type),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -523,28 +674,63 @@ impl Type {
     pub(crate) fn ghost(self, db: &dyn crate::Db) -> Self {
         match self.data(db) {
             TypeData::Ghost(_) => self,
-            _ => Type::new(db, TypeData::Ghost(self)),
+            _ => Type::new(db, TypeData::Ghost(self), self.span(db)),
         }
     }
-    pub(crate) fn is_ghost(self, db: &dyn crate::Db) -> bool {
+    pub(crate) fn with_ghost(self, db: &dyn crate::Db, ghost: bool) -> Self {
+        if ghost {
+            self.ghost(db)
+        } else {
+            self
+        }
+    }
+    pub(crate) fn strip_ghost(self, db: &dyn crate::Db) -> Self {
+        match self.data(db) {
+            TypeData::Ghost(inner) => inner.strip_ghost(db),
+            _ => self,
+        }
+    }
+    pub fn is_ghost(self, db: &dyn crate::Db) -> bool {
         match self.data(db) {
             TypeData::Ghost(_) => true,
             // TODO: Should we recurse and check if non of the children are ghost?
             _ => false,
         }
     }
+    pub(crate) fn with_span(self, db: &dyn crate::Db, span: SourceSpan) -> Self {
+        Type::new(db, self.data(db).clone(), Some(span))
+    }
+    pub(crate) fn without_span(self, db: &dyn crate::Db) -> Self {
+        Type::new(db, self.data(db).clone(), None)
+    }
 }
 
-#[salsa::tracked]
+#[salsa::interned]
 pub struct Struct {
     #[return_ref]
     node: mist_syntax::ast::Struct,
+    pub name: Ident,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StructField {
-    pub name: String,
+pub enum FieldParent {
+    Struct(Struct),
+    List(Type),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Field {
+    pub parent: FieldParent,
+    pub name: Ident,
+    pub is_ghost: bool,
     pub ty: Type,
+}
+
+#[salsa::interned]
+pub struct TypeInvariant {
+    #[return_ref]
+    node: mist_syntax::ast::TypeInvariant,
+    pub name: Ident,
 }
 
 pub mod pretty {
@@ -552,7 +738,7 @@ pub mod pretty {
     use itertools::Itertools;
 
     pub trait PrettyPrint {
-        fn resolve_var(&self, idx: la_arena::Idx<Variable>) -> String;
+        fn resolve_var(&self, idx: VariableIdx) -> String;
         fn resolve_expr(&self, idx: ExprIdx) -> &Expr;
     }
 
@@ -560,17 +746,34 @@ pub mod pretty {
     use params as pp_params;
     use ty as pp_ty;
 
-    pub fn params(pp: &impl PrettyPrint, db: &dyn crate::Db, params: &ParamList) -> String {
+    pub fn params(
+        pp: &impl PrettyPrint,
+        db: &dyn crate::Db,
+        strip_ghost: bool,
+        params: &ParamList,
+    ) -> String {
         format!(
             "({})",
             params
                 .params
                 .iter()
-                .map(|param| format!("{}: {}", param.name, pp_ty(pp, db, param.ty)))
+                .map(|param| format!(
+                    "{}: {}",
+                    param.name,
+                    pp_ty(
+                        pp,
+                        db,
+                        if strip_ghost {
+                            param.ty.strip_ghost(db)
+                        } else {
+                            param.ty
+                        }
+                    )
+                ))
                 .format(", ")
         )
     }
-    pub fn ty(_pp: &impl PrettyPrint, db: &dyn crate::Db, ty: Type) -> String {
+    pub fn ty(pp: &impl PrettyPrint, db: &dyn crate::Db, ty: Type) -> String {
         match ty.data(db) {
             TypeData::Error => "Error".to_string(),
             TypeData::Void => "void".to_string(),
@@ -578,19 +781,57 @@ pub mod pretty {
                 format!(
                     "&{}{}",
                     if is_mut { "mut " } else { "" },
-                    pp_ty(_pp, db, inner)
+                    pp_ty(pp, db, inner)
                 )
             }
-            &TypeData::Ghost(inner) => format!("ghost {}", pp_ty(_pp, db, inner)),
-            &TypeData::Optional(inner) => format!("{}?", pp_ty(_pp, db, inner)),
+            &TypeData::Ghost(inner) => format!("ghost {}", pp_ty(pp, db, inner)),
+            &TypeData::Range(inner) => format!("range {}", pp_ty(pp, db, inner)),
+            &TypeData::List(inner) => format!("[{}]", pp_ty(pp, db, inner)),
+            &TypeData::Optional(inner) => format!("{}?", pp_ty(pp, db, inner)),
             TypeData::Primitive(t) => format!("{t:?}").to_lowercase(),
-            TypeData::Struct(s) => struct_name(db, *s).to_string(),
+            TypeData::Struct(s) => s.name(db).to_string(),
             TypeData::Null => "null".to_string(),
-            TypeData::Function { params, return_ty } => format!(
-                "fn({}) -> {}",
-                params.iter().map(|t| pp_ty(_pp, db, *t)).format(", "),
-                pp_ty(_pp, db, *return_ty)
-            ),
+            TypeData::Function {
+                attrs,
+                name,
+                params,
+                return_ty,
+            } => {
+                let is_ghost = attrs.is_ghost();
+
+                let mut attrs = attrs.to_string();
+                if !attrs.is_empty() {
+                    attrs.push(' ');
+                }
+                let name = name
+                    .as_ref()
+                    .map(|name| format!(" {name}"))
+                    .unwrap_or_default();
+                let params = pretty::params(pp, db, is_ghost, params);
+                let ret = if let TypeData::Void = return_ty.strip_ghost(db).data(db) {
+                    String::new()
+                } else {
+                    let ty = pretty::ty(
+                        pp,
+                        db,
+                        if is_ghost {
+                            return_ty.strip_ghost(db)
+                        } else {
+                            *return_ty
+                        },
+                    );
+                    format!(" -> {ty}")
+                };
+
+                format!("{attrs}fn{name}{params}{ret}")
+
+                //     format!(
+                //     "{attrs} fn{}({}) -> {}",
+                //     name.as_ref().map(|n| format!(" {n}")).unwrap_or_default(),
+                //     params.iter().map(|t| pp_ty(_pp, db, *t)).format(", "),
+                //     pp_ty(_pp, db, *return_ty)
+                // )
+            }
         }
     }
     pub fn expr(pp: &impl PrettyPrint, db: &dyn crate::Db, expr: ExprIdx) -> String {
@@ -600,11 +841,17 @@ pub mod pretty {
                 Literal::Int(i) => i.to_string(),
                 Literal::Bool(b) => b.to_string(),
             },
-            ExprData::Ident(i) => pp.resolve_var(*i),
-            ExprData::Field { expr, field } => format!("{}.{field}", pp_expr(pp, db, *expr)),
-            ExprData::Struct { strukt, fields } => format!(
+            ExprData::Ident(i) => pp.resolve_var(i.idx),
+            ExprData::Field {
+                expr, field_name, ..
+            } => format!("{}.{field_name}", pp_expr(pp, db, *expr)),
+            ExprData::Struct {
+                struct_declaration,
+                fields,
+                ..
+            } => format!(
                 "{} {{ {} }}",
-                struct_name(db, *strukt),
+                struct_declaration.name(db),
                 fields
                     .iter()
                     .map(|f| format!("{}: {}", f.name, pp_expr(pp, db, f.value)))
@@ -617,9 +864,26 @@ pub mod pretty {
                 pp_expr(pp, db, *expr),
                 args.iter().map(|arg| pp_expr(pp, db, *arg)).format(", ")
             ),
+            ExprData::Unary { op, inner } => {
+                format!("({op} {})", pp_expr(pp, db, *inner))
+            }
             ExprData::Bin { lhs, op, rhs } => {
                 format!("({} {op} {})", pp_expr(pp, db, *lhs), pp_expr(pp, db, *rhs))
             }
+            &ExprData::Range { lhs, rhs } => {
+                format!(
+                    "{}..{}",
+                    lhs.map(|e| pp_expr(pp, db, e)).unwrap_or_default(),
+                    rhs.map(|e| pp_expr(pp, db, e)).unwrap_or_default()
+                )
+            }
+            &ExprData::Index { base, index } => {
+                format!("{}[{}]", pp_expr(pp, db, base), pp_expr(pp, db, index))
+            }
+            ExprData::List { elems } => format!(
+                "[{}]",
+                elems.iter().map(|e| pp_expr(pp, db, *e)).format(", ")
+            ),
             ExprData::Ref { is_mut, expr } => {
                 format!(
                     "&{}{}",
@@ -633,7 +897,7 @@ pub mod pretty {
                 expr,
             } => format!(
                 "{quantifier}{} {{ {} }}",
-                pp_params(pp, db, params),
+                pp_params(pp, db, true, params),
                 pp_expr(pp, db, *expr)
             ),
             ExprData::Result => "result".to_string(),

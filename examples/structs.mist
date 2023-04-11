@@ -1,0 +1,15 @@
+struct Ghost {
+    is_casper: bool,
+    age: int,
+    ghost spooks: int,
+}
+
+struct List {
+    next: List?,
+    ghost g: Ghost,
+}
+
+fn recursive(list: List) -> List {
+    list.next = null;
+    recursive(list)
+}

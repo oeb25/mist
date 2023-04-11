@@ -1,16 +1,16 @@
 struct List {
     next: List?,
-    elem: Int,
-    ghost content: Seq[Int],
+    elem: int,
+    ghost content: [int],
 }
 
 invariant List {
-    if this.next == null { this.content = Seq[Int]() }
-    if this.next != null { this.content == Seq(this.elem) ++ this.next.content }
+    (if this.next == null { this.content = [] } else { true }) &&
+    (if this.next != null { this.content == [this.elem] ++ this.next.content } else { true })
 }
 
 fn create() -> List
-    ensures result.content == Seq[Int]()
+    ensures result.content == []
 {
-    return List { content: Seq[Int]() }
+    List { content: [] }
 }

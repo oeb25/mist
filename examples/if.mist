@@ -1,0 +1,29 @@
+fn basic() {
+    let x = 1;
+
+    if x > 2 {
+        x = 2;
+    }
+}
+
+fn in_expr_position() {
+    let x = if true { 1 } else { 2 };
+}
+
+fn in_return_position() -> int {
+    if true { 1 } else { 2 }
+}
+fn in_return_position2() -> bool {
+    if true { true } else { true }
+}
+
+fn early_return() -> int
+    ens result == 1
+{
+    if true { return 1; }
+    4
+}
+
+fn branch_type_mismatch() {
+    let x = if true { 12 } else { let y = false; y };
+}

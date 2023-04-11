@@ -1,15 +1,106 @@
-// TODO: votes should be Seq[int]
-fn count_votes(votes: Seq, candidate: int, low: int, high: int) -> int
-  requires 0 <= low, low <= high, high <= votes
+pure fn count_votes(votes: [int], candidate: int, low: int, high: int) -> int
+  req 0 <= low, low <= high, high <= votes.len
+  dec high
 {
   if low == high {
     0
   } else {
     count_votes(votes, candidate, low, high - 1) +
-      if votes[high - 1] == candidate {
-        1
-      } else {
-        0
-      }
+      if votes[high - 1] == candidate { 1 } else { 0 }
   }
+}
+
+pure fn has_majority(votes: [int], candidate: int, low: int, high: int) -> bool
+  req 0 <= low, low <= high, high <= votes.len
+  dec _
+{
+  count_votes(votes, candidate, low, high) > (high - low) / 2
+}
+
+ghost fn lemma_distinct_candidate_votes(
+  votes: [int],
+  candidate_a: int,
+  candidate_b: int,
+  low: int,
+  high: int,
+) req 0 <= low, low <= high, high <= votes.len
+  ens if candidate_a != candidate_b {
+        count_votes(votes, candidate_a, low, high) + count_votes(votes, candidate_a, low, high)
+          <= high - low
+      } else { true }
+  dec high
+{
+  if low != high {
+    lemma_distinct_candidate_votes(votes, candidate_a, candidate_b, low, high-1)
+  }
+}
+
+ghost fn lemma_split_vote_count(
+  votes: [int],
+  candidate: int,
+  low: int,
+  mid: int,
+  high: int,
+) req 0 <= low, low <= mid, mid <= high, high <= votes.len
+  ens count_votes(votes, candidate, low, high)
+      == count_votes(votes, candidate, low, mid) + count_votes(votes, candidate, mid, high)
+  dec high
+{
+  if low != mid && mid != high {
+    lemma_split_vote_count(votes, candidate, low, mid, high - 1)
+  }
+}
+
+fn search_winner(votes: [int], ghost has_winner: bool, ghost winner: int) -> int
+  req votes.len > 0,
+      if has_winner { has_majority(votes, winner, 0, votes.len) } else { true }
+  ens if has_winner { result == winner } else { true }
+  dec _
+{
+  let w = votes[0];
+  let low = 0;
+  let high = 1;
+  let count = 1;
+
+  assert votes[high - 1] == w,
+         count_votes(votes, w, low, high - 1) == 0;
+
+  let ret = !false;
+
+  while !ret && high < votes.len
+    inv 0 <= low, low <= high, high <= votes.len,
+        count == count_votes(votes, w, low, high),
+        if ret {
+          low <= votes.len - 1
+            && votes[votes.len - 1] != w
+            && has_majority(votes, w, low, votes.len - 1)
+        } else {
+          has_majority(votes, w, low, high)
+        },
+        if has_winner { has_majority(votes, winner, low, votes.len) } else { true }
+    dec votes.len - high
+  {
+    if votes[high] == w {
+      high = high + 1;
+      count = count + 1;
+    } else if high + 1 - low < 2 * count {
+      high = high + 1;
+    } else {
+      high = high + 1;
+      lemma_distinct_candidate_votes(votes, w, winner, low, high);
+      lemma_split_vote_count(votes, w, winner, low, high);
+      if high == votes.len {
+        ret = true;
+        return w;
+      } else {
+        w = votes[high];
+        low = high;
+        high = high + 1;
+        assert count_votes(votes, w, low, high - 1) == 0;
+        count = 1;
+      }
+    }
+  }
+
+  w
 }

@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Item, Stmt},
+    ast::{HasName, Item, Stmt},
     parser::Parser,
 };
 
@@ -52,6 +52,7 @@ fn parse_hello() -> color_eyre::Result<()> {
             Item::Struct(s) => {
                 dbg!(s);
             }
+            Item::TypeInvariant(_) => todo!(),
             Item::Macro(_) => todo!(),
         }
     }

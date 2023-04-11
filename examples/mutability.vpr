@@ -1,0 +1,81 @@
+field age: Int
+field age_perm: Perm
+
+predicate Person(this: Ref) {
+    acc(this.age_perm) && this.age_perm >= 0/1 && acc(this.age, this.age_perm)
+}
+
+field int_ptr: Int
+
+method mut_age(p: Ref) returns (ret: Ref)
+    requires acc(Person(p), write) && unfolding Person(p) in p.age_perm == write
+    ensures  acc(ret.int_ptr, write)
+    ensures  acc(Person(p), write) && unfolding Person(p) in p.age_perm == none
+    ensures  ret.int_ptr == old(unfolding Person(p) in p.age)
+{
+    ret := new(int_ptr)
+    unfold acc(Person(p), write)
+    ret.int_ptr := p.age
+    p.age_perm := none
+    fold acc(Person(p), write)
+}
+
+define drop_ref(pred, name, f, f_perm, ref) {
+    unfold pred(name)
+    name.f_perm := write
+    assert acc(age_ref.int_ptr)
+    inhale acc(name.f, name.f_perm)
+    name.f := ref.int_ptr
+    exhale acc(ref.int_ptr)
+    fold pred(p)
+}
+
+method client(p: Ref)
+    requires acc(Person(p), write) && unfolding Person(p) in p.age_perm == write
+    requires unfolding Person(p) in p.age == 10
+{
+    var age_ref: Ref
+    age_ref := mut_age(p)
+    age_ref.int_ptr := age_ref.int_ptr + 1
+
+    drop_ref(Person, p, age, age_perm, age_ref)
+    // drop_ref(Person, p, age, age_perm, age_ref)
+    // assert false
+
+    // drop age_ref
+    // unfold Person(p)
+    // p.age_perm := write
+    // inhale acc(p.age, p.age_perm)
+    // p.age := age_ref.int_ptr
+    // exhale acc(age_ref.int_ptr)
+    // fold Person(p)
+
+    assert unfolding Person(p) in p.age == 11
+}
+
+method move() {
+    var p1: Ref
+    inhale Person(p1) && unfolding Person(p1) in p1.age_perm == write
+    unfold Person(p1)
+    p1.age := 10
+    fold Person(p1)
+    var p2: Ref
+    p2 := p1
+    var p3: Ref
+    p3 := p2
+    assert unfolding Person(p2) in p2.age == 10
+    assert unfolding Person(p1) in p1.age == 10
+    unfold Person(p2)
+    p2.age := 20
+    fold Person(p2)
+    assert unfolding Person(p1) in p1.age == 20
+    assert unfolding Person(p2) in p2.age == 20
+    assert unfolding Person(p3) in p3.age == 20
+
+    // Notice indices
+    assert unfolding Person(p3) in p1.age == 20
+
+    // Unfolding two if not okay
+    unfold Person(p1)
+    unfold Person(p2)
+}

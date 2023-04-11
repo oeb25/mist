@@ -32,3 +32,82 @@ fn unit_call() {
 }
 
 fn no_body_on_non_ghost();
+
+fn implicit_ghost() {
+    let y = im_ghost();
+    let x = 12;
+
+    if y {
+        x = 15;
+        y = true;
+    }
+}
+
+fn implicit_ghost_return(y: ghost bool) -> int {
+    if y {
+        12
+    } else {
+        13
+    }
+}
+
+fn ghost_arg(x: int, y: ghost bool) -> int {
+    if y {
+        x = 1;
+    };
+    x = 2;
+    x
+}
+
+fn non_ghost_math(x: int, y: int) -> int {
+    let z = x + y;
+    z
+}
+
+fn ghost_math(x: int, y: ghost int) -> int {
+    let z = x + y;
+    z
+}
+
+fn non_ghost() {}
+
+pure fn pure_fn() {}
+
+ghost fn ghost_calling_non_ghost() {
+    non_ghost();
+}
+ghost fn ghost_calling_non_ghost_but_pure() {
+    pure_fn();
+}
+ghost fn ghost_calling_ghost() {
+    ghost_calling_non_ghost();
+}
+
+
+pure fn id(x: int) -> int { x }
+ghost fn basic(y: int) -> int { id(y) }
+
+fn stuff(y: ghost bool) {
+    if y { stuff(y); }
+}
+
+struct Casper {
+    age: int,
+    ghost spooks: int,
+}
+
+fn get_age(g: &Casper) -> int {
+    let s = g.age;
+    s
+}
+fn get_spooks(g: &Casper) -> int {
+    let s = g.spooks;
+    s
+}
+
+fn ghost_arg(x: int, ghost y: int) -> int {
+    x + y
+}
+fn call_ghost_arg(y: ghost int) -> int {
+    ghost_arg(12, y)
+}

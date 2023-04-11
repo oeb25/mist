@@ -6,7 +6,7 @@ use rowan::{Checkpoint, GreenNodeBuilder};
 use thiserror::Error;
 
 use crate::{
-    ast::SourceFile,
+    ast::{AttrFlags, SourceFile},
     support::{AstNode, SourceSpan},
     SyntaxKind::{self, *},
     SyntaxNode, T,
@@ -111,22 +111,15 @@ impl<'src> Parser<'src> {
         }
     }
 
-    fn maybe_item(&mut self) -> bool {
-        bitflags::bitflags! {
-            struct Attrs: u8 {
-                const NONE = 0;
-                const PURE = 0b01;
-                const GHOST = 0b10;
-            }
-        }
-
+    fn attrs(&mut self) -> Checkpoint {
         let attr_checkpoint = self.builder.checkpoint();
-        let mut attr_seen = Attrs::NONE;
+        let mut attr_seen = AttrFlags::empty();
+        self.builder.start_node(ATTRS.into());
         loop {
             self.skip_ws();
             match self.current() {
                 Some(T![pure]) => {
-                    if attr_seen.contains(Attrs::PURE) {
+                    if attr_seen.is_pure() {
                         self.push_error(
                             None,
                             Some("repeated pure attr"),
@@ -134,13 +127,13 @@ impl<'src> Parser<'src> {
                             ParseErrorKind::Context("attr".to_string()),
                         );
                     }
-                    attr_seen.insert(Attrs::PURE);
+                    attr_seen.insert(AttrFlags::PURE);
                     self.builder.start_node(ATTR.into());
                     self.bump();
                     self.builder.finish_node();
                 }
                 Some(T![ghost]) => {
-                    if attr_seen.contains(Attrs::GHOST) {
+                    if attr_seen.is_ghost() {
                         self.push_error(
                             None,
                             Some("repeated ghost attr"),
@@ -148,7 +141,7 @@ impl<'src> Parser<'src> {
                             ParseErrorKind::Context("attr".to_string()),
                         );
                     }
-                    attr_seen.insert(Attrs::GHOST);
+                    attr_seen.insert(AttrFlags::GHOST);
                     self.builder.start_node(ATTR.into());
                     self.bump();
                     self.builder.finish_node();
@@ -156,12 +149,19 @@ impl<'src> Parser<'src> {
                 _ => break,
             }
         }
+        self.builder.finish_node();
+        attr_checkpoint
+    }
+
+    fn maybe_item(&mut self) -> bool {
+        let attrs_checkpoint = self.attrs();
 
         match self.current() {
-            Some(T![fn]) => self.fn_def(attr_checkpoint),
-            Some(T![const]) => self.const_def(attr_checkpoint),
-            Some(T![struct]) => self.struct_def(attr_checkpoint),
-            Some(T![macro]) => self.macro_def(attr_checkpoint),
+            Some(T![fn]) => self.fn_def(attrs_checkpoint),
+            Some(T![const]) => self.const_def(attrs_checkpoint),
+            Some(T![struct]) => self.struct_def(attrs_checkpoint),
+            Some(T![invariant]) => self.type_invariant(attrs_checkpoint),
+            Some(T![macro]) => self.macro_def(attrs_checkpoint),
             Some(T![let]) => {
                 self.push_error(
                     None,
@@ -191,19 +191,36 @@ impl<'src> Parser<'src> {
             self.ty();
         }
 
+        let mut seen_decreases = false;
+
         loop {
             self.skip_ws();
             match self.current() {
-                Some(T![requires]) => {
+                Some(T![requires] | T![req]) => {
                     self.builder.start_node(REQUIRES.into());
                     self.bump();
                     self.comma_expr(Location::NO_STRUCT);
                     self.builder.finish_node();
                 }
-                Some(T![ensures]) => {
+                Some(T![ensures] | T![ens]) => {
                     self.builder.start_node(ENSURES.into());
                     self.bump();
                     self.comma_expr(Location::NO_STRUCT);
+                    self.builder.finish_node();
+                }
+                Some(T![decreases] | T![dec]) => {
+                    if seen_decreases {
+                        // TODO: Report repeated decreases
+                    }
+                    seen_decreases = true;
+
+                    self.builder.start_node(DECREASES.into());
+                    self.bump();
+                    self.skip_ws();
+                    match self.current() {
+                        Some(T![_]) => self.bump(),
+                        _ => self.expr(Location::NO_STRUCT),
+                    }
                     self.builder.finish_node();
                 }
                 _ => break,
@@ -274,6 +291,17 @@ impl<'src> Parser<'src> {
                     this.builder.finish_node();
                     ControlFlow::Continue(())
                 }
+
+                Some(T![ghost]) => {
+                    this.builder.start_node(STRUCT_FIELD.into());
+                    this.attrs();
+                    this.name();
+                    this.skip_ws();
+                    this.expect_control(T![:]);
+                    this.ty();
+                    this.builder.finish_node();
+                    ControlFlow::Continue(())
+                }
                 Some(T!['}']) => ControlFlow::Break(()),
                 _ => {
                     this.push_error(
@@ -288,6 +316,18 @@ impl<'src> Parser<'src> {
         );
 
         self.expect_control(T!['}']);
+
+        self.builder.finish_node();
+    }
+
+    fn type_invariant(&mut self, attr_checkpoint: Checkpoint) {
+        assert_eq!(self.current(), Some(T![invariant]));
+        self.builder.start_node_at(attr_checkpoint, STRUCT.into());
+        self.bump();
+
+        self.name();
+
+        self.block();
 
         self.builder.finish_node();
     }
@@ -343,8 +383,9 @@ impl<'src> Parser<'src> {
         self.comma_sep(
             |t| t == T![')'],
             |this| {
+                let attrs_checkpoint = this.attrs();
                 if let Some(T![ident]) = this.current() {
-                    this.builder.start_node(PARAM.into());
+                    this.builder.start_node_at(attrs_checkpoint, PARAM.into());
                     this.name();
                     this.skip_ws();
                     if let Some(T![:]) = this.current() {
@@ -470,6 +511,16 @@ impl<'src> Parser<'src> {
             return;
         }
 
+        self.skip_ws();
+        if let Some(T!['[']) = self.current() {
+            self.builder.start_node(LIST_TYPE.into());
+            self.bump();
+            self.ty();
+            self.expect_control(T![']']);
+            self.builder.finish_node();
+            return;
+        }
+
         let checkpoint = self.builder.checkpoint();
         self.skip_ws();
         match self.current() {
@@ -504,6 +555,8 @@ impl<'src> Parser<'src> {
         self.builder.start_node(BLOCK.into());
         self.expect_control(T!['{']);
 
+        let mut trailing = None;
+
         loop {
             self.skip_ws();
             match self.current() {
@@ -511,18 +564,40 @@ impl<'src> Parser<'src> {
                     self.bump();
                     break;
                 }
+                Some(T![;]) => {
+                    if let Some(checkpoint) = trailing.take() {
+                        self.builder.start_node_at(checkpoint, EXPR_STMT.into());
+                        self.bump();
+                        self.builder.finish_node();
+                    }
+                }
                 None => {
                     self.unexpected_eof();
                     break;
                 }
-                _ => self.stmt(),
+                _ => {
+                    if let Some(checkpoint) = trailing.take() {
+                        self.push_error(
+                            Some(self.pre_whitespace_span.set_len(0)),
+                            Some("expected ';'"),
+                            Some("consider adding a ';' to mark the end of the expression"),
+                            ParseErrorKind::Context(";".to_string()),
+                        );
+                        self.builder.start_node_at(checkpoint, EXPR_STMT.into());
+                        self.builder.finish_node();
+                    }
+                    match self.stmt() {
+                        StatementParsed::Expression(e) => trailing = Some(e),
+                        StatementParsed::Statement => {}
+                    }
+                }
             }
         }
 
         self.builder.finish_node();
     }
 
-    fn stmt(&mut self) {
+    fn stmt(&mut self) -> StatementParsed {
         self.skip_ws();
 
         match self.current() {
@@ -534,23 +609,26 @@ impl<'src> Parser<'src> {
                 self.while_stmt();
             }
             Some(T![if]) => {
-                self.builder.start_node(EXPR_STMT.into());
+                let checkpoint = self.builder.checkpoint();
+                // self.builder.start_node(EXPR_STMT.into());
                 self.if_expr();
-                self.builder.finish_node();
+                // self.builder.finish_node();
+                return StatementParsed::Expression(checkpoint);
             }
-            Some(T![ident] | T![true] | T![false] | INT_NUMBER) => {
+            Some(t) if is_start_of_expr(t) => {
                 let expr_checkpoint = self.builder.checkpoint();
                 self.expr(Location::NONE);
 
-                self.skip_ws();
-                if let Some(T![;]) = self.current() {
-                    self.builder
-                        .start_node_at(expr_checkpoint, EXPR_STMT.into());
-                    self.bump();
-                    self.builder.finish_node();
-                } else {
-                    // tail expr
-                }
+                // self.skip_ws();
+                // if let Some(T![;]) = self.current() {
+                //     self.builder
+                //         .start_node_at(expr_checkpoint, EXPR_STMT.into());
+                //     self.bump();
+                //     self.builder.finish_node();
+                // } else {
+                //     // tail expr
+                return StatementParsed::Expression(expr_checkpoint);
+                // }
             }
             None => self.unexpected_eof(),
             _ => {
@@ -565,6 +643,8 @@ impl<'src> Parser<'src> {
                 }
             }
         }
+
+        StatementParsed::Statement
     }
 
     fn let_stmt(&mut self) {
@@ -636,15 +716,32 @@ impl<'src> Parser<'src> {
 
         self.expr(Location::NO_STRUCT);
 
+        let mut seen_decreases = false;
+
         loop {
             self.skip_ws();
             match self.current() {
-                Some(T![invariant]) => {
+                Some(T![invariant] | T![inv]) => {
                     self.builder.start_node(INVARIANT.into());
 
                     self.bump();
                     self.comma_expr(Location::NO_STRUCT);
 
+                    self.builder.finish_node();
+                }
+                Some(T![decreases] | T![dec]) => {
+                    if seen_decreases {
+                        // TODO: Report repeated decreases
+                    }
+                    seen_decreases = true;
+
+                    self.builder.start_node(DECREASES.into());
+                    self.bump();
+                    self.skip_ws();
+                    match self.current() {
+                        Some(T![_]) => self.bump(),
+                        _ => self.expr(Location::NO_STRUCT),
+                    }
                     self.builder.finish_node();
                 }
                 _ => break,
@@ -755,6 +852,21 @@ impl<'src> Parser<'src> {
                 self.bump();
                 self.builder.finish_node();
             }
+            Some(T!['[']) => {
+                self.builder.start_node(LIST_EXPR.into());
+                self.bump();
+                self.comma_sep(
+                    |t| t == T![']'],
+                    |this| {
+                        this.builder.start_node(COMMA_EXPR.into());
+                        this.expr_bp(Location::NONE, 0);
+                        this.builder.finish_node();
+                        ControlFlow::Continue(())
+                    },
+                );
+                self.expect_control(T![']']);
+                self.builder.finish_node();
+            }
             Some(T!['(']) => {
                 self.builder.start_node(PAREN_EXPR.into());
                 self.bump();
@@ -854,11 +966,18 @@ impl<'src> Parser<'src> {
                     break;
                 }
                 let next = self.builder.checkpoint();
-                self.builder.start_node_at(lhs, BIN_EXPR.into());
-                self.bump();
 
                 match op {
+                    T![..] => {
+                        self.builder.start_node_at(lhs, RANGE_EXPR.into());
+                        self.bump();
+                        if self.current().map(is_start_of_expr) == Some(true) {
+                            self.expr_bp(loc, r_bp);
+                        }
+                    }
                     op => {
+                        self.builder.start_node_at(lhs, BIN_EXPR.into());
+                        self.bump();
                         // eprintln!("normal infix op was: '{op}'");
                         self.expr_bp(loc, r_bp);
                     }
@@ -883,7 +1002,12 @@ impl<'src> Parser<'src> {
         self.skip_ws();
         if let Some(T![else]) = self.current() {
             self.bump();
-            self.block();
+            self.skip_ws();
+            if let Some(T![if]) = self.current() {
+                self.if_expr();
+            } else {
+                self.block();
+            }
         }
 
         self.builder.finish_node();
@@ -1088,7 +1212,29 @@ impl<'src> Parser<'src> {
     }
 }
 
+fn is_start_of_expr(token: SyntaxKind) -> bool {
+    matches!(
+        token,
+        T![ident]
+            | T![true]
+            | T![false]
+            | T![result]
+            | T![&]
+            | T![!]
+            | T!['(']
+            | T!['[']
+            | INT_NUMBER,
+    )
+}
+
+#[derive(Debug, Clone, Copy)]
+enum StatementParsed {
+    Expression(Checkpoint),
+    Statement,
+}
+
 bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     struct Location: u32 {
         const NONE = 0b000;
         const NO_STRUCT = 0b001;
@@ -1100,7 +1246,7 @@ bitflags::bitflags! {
 fn prefix_binding_power(op: Option<SyntaxKind>) -> Option<(SyntaxKind, (), u8)> {
     let op = op?;
     match op {
-        T![&] => Some((op, (), 8)),
+        T![&] | T![!] => Some((op, (), 8)),
         T![+] | T![-] => Some((op, (), 9)),
         T![forall] | T![exists] => Some((op, (), 10)),
         _ => None,
@@ -1110,7 +1256,7 @@ fn prefix_binding_power(op: Option<SyntaxKind>) -> Option<(SyntaxKind, (), u8)> 
 fn postfix_binding_power(op: Option<SyntaxKind>) -> Option<(SyntaxKind, u8, ())> {
     let op = op?;
     let (l, r) = match op {
-        T![!] => (11, ()),
+        // T![!] => (11, ()),
         T!['['] => (11, ()),
         T!['('] => (11, ()),
         T![.] => (14, ()),
@@ -1129,7 +1275,7 @@ fn infix_binding_power(op: Option<SyntaxKind>) -> Option<(SyntaxKind, u8, u8)> {
         T![==] | T![!=] => (4, 3),
         T![>] | T![<] => (4, 3),
         T![>=] | T![<=] => (4, 3),
-        T![?] => (4, 3),
+        T![..] => (4, 3),
         T![+] | T![-] => (5, 6),
         T![*] | T![/] => (7, 8),
         _ => return None,

@@ -1,0 +1,43 @@
+struct Person {
+  age: int,
+  height: int,
+}
+
+fn id(p: &mut Person) {}
+pure fn pure_id(p: &mut Person) {}
+
+fn use_id(p: &mut Person)
+  ens p.age == p'.age
+{
+  id(p);
+}
+fn use_pure_id(p: &mut Person)
+  ens p.age == p'.age
+{
+  pure_id(p);
+}
+
+pure fn mut_age(p: &mut Person) -> &mut int
+  ens result ~ &mut p.age
+{
+  &mut p.age
+}
+
+fn birthday(p: &mut Person)
+  ens p.age == p'.age + 1
+{
+  let age = mut_age(p);
+  age = age + 1;
+}
+
+fn client(p: Person) {
+  p.age = 10;
+  birthday(&mut p);
+  assert p.age == 11;
+}
+
+// expected viper:
+// method mut_age(p: Ref) return (ret: Int)
+//   requires acc(Person(p), 1)
+//   ensures  acc(ret, 1)
+// {  }

@@ -1,12 +1,30 @@
 use std::cmp::Ordering;
 
+use itertools::Itertools;
+
 use crate::{
     ast,
     support::{self, AstNode, AstToken},
     SyntaxToken, T,
 };
 
-use super::operators::{ArithOp, BinaryOp, CmpOp, LogicOp};
+use super::operators::{ArithOp, BinaryOp, CmpOp, LogicOp, UnaryOp};
+
+impl ast::PrefixExpr {
+    pub fn op_details(&self) -> Option<(SyntaxToken, UnaryOp)> {
+        self.syntax()
+            .children_with_tokens()
+            .filter_map(|it| it.into_token())
+            .find_map(|c| {
+                let bin_op = match c.kind() {
+                    T![!] => UnaryOp::Not,
+                    T![-] => UnaryOp::Neg,
+                    _ => return None,
+                };
+                Some((c, bin_op))
+            })
+    }
+}
 
 impl ast::BinExpr {
     pub fn lhs(&self) -> Option<ast::Expr> {
@@ -59,6 +77,24 @@ impl ast::BinExpr {
             };
             Some((c, bin_op))
         })
+    }
+}
+
+impl ast::RangeExpr {
+    pub fn lhs(&self) -> Option<ast::Expr> {
+        let idx = self
+            .syntax()
+            .children_with_tokens()
+            .position(|it| matches!(it.kind(), T![..]))?;
+        self.syntax().children().take(idx).find_map(ast::Expr::cast)
+    }
+
+    pub fn rhs(&self) -> Option<ast::Expr> {
+        let idx = self
+            .syntax()
+            .children_with_tokens()
+            .position(|it| matches!(it.kind(), T![..]))?;
+        self.syntax().children().skip(idx).find_map(ast::Expr::cast)
     }
 }
 

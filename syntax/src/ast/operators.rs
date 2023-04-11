@@ -2,6 +2,22 @@ use std::cmp::Ordering;
 
 use derive_more::Display;
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum UnaryOp {
+    Not,
+    Neg,
+}
+
+impl std::fmt::Display for UnaryOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let op = match self {
+            UnaryOp::Not => "!",
+            UnaryOp::Neg => "-",
+        };
+        write!(f, "{op}")
+    }
+}
+
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BinaryOp {
     LogicOp(LogicOp),

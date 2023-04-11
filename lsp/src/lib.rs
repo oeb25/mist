@@ -1,10 +1,21 @@
+#![feature(trait_upcasting)]
+
 use mist_core::salsa;
 
 pub mod backend;
 mod db;
+mod goto;
+mod highlighting;
+mod hover;
 
 #[salsa::jar(db=Db)]
-pub struct Jar();
+pub struct Jar(
+    crate::highlighting::highlighting,
+    crate::highlighting::semantic_tokens,
+    crate::highlighting::inlay_hints,
+    crate::hover::hover,
+    crate::goto::goto_declaration,
+);
 
 pub trait Db: mist_core::Db + mist_viper_backend::Db + salsa::DbWithJar<Jar> {}
 

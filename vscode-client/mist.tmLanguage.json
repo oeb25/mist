@@ -4,7 +4,9 @@
   "repository": {
     "expression": {
       "patterns": [
+        { "include": "#function" },
         { "include": "#keywords" },
+        { "include": "#primitive-type" },
         { "include": "#comment" },
         { "include": "#operator" },
         { "include": "#variable" },
@@ -14,8 +16,19 @@
       ]
     },
     "keywords": {
-      "match": "\\b(const|struct|return|mut|fn|assume|assert|let|if|else|ghost|pure|requires|ensures|result|macro|forall|exists|while|invariant|true|false)\\b",
+      "match": "\\b(const|struct|return|mut|assume|fn|assert|let|if|else|ghost|pure|requires|req|ensures|ens|decreases|dec|invariant|inv|result|macro|forall|exists|while|true|false)\\b",
       "name": "keyword"
+    },
+    "primitive-type": {
+      "match": "\\b(int|bool)\\b",
+      "name": "entity.name.type.numeric.mist"
+    },
+    "function": {
+      "match": "\\b(fn)\\s+([a-zA-Z0-9_]+)",
+      "captures": {
+        "1": { "name": "keyword.other.fn.mist" },
+        "2": { "name": "entity.name.function.mist" }
+      }
     },
     "operator": {
       "match": "(-|,|->|:=|!|!=|\\(|\\)|\\{|\\}|\\*|/|\\^|&&|&|\\+|<|<=|=|>|>=|\\|\\||\\||;|:|::|\\?)",

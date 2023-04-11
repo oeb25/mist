@@ -1,0 +1,89 @@
+// See https://go.microsoft.com/fwlink/?LinkId=733558
+// for the documentation about the tasks.json format
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Extension in Background",
+            "group": "build",
+            "type": "npm",
+            "script": "watch",
+            "path": "vscode-client/",
+            "problemMatcher": {
+                "base": "$tsc-watch",
+                "fileLocation": [
+                    "relative",
+                    "${workspaceFolder}/vscode-client/"
+                ] /*  */
+            },
+            "isBackground": true,
+        },
+        {
+            "label": "Build Extension",
+            "group": "build",
+            "type": "npm",
+            "script": "build",
+            "path": "vscode-client/",
+            "problemMatcher": {
+                "base": "$tsc",
+                "fileLocation": [
+                    "relative",
+                    "${workspaceFolder}/vscode-client/"
+                ]
+            },
+        },
+        {
+            "label": "Watch Server",
+            "group": "build",
+            "type": "shell",
+            "isBackground": true,
+            "command": "cargo watch -i '*.mist' -s 'cargo build -p mist-lsp && killall mist-lsp && echo killed!'",
+            "problemMatcher": "$rustc-watch"
+        },
+        {
+            "label": "Build Server",
+            "group": "build",
+            "type": "shell", /*  */
+            "command": "cargo build --package mist-lsp",
+            "problemMatcher": "$rustc"
+        },
+        {
+            "label": "Build Server (Release)",
+            "group": "build",
+            "type": "shell",
+            "command": "cargo build --release --package mist-lsp",
+            "problemMatcher": "$rustc"
+        },
+        {
+            "label": "Pretest",
+            "group": "build",
+            "isBackground": false,
+            "type": "npm",
+            "script": "pretest",
+            "path": "vscode-client/",
+            "problemMatcher": {
+                "base": "$tsc",
+                "fileLocation": [
+                    "relative",
+                    "${workspaceFolder}/vscode-client/"
+                ]
+            }
+        },
+        {
+            "label": "Build Server and Extension",
+            "dependsOn": [
+                "Watch Server",
+                "Build Extension"
+            ],
+            "problemMatcher": "$rustc"
+        },
+        {
+            "label": "Build Server (Release) and Extension",
+            "dependsOn": [
+                "Build Server (Release)",
+                "Build Extension"
+            ],
+            "problemMatcher": "$rustc"
+        }
+    ]
+}

@@ -1,9 +1,13 @@
 mod expr_ext;
 mod generated;
+mod items_ext;
 pub mod operators;
+mod traits;
 
 pub use expr_ext::LiteralKind;
 pub use generated::*;
+pub use items_ext::AttrFlags;
+pub use traits::{HasAttrs, HasName};
 
 use crate::{support::AstNode, SourceSpan, SyntaxNode, SyntaxToken};
 
@@ -28,25 +32,49 @@ where
 }
 
 pub trait Spanned {
-    fn span(&self) -> SourceSpan;
+    fn span(self) -> SourceSpan;
+    fn contains_pos(self, byte_offset: usize) -> bool
+    where
+        Self: Copy,
+    {
+        self.span().contains(byte_offset)
+    }
 }
 
-impl<T> Spanned for T
+// impl<T> Spanned for T
+// where
+//     T: AstNode,
+// {
+//     fn span(&self) -> SourceSpan {
+//         self.syntax().span()
+//     }
+// }
+impl<T> Spanned for &'_ T
 where
     T: AstNode,
 {
-    fn span(&self) -> SourceSpan {
+    fn span(self) -> SourceSpan {
         self.syntax().span()
     }
 }
-impl Spanned for SyntaxNode {
-    fn span(&self) -> SourceSpan {
+impl Spanned for SourceSpan {
+    fn span(self) -> SourceSpan {
+        self
+    }
+}
+impl Spanned for &'_ SourceSpan {
+    fn span(self) -> SourceSpan {
+        *self
+    }
+}
+impl Spanned for &'_ SyntaxNode {
+    fn span(self) -> SourceSpan {
         let range = self.text_range();
         SourceSpan::new_start_end(range.start().into(), range.end().into())
     }
 }
 impl Spanned for SyntaxToken {
-    fn span(&self) -> SourceSpan {
+    fn span(self) -> SourceSpan {
         let range = self.text_range();
         SourceSpan::new_start_end(range.start().into(), range.end().into())
     }

@@ -7,6 +7,7 @@ Item =
   Const
 | Fn
 | Struct
+| TypeInvariant
 | Macro
 
 Name = 'ident'
@@ -15,44 +16,53 @@ Name = 'ident'
 //  'ident'// | 'int_number'
 
 Const =
-  Attr*
+  Attrs
   'const' Name ':' Type
   ('=' initializer:Expr)?
   ';'
 
 Fn =
-  Attr*
+  Attrs
  'fn' Name ParamList
  ('->' ret:Type)?
  Condition*
+ Decreases?
  (body:Block | ';')
 
 Attr =
   'ghost'
 | 'pure'
 
+Attrs = Attr*
+
 ParamList =
  '(' Param* ')'
 
-Param = Name (':' Type)? ','?
+Param = Attrs Name (':' Type)? ','?
 
 Condition =
   Requires
 | Ensures
 
 Requires =
-  'requires' CommaExpr*
+  ('requires' | 'req') CommaExpr*
 Ensures =
-  'ensures' CommaExpr*
+  ('ensures'  | 'ens') CommaExpr*
 
 CommaExpr =
   Expr ','?
 
+Decreases =
+  ('decreases' | 'dec') ('_' | Expr)
+
 Struct =
-  Attr*
+  Attrs
   'struct' Name '{' StructField* '}'
 
-StructField = Name ':' Type ','?
+StructField = Attrs Name ':' Type ','?
+
+TypeInvariant =
+  'invariant' Name Block
 
 Macro =
   'macro' Name ParamList Block
@@ -67,6 +77,7 @@ Type =
   NamedType
 | Primitive
 | Optional
+| ListType
 | GhostType
 | RefType
 
@@ -79,6 +90,9 @@ Primitive =
 
 Optional =
   Type '?'
+
+ListType =
+  '[' Type ']'
 
 GhostType =
   'ghost' Type
@@ -115,6 +129,7 @@ ReturnStmt =
 WhileStmt =
  'while' Expr
  Invariant*
+ Decreases?
  Block
 
 Invariant =
@@ -124,8 +139,11 @@ Expr =
   Literal
 | IfExpr
 | WhileExpr
+| PrefixExpr
 | BinExpr
+| RangeExpr
 | CallExpr
+| ListExpr
 | IndexExpr
 | FieldExpr
 | StructExpr
@@ -146,6 +164,9 @@ IfExprElse =
 WhileExpr =
   'while' condition:Expr body:Block
 
+PrefixExpr =
+  op:('-' | '!') Expr
+
 BinExpr =
   lhs:Expr
   op:(
@@ -156,6 +177,11 @@ BinExpr =
   )
   rhs:Expr
 
+RangeExpr =
+  (lhs:Expr)?
+  '..'
+  (rhs:Expr)?
+
 CallExpr =
   Expr ArgList
 
@@ -164,6 +190,9 @@ ArgList =
 
 Arg =
   Expr ','?
+
+ListExpr =
+  '[' CommaExpr* ']'
 
 IndexExpr =
   base:Expr '[' index:Expr ']'

@@ -10,12 +10,10 @@ struct List {
 // }
 
 fn head(this: &mut List) -> int {
-    return this.elem;
+    this.elem
 }
 
 fn append(this: &mut List, e: int) {
-
-
     if this.next == null {
         let n = List {
             next: null,
@@ -28,11 +26,11 @@ fn append(this: &mut List, e: int) {
 }
 
 fn prepend(this: List, e: int) -> List {
-    return List { next: this, elem: e };
+    List { next: this, elem: e }
 }
 
 fn create() -> List {
-    return List {};
+    List {}
 }
 
 fn concat(this: &mut List, that: List) {
@@ -45,18 +43,18 @@ fn concat(this: &mut List, that: List) {
 }
 
 fn reverse(this: List) -> List {
-    return reverse_helper(this, null);
+    reverse_helper(this, null)
 }
 
 fn reverse_helper(this: List, last: List?) -> List {
     if this.next == null {
         if last == null {
-            return this;
+            this
         } else {
-            return last;
+            last
         }
     } else {
         let n = this.next;
-        return reverse_helper(n, this);
+        reverse_helper(n, this)
     }
 }

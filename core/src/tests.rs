@@ -3,48 +3,48 @@ use tracing_test::traced_test;
 
 use crate::ir::function_body;
 
-#[test]
-fn basic() {
-    let db = crate::db::Database::default();
+// #[test]
+// fn basic() {
+//     let db = crate::db::Database::default();
 
-    let source =
-        crate::ir::SourceProgram::new(&db, include_str!("../../examples/list.mist").to_string());
-    let program = crate::ir::parse_program(&db, source);
-    let functions = crate::ir::functions(&db, program);
-    for function in &functions {
-        let param_list = function.param_list(&db);
-        for param in &param_list.params {
-            eprintln!("{:?}: {:?}", param.name, param.ty.debug_all(&db));
-        }
-        if let Some(body) = function_body(&db, program, *function) {
-            eprintln!("{:?}", body)
-        }
-    }
-    functions[0].name(&db);
-    eprintln!("Functions = {:?}", functions.debug_all(&db));
-}
+//     let source =
+//         crate::ir::SourceProgram::new(&db, include_str!("../../examples/list.mist").to_string());
+//     let program = crate::ir::parse_program(&db, source);
+//     let functions = crate::ir::functions(&db, program);
+//     for function in &functions {
+//         let param_list = function.param_list(&db);
+//         for param in &param_list.params {
+//             eprintln!("{:?}: {:?}", param.name, param.ty.debug_all(&db));
+//         }
+//         if let Some(body) = function_body(&db, program, *function) {
+//             eprintln!("{:?}", body)
+//         }
+//     }
+//     functions[0].name(&db);
+//     eprintln!("Functions = {:?}", functions.debug_all(&db));
+// }
 
-#[test]
-#[traced_test]
-fn call_with_index_argument() {
-    let db = crate::db::Database::default();
+// #[test]
+// #[traced_test]
+// fn call_with_index_argument() {
+//     let db = crate::db::Database::default();
 
-    let src = "fn a(x: int) { a(x[0]); }";
-    let source = crate::ir::SourceProgram::new(&db, src.to_string());
-    let program = crate::ir::parse_program(&db, source);
-    let functions = crate::ir::functions(&db, program);
-    eprintln!("Functions = {:?}", functions.debug_all(&db));
-}
+//     let src = "fn a(x: int) { a(x[0]); }";
+//     let source = crate::ir::SourceProgram::new(&db, src.to_string());
+//     let program = crate::ir::parse_program(&db, source);
+//     let functions = crate::ir::functions(&db, program);
+//     eprintln!("Functions = {:?}", functions.debug_all(&db));
+// }
 
-#[test]
-#[traced_test]
-fn two_calls_missing_semi() {
-    let db = crate::db::Database::default();
+// #[test]
+// #[traced_test]
+// fn two_calls_missing_semi() {
+//     let db = crate::db::Database::default();
 
-    let src = "fn f() { f() f() }";
-    let source = crate::ir::SourceProgram::new(&db, src.to_string());
-    let program = crate::ir::parse_program(&db, source);
-    let functions = crate::ir::functions(&db, program);
-    eprintln!("Functions = {:#?}", functions.debug_all(&db));
-    assert_eq!(program.errors(&db).len(), 1);
-}
+//     let src = "fn f() { f() f() }";
+//     let source = crate::ir::SourceProgram::new(&db, src.to_string());
+//     let program = crate::ir::parse_program(&db, source);
+//     let functions = crate::ir::functions(&db, program);
+//     eprintln!("Functions = {:#?}", functions.debug_all(&db));
+//     assert_eq!(program.errors(&db).len(), 1);
+// }

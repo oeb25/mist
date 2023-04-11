@@ -1,8 +1,15 @@
 use std::sync::Arc;
 
+use itertools::Itertools;
+use mist_core::ir::{Program, SourceProgram};
+use mist_syntax::SourceSpan;
 use tower_lsp::jsonrpc::Result;
+use tower_lsp::lsp_types::request::{GotoDeclarationParams, GotoDeclarationResponse};
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
+
+use crate::highlighting::{TokenModifier, TokenType};
+use crate::hover::HoverElement;
 
 #[derive(Debug)]
 pub struct Backend {
@@ -15,16 +22,8 @@ pub struct Backend {
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
-    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
-        Ok(InitializeResult {
-            capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::FULL,
-                )),
-                ..Default::default()
-            },
-            ..Default::default()
-        })
+    async fn initialize(&self, ip: InitializeParams) -> Result<InitializeResult> {
+        self.initialize(ip).await
     }
 
     async fn initialized(&self, _: InitializedParams) {
@@ -43,6 +42,35 @@ impl LanguageServer for Backend {
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         self.did_change(params).await
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        self.semantic_tokens_full(params).await
+    }
+
+    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        self.inlay_hint(params).await
+    }
+
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        self.hover(params).await
+    }
+
+    async fn goto_declaration(
+        &self,
+        params: GotoDeclarationParams,
+    ) -> Result<Option<GotoDeclarationResponse>> {
+        self.goto_declaration(params).await
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        self.goto_definition(params).await
     }
 }
 
@@ -99,8 +127,35 @@ impl Backend {
         }
     }
 
-    pub fn db(&self) -> impl crate::Db {
-        crate::db::Database::default()
+    async fn initialize(&self, _ip: InitializeParams) -> Result<InitializeResult> {
+        Ok(InitializeResult {
+            capabilities: ServerCapabilities {
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                    TextDocumentSyncKind::FULL,
+                )),
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            work_done_progress_options: WorkDoneProgressOptions {
+                                work_done_progress: None,
+                            },
+                            legend: SemanticTokensLegend {
+                                token_types: TokenType::all().map_into().collect(),
+                                token_modifiers: TokenModifier::all().map_into().collect(),
+                            },
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                            range: None,
+                        },
+                    ),
+                ),
+                inlay_hint_provider: Some(OneOf::Left(true)),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
+                declaration_provider: Some(DeclarationCapability::Simple(true)),
+                definition_provider: Some(OneOf::Left(true)),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
@@ -117,15 +172,101 @@ impl Backend {
         .await
         .expect("did_change");
     }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let db = self.db();
+        let Some(source) = self.source_program(&db, params.text_document.uri) else {
+            return Err(tower_lsp::jsonrpc::Error::invalid_request());
+        };
+        let tokens = crate::highlighting::semantic_tokens(&db, source);
+        Ok(Some(SemanticTokensResult::Partial(
+            SemanticTokensPartialResult {
+                data: tokens.to_vec(),
+            },
+        )))
+    }
+    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        let db = self.db();
+        let Some(source) = self.source_program(&db, params.text_document.uri) else {
+            return Err(tower_lsp::jsonrpc::Error::invalid_request());
+        };
+        let inlay_hints = crate::highlighting::inlay_hints(&db, source);
+        Ok(Some(inlay_hints.iter().cloned().map_into().collect()))
+    }
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let db = self.db();
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = params.text_document_position_params;
+        let Some(source) = self.source_program(&db, text_document.uri) else {
+            return Err(tower_lsp::jsonrpc::Error::invalid_request());
+        };
+        let src = source.text(&db);
+        let pos = mist_core::util::Position::new(position.line, position.character);
+        let Some(byte_offset) = pos.to_byte_offset(src) else {
+            return Ok(None);
+        };
+        let Some(hover) = crate::hover::hover(&db, source, byte_offset) else { return Ok(None); };
+        Ok(Some(Hover {
+            contents: HoverContents::Array(
+                hover
+                    .contents
+                    .into_iter()
+                    .map(|el| match el {
+                        HoverElement::String(value) => MarkedString::String(value),
+                        HoverElement::Code(value) => MarkedString::LanguageString(LanguageString {
+                            language: "mist".to_string(),
+                            value,
+                        }),
+                    })
+                    .collect(),
+            ),
+            range: hover.range.map(|span| span_to_range(src, span)),
+        }))
+    }
+    async fn goto_declaration(
+        &self,
+        params: GotoDeclarationParams,
+    ) -> Result<Option<GotoDeclarationResponse>> {
+        let db = self.db();
+        let result = self.definition_span(&db, params.text_document_position_params)?;
+        Ok(result.map(|link| GotoDeclarationResponse::Link(vec![link])))
+    }
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let db = self.db();
+        let result = self.definition_span(&db, params.text_document_position_params)?;
+        Ok(result.map(|link| GotoDeclarationResponse::Link(vec![link])))
+    }
 }
 
 impl Backend {
+    pub fn db(&self) -> impl crate::Db {
+        crate::db::Database::default()
+    }
+
+    fn source_program(&self, db: &dyn crate::Db, uri: Url) -> Option<SourceProgram> {
+        let text = self.files.get(&uri)?;
+        Some(SourceProgram::new(db, text.to_string()))
+    }
+
+    fn program(&self, db: &dyn crate::Db, uri: Url) -> Option<Program> {
+        let source = self.source_program(db, uri)?;
+        Some(mist_core::ir::parse_program(db, source))
+    }
+
     async fn update_text(&self, uri: Url, source: String) -> Result<()> {
         let text = Arc::new(source);
         self.files.insert(uri.clone(), Arc::clone(&text));
 
         let errors = {
-            let db = crate::db::Database::default();
+            let db = self.db();
 
             let source = mist_core::ir::SourceProgram::new(&db, text.to_string());
             let program = mist_core::ir::parse_program(&db, source);
@@ -147,6 +288,42 @@ impl Backend {
 
         Ok(())
     }
+
+    fn definition_span(
+        &self,
+        db: &dyn crate::Db,
+        TextDocumentPositionParams {
+            text_document,
+            position,
+        }: TextDocumentPositionParams,
+    ) -> Result<Option<LocationLink>> {
+        let Some(source) = self.source_program(db, text_document.uri.clone()) else {
+            return Err(tower_lsp::jsonrpc::Error::invalid_request());
+        };
+        let src = source.text(db);
+        let pos = mist_core::util::Position::new(position.line, position.character);
+        let Some(byte_offset) = pos.to_byte_offset(src) else {
+            return Ok(None);
+        };
+        let Some(result) = crate::goto::goto_declaration(db, source, byte_offset) else { return Ok(None); };
+        let target_range = span_to_range(src, result.target_span);
+        Ok(Some(LocationLink {
+            origin_selection_range: Some(span_to_range(src, result.original_span)),
+            target_uri: text_document.uri,
+            target_range,
+            target_selection_range: target_range,
+        }))
+    }
+}
+
+fn span_to_range(src: &str, span: SourceSpan) -> Range {
+    use mist_core::util::Position as Pos;
+
+    let start = Pos::from_byte_offset(src, span.offset());
+    let end = Pos::from_byte_offset(src, span.end());
+    let start = Position::new(start.line, start.character);
+    let end = Position::new(end.line, end.character);
+    Range::new(start, end)
 }
 
 fn miette_to_diagnostic(src: &str, report: miette::Report) -> Vec<Diagnostic> {
@@ -164,13 +341,8 @@ fn miette_to_diagnostic(src: &str, report: miette::Report) -> Vec<Diagnostic> {
             Diagnostic {
                 severity: Some(DiagnosticSeverity::ERROR),
                 message: report.to_string(), // label.label().unwrap_or("here").to_string(),
-                related_information: None,
-                tags: None,
                 range,
-                code: None,
-                code_description: None,
-                source: None,
-                data: None,
+                ..Default::default()
             }
         })
         .collect()

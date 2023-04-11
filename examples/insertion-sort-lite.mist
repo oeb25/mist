@@ -1,40 +1,52 @@
 struct SeqInt {}
+pure fn len(xs: SeqInt) -> int
+    ens result >= 0 { 0 }
+pure fn index(xs: SeqInt, index: int) -> int
+    req 0 <= index, index < len(xs) { 0 }
+pure fn tail(xs: SeqInt) -> SeqInt
+    req len(xs) > 0
+    ens 1 + len(result) == len(xs) { empty_seq() }
+pure fn prepend(x: int, xs: SeqInt) -> SeqInt
+    ens len(result) == 1 + len(xs) { empty_seq() }
+pure fn empty_seq() -> SeqInt
+    ens len(result) == 0 { SeqInt {} }
+
 struct MultisetInt {}
-pure fn len(xs: SeqInt) -> int;
-pure fn union(a: MultisetInt, b: MultisetInt) -> MultisetInt;
+pure fn union(a: MultisetInt, b: MultisetInt) -> MultisetInt { empty_multiset() }
+pure fn empty_multiset() -> MultisetInt { empty_multiset() }
+pure fn add_multiset(xs: MultisetInt, x: int) -> MultisetInt { MultisetInt {} }
 
 pure fn sorted(xs: SeqInt) -> bool {
     if len(xs) <= 1 {
         true
     } else {
-        xs[0] <= xs[1] && sorted(xs[1..])
+        index(xs, 0) <= index(xs, 1) && sorted(tail(xs))
     }
 }
 
 // sanity check
 ghost fn lemma_total_order(xs: SeqInt, i: int, j: int)
-    requires sorted(xs),
-          0 <= i, i <= j, j < len(xs)
-    ensures xs[i] <= xs[j]
+    req sorted(xs),
+        0 <= i, i <= j, j < len(xs)
+    ens index(xs, i) <= index(xs, j)
     // decreases i + j
 {
     let v = i + j;
     assert v >= 0;
     if i != 0 {
         assert i-1 + j - 1 < v;
-        lemma_total_order(xs[1..], i-1, j-1)
-    // } else if i != j {
-    } else {
+        lemma_total_order(tail(xs), i-1, j-1);
+    } else if i != j {
         assert 0 + j - 1 < v;
-        lemma_total_order(xs[1..], 0, j-1)
+        lemma_total_order(tail(xs), 0, j-1);
     }
 }
 
 pure fn to_multiset(xs: SeqInt) -> MultisetInt {
     if len(xs) == 0 {
-        Multiset()
+        empty_multiset()
     } else {
-        union(Multiset(xs[0]), to_multiset(xs))
+        union(add_multiset(empty_multiset(), index(xs, 0)), to_multiset(xs))
     }
 }
 
@@ -43,7 +55,7 @@ pure fn same_elements(xs: SeqInt, ys: SeqInt) -> bool {
 }
 
 fn insertion_sort(xs: SeqInt) -> SeqInt
-    ensures sorted(result),
+    ens sorted(result),
             len(result) == len(xs),
             same_elements(xs, result)
     // decreases len(xs)
@@ -51,47 +63,47 @@ fn insertion_sort(xs: SeqInt) -> SeqInt
     let v = len(xs);
     assert v >= 0;
     if len(xs) == 0 {
-        Seq()
+        empty_seq()
     } else {
-        assert len(xs[1..]) < len(xs)
-        insert(xs[0], insertion_sort(xs[1..]))
+        assert len(tail(xs)) < len(xs);
+        insert(index(xs, 0), insertion_sort(tail(xs)))
     }
 }
 
 
 
 fn insert(x: int, xs: SeqInt) -> SeqInt
-    requires sorted(xs)
-    ensures sorted(result),
-            len(result) == len(xs) + 1,
-            if len(xs) == 0 { result[0] == x } else { result[0] == x || result[0] == xs[0] },
-            same_elements(Seq(x) ++ xs, result)
+    req sorted(xs)
+    ens sorted(result),
+        len(result) == len(xs) + 1,
+        if len(xs) == 0 { index(result, 0) == x } else { index(result, 0) == x || index(result, 0) == index(xs, 0) },
+        same_elements(prepend(x, xs), result)
     // decreases len(xs)
 {
     let v = len(xs);
     assert v >= 0;
     if len(xs) == 0 {
-        Seq(x)
+        prepend(x, empty_seq())
     } else {
-        let y = xs[0];
+        let y = index(xs, 0);
         if x < y {
             lemma_insert_smallest(x, xs);
-            Seq(x) ++ xs
+            prepend(x, xs)
         } else {
-            assert len(xs[1..]) < v;
-            let res = insert(x, xs[1..]);
+            assert len(tail(xs)) < v;
+            let res = insert(x, tail(xs));
             lemma_insert_smallest(y, res);
-            Seq(y) ++ res
+            prepend(y, res)
         }
     }
 }
 
 fn lemma_insert_smallest(x: int, xs: SeqInt)
-    requires sorted(xs), if len(xs) > 0 { x <= xs[0] } else { true }
-    ensures sorted(Seq(x) ++ xs)
+    req sorted(xs), if len(xs) > 0 { x <= index(xs, 0) } else { true }
+    ens sorted(prepend(x, xs))
 {
     if len(xs) > 0 {
-        let ys = Seq(x) ++ xs;
-        assert xs == ys[1..]; // triggering ground term
+        let ys = prepend(x, xs);
+        assert xs == tail(ys); // triggering ground term
     }
 }
