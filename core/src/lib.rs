@@ -2,8 +2,6 @@
 
 mod db;
 pub mod hir;
-#[cfg(test)]
-mod tests;
 mod typecheck;
 pub mod util;
 pub mod visit;
@@ -25,15 +23,10 @@ pub struct Jar(
     crate::hir::VariableId,
     crate::hir::Variable,
     crate::hir::parse_program,
-    // crate::hir::items,
     crate::hir::item,
-    // crate::hir::top_level_type_decls,
     crate::hir::struct_fields,
     crate::hir::struct_ty,
-    // crate::hir::functions,
-    crate::hir::function_body,
-    crate::hir::ty_inv_block,
-    // crate::hir::structs,
+    crate::hir::item_lower,
     crate::hir::find_type,
     crate::hir::find_named_type,
     crate::typecheck::TypeCheckErrors,

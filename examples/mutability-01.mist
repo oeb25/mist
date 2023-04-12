@@ -1,0 +1,27 @@
+struct Person {
+  age: int,
+  height: int,
+}
+
+pure fn mut_age(a: bool, p: &mut Person) -> &mut int
+  ens if a { result ~ p.age } else { result ~ p.height }
+{
+  if a {
+    &mut p.age
+  } else {
+    &mut p.height
+  }
+}
+
+fn birthday(p: &mut Person)
+//   ens p.age == p'.age + 1
+{
+  let age = mut_age(p);
+  age = age + 1;
+}
+
+fn client(p: Person) {
+  p.age = 10;
+  birthday(&mut p);
+  assert p.age == 11;
+}

@@ -1,3 +1,5 @@
+mod lower;
+
 use derive_more::Display;
 use derive_new::new;
 use mist_syntax::{
@@ -9,7 +11,7 @@ use mist_syntax::{
     SourceSpan,
 };
 
-pub use crate::typecheck::ItemContext;
+pub use crate::typecheck::{ItemContext, ItemSourceMap};
 use crate::{
     typecheck::{self, TypeCheckError, TypeCheckErrorKind, TypeCheckExpr},
     TypeCheckErrors,
@@ -159,6 +161,60 @@ pub fn item(db: &dyn crate::Db, program: Program, item: ItemId) -> Option<Item> 
 }
 
 #[salsa::tracked]
+pub fn item_lower(
+    db: &dyn crate::Db,
+    program: Program,
+    item: Item,
+) -> Option<(ItemContext, ItemSourceMap)> {
+    match item {
+        Item::Type(_) => None,
+        Item::TypeInvariant(ty_inv) => {
+            let mut checker = TypeCheckExpr::init(db, program, None);
+            if let Some(ast_body) = ty_inv.node(db).block_expr() {
+                let body = checker.check_block(&ast_body, |f| f);
+                checker.expect_ty(
+                    ty_inv.name(db).span(),
+                    Type::bool(db).ghost(db),
+                    body.return_ty,
+                );
+                checker.set_body_expr_from_block(body, ast_body);
+            }
+            Some(checker.into())
+        }
+        Item::Function(function) => {
+            let mut checker = TypeCheckExpr::init(db, program, Some(function));
+            let ast_body = function.syntax(db).body();
+            let body = ast_body
+                .as_ref()
+                .map(|ast_body| checker.check_block(ast_body, |f| f));
+            let is_ghost = function.attrs(db).is_ghost();
+            if let Some(body) = body {
+                if let Some(ret) = function.ret(db) {
+                    let ret = ret.with_ghost(db, is_ghost);
+                    checker.expect_ty(
+                        function
+                            .syntax(db)
+                            .ret()
+                            .map(|ret| ret.span())
+                            .unwrap_or_else(|| function.name(db).span()),
+                        ret,
+                        body.return_ty,
+                    );
+                } else {
+                    checker.expect_ty(
+                        function.name(db).span(),
+                        Type::void(db).with_ghost(db, is_ghost),
+                        body.return_ty,
+                    );
+                }
+                checker.set_body_expr_from_block(body, ast_body.unwrap());
+            }
+            Some(checker.into())
+        }
+    }
+}
+
+#[salsa::tracked]
 pub fn struct_fields(db: &dyn crate::Db, program: Program, s: Struct) -> Vec<Field> {
     s.node(db)
         .struct_fields()
@@ -233,65 +289,6 @@ pub struct Function {
     #[return_ref]
     pub param_list: ParamList,
     pub ret: Option<Type>,
-}
-
-#[salsa::tracked]
-pub fn function_body(
-    db: &dyn crate::Db,
-    program: Program,
-    function: Function,
-) -> Option<(ItemContext, Block)> {
-    function.syntax(db).body().map(|body| {
-        let mut checker = TypeCheckExpr::init(db, program, Some(function));
-        let body = checker.check_block(body, |f| f);
-        let is_ghost = function.attrs(db).is_ghost();
-        if let Some(ret) = function.ret(db) {
-            let ret = ret.with_ghost(db, is_ghost);
-            checker.expect_ty(
-                function
-                    .syntax(db)
-                    .ret()
-                    .map(|ret| ret.span())
-                    .unwrap_or_else(|| function.name(db).span()),
-                ret,
-                body.return_ty,
-            );
-        } else {
-            checker.expect_ty(
-                function.name(db).span(),
-                Type::void(db).with_ghost(db, is_ghost),
-                body.return_ty,
-            );
-        }
-        (checker.into(), body)
-    })
-}
-
-#[salsa::tracked]
-pub fn ty_inv_block(
-    db: &dyn crate::Db,
-    program: Program,
-    ty_inv: TypeInvariant,
-) -> (ItemContext, Block) {
-    let mut checker = TypeCheckExpr::init(db, program, None);
-    if let Some(body) = ty_inv.node(db).block() {
-        let body = checker.check_block(body, |f| f);
-        checker.expect_ty(
-            ty_inv.name(db).span(),
-            Type::bool(db).ghost(db),
-            body.return_ty,
-        );
-        (checker.into(), body)
-    } else {
-        (
-            checker.into(),
-            Block {
-                stmts: vec![],
-                tail_expr: None,
-                return_ty: Type::error(db),
-            },
-        )
-    }
 }
 
 #[salsa::tracked]
@@ -497,6 +494,7 @@ pub struct Expr {
 pub enum ExprData {
     Literal(Literal),
     Ident(VariableRef),
+    Block(Block),
     Field {
         expr: ExprIdx,
         field_name: Ident,
@@ -859,6 +857,7 @@ pub mod pretty {
             ),
             ExprData::Missing => "<missing>".to_string(),
             ExprData::If(it) => format!("if {}", pp_expr(pp, db, it.condition)),
+            ExprData::Block(block) => "<block>".to_string(),
             ExprData::Call { expr, args } => format!(
                 "{}({})",
                 pp_expr(pp, db, *expr),

@@ -1,7 +1,5 @@
 use std::cmp::Ordering;
 
-use itertools::Itertools;
-
 use crate::{
     ast,
     support::{self, AstNode, AstToken},
@@ -111,7 +109,7 @@ impl ast::IfExpr {
     pub fn condition(&self) -> Option<ast::Expr> {
         support::children(self.syntax()).next()
     }
-    pub fn then_branch(&self) -> Option<ast::Block> {
+    pub fn then_branch(&self) -> Option<ast::BlockExpr> {
         support::children(self.syntax()).next()
     }
     pub fn else_branch(&self) -> Option<ast::IfExprElse> {

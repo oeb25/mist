@@ -5,10 +5,10 @@ use std::{ops::ControlFlow, sync::Arc};
 use derive_new::new;
 use itertools::Itertools;
 use mist_core::{
-    hir::{self, ExprIdx, ItemContext, SourceProgram, VariableRef},
+    hir::{self, ExprIdx, SourceProgram, VariableRef},
     salsa,
     util::Position,
-    visit::{PostOrder, Visitor, Walker},
+    visit::{PostOrderWalk, VisitContext, Visitor, Walker},
 };
 use mist_syntax::{ast::Spanned, SourceSpan};
 pub use tokens::{TokenModifier, TokenType};
@@ -23,7 +23,7 @@ pub fn highlighting(db: &dyn crate::Db, source: SourceProgram) -> Arc<HighlightR
     let program = hir::parse_program(db, source);
 
     let mut hf = Highlighter::new(db, source.text(db));
-    PostOrder::new(db).walk_program(&mut hf, program);
+    PostOrderWalk::walk_program(db, program, &mut hf);
     Arc::new(hf.finish())
 }
 
@@ -98,7 +98,7 @@ impl<'src> Highlighter<'src> {
         &mut self,
         span: impl Spanned,
         token_type: TokenType,
-        token_modifiers: Option<TokenModifier>,
+        _token_modifiers: Option<TokenModifier>,
     ) -> &mut Self {
         let span = span.span();
         let start = Position::from_byte_offset(self.src, span.offset());
@@ -152,11 +152,12 @@ impl<'src> Highlighter<'src> {
     }
 }
 
-impl<'src> Visitor<()> for Highlighter<'src> {
-    fn visit_var(&mut self, cx: &ItemContext, var: VariableRef) -> ControlFlow<()> {
+impl<'src> Visitor for Highlighter<'src> {
+    type Item = ();
+    fn visit_var(&mut self, vcx: &VisitContext, var: VariableRef) -> ControlFlow<()> {
         use mist_core::VariableDeclarationKind::*;
 
-        let tt = match cx.decl(var).kind() {
+        let tt = match vcx.cx.decl(var).kind() {
             Let => TT::Variable,
             Parameter => TT::Parameter,
             Function => TT::Function,
@@ -166,15 +167,15 @@ impl<'src> Visitor<()> for Highlighter<'src> {
         ControlFlow::Continue(())
     }
 
-    fn visit_param(&mut self, _: &ItemContext, param: &hir::Param) -> ControlFlow<()> {
+    fn visit_param(&mut self, _: &VisitContext, param: &hir::Param) -> ControlFlow<()> {
         self.push(&param.name, TT::Parameter, None);
 
         ControlFlow::Continue(())
     }
 
-    fn visit_expr(&mut self, cx: &ItemContext, expr: ExprIdx) -> ControlFlow<()> {
-        let span = cx.expr_span(expr);
-        let expr = cx.expr(expr);
+    fn visit_expr(&mut self, vcx: &VisitContext, expr: ExprIdx) -> ControlFlow<()> {
+        let span = vcx.source_map.expr_span(expr);
+        let expr = vcx.cx.expr(expr);
         match &expr.data {
             hir::ExprData::Literal(_) => {
                 let tt = match expr.ty.data(self.db) {
@@ -209,7 +210,7 @@ impl<'src> Visitor<()> for Highlighter<'src> {
         ControlFlow::Continue(())
     }
 
-    fn visit_ty(&mut self, _: &ItemContext, ty: hir::Type) -> ControlFlow<()> {
+    fn visit_ty(&mut self, _vcx: &VisitContext, ty: hir::Type) -> ControlFlow<()> {
         match ty.data(self.db) {
             hir::TypeData::Primitive(_) => {
                 self.push_opt(ty.span(self.db), TT::Type, Some(TM::DefaultLibrary));
@@ -223,7 +224,7 @@ impl<'src> Visitor<()> for Highlighter<'src> {
         ControlFlow::Continue(())
     }
 
-    fn visit_stmt(&mut self, cx: &ItemContext, stmt: &hir::Statement) -> ControlFlow<()> {
+    fn visit_stmt(&mut self, vcx: &VisitContext, stmt: &hir::Statement) -> ControlFlow<()> {
         if let hir::StatementData::Let {
             variable,
             explicit_ty,
@@ -231,11 +232,11 @@ impl<'src> Visitor<()> for Highlighter<'src> {
         } = &stmt.data
         {
             if explicit_ty.is_none() {
-                let span = cx.var_span(*variable);
-                let ty = cx.var_ty(*variable);
+                let span = vcx.cx.var_span(*variable);
+                let ty = vcx.cx.var_ty(*variable);
                 self.inlay_hints.push(InlayHint {
                     position: Position::from_byte_offset(self.src, span.end()),
-                    label: format!(": {}", cx.pretty_ty(self.db, ty)),
+                    label: format!(": {}", vcx.cx.pretty_ty(self.db, ty)),
                     kind: None,
                     padding_left: None,
                     padding_right: None,

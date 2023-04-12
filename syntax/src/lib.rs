@@ -5,6 +5,7 @@ pub use support::SourceSpan;
 
 pub mod ast;
 mod parser;
+pub mod ptr;
 mod stmt;
 mod support;
 #[cfg(test)]
@@ -32,13 +33,3 @@ impl rowan::Language for MistLanguage {
 type SyntaxToken = rowan::SyntaxToken<MistLanguage>;
 type SyntaxNode = rowan::SyntaxNode<MistLanguage>;
 type SyntaxNodeChildren = rowan::SyntaxNodeChildren<MistLanguage>;
-
-// #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-// #[allow(non_camel_case_types)]
-// #[repr(u16)]
-// pub enum SyntaxKind {
-//     FN_KW,
-//     LET_KW,
-//     ASSUME_KW,
-//     ASSERT_KW,
-// }

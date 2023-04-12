@@ -2,9 +2,9 @@ use std::ops::ControlFlow;
 
 use derive_new::new;
 use mist_core::{
-    hir::{self, Ident, ItemContext, SourceProgram, VariableRef},
+    hir::{self, Ident, SourceProgram, VariableRef},
     salsa,
-    visit::{PostOrder, Visitor, Walker},
+    visit::{PostOrderWalk, VisitContext, Visitor, Walker},
 };
 use mist_syntax::{ast::Spanned, SourceSpan};
 
@@ -22,7 +22,8 @@ pub fn goto_declaration(
 ) -> Option<DeclarationSpans> {
     let program = hir::parse_program(db, source);
 
-    match PostOrder::new(db).walk_program(&mut DeclarationFinder::new(db, byte_offset), program) {
+    let mut visitor = DeclarationFinder::new(db, byte_offset);
+    match PostOrderWalk::walk_program(db, program, &mut visitor) {
         ControlFlow::Break(result) => result,
         ControlFlow::Continue(()) => None,
     }
@@ -34,10 +35,11 @@ struct DeclarationFinder<'a> {
     byte_offset: usize,
 }
 
-impl Visitor<Option<DeclarationSpans>> for DeclarationFinder<'_> {
+impl Visitor for DeclarationFinder<'_> {
+    type Item = Option<DeclarationSpans>;
     fn visit_field(
         &mut self,
-        _cx: &ItemContext,
+        _: &VisitContext,
         field: &hir::Field,
         reference: &Ident,
     ) -> ControlFlow<Option<DeclarationSpans>> {
@@ -55,7 +57,7 @@ impl Visitor<Option<DeclarationSpans>> for DeclarationFinder<'_> {
 
     fn visit_ty(
         &mut self,
-        _cx: &ItemContext,
+        _: &VisitContext,
         ty: hir::Type,
     ) -> ControlFlow<Option<DeclarationSpans>> {
         match ty.span(self.db) {
@@ -75,12 +77,12 @@ impl Visitor<Option<DeclarationSpans>> for DeclarationFinder<'_> {
     }
     fn visit_var(
         &mut self,
-        cx: &ItemContext,
+        vcx: &VisitContext,
         var: VariableRef,
     ) -> ControlFlow<Option<DeclarationSpans>> {
         if var.contains_pos(self.byte_offset) {
             let original_span = var.span();
-            let target_span = cx.var_span(var);
+            let target_span = vcx.cx.var_span(var);
             ControlFlow::Break(Some(DeclarationSpans {
                 original_span,
                 target_span,

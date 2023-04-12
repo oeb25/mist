@@ -3,11 +3,11 @@ use std::ops::ControlFlow;
 use derive_new::new;
 use mist_core::{
     hir::{
-        self, pretty, ExprData, ExprIdx, Field, FieldParent, Ident, ItemContext, Param,
-        SourceProgram, Type, TypeData, VariableRef,
+        self, pretty, ExprData, ExprIdx, Field, FieldParent, Ident, Param, SourceProgram, Type,
+        TypeData, VariableRef,
     },
     salsa,
-    visit::{PostOrder, Visitor, Walker},
+    visit::{PostOrderWalk, VisitContext, Visitor, Walker},
     VariableDeclarationKind,
 };
 use mist_syntax::{ast::Spanned, SourceSpan};
@@ -16,8 +16,8 @@ use mist_syntax::{ast::Spanned, SourceSpan};
 pub fn hover(db: &dyn crate::Db, source: SourceProgram, byte_offset: usize) -> Option<HoverResult> {
     let program = hir::parse_program(db, source);
 
-    let mut hf = HoverFinder::new(db, byte_offset);
-    match PostOrder::new(db).walk_program(&mut hf, program) {
+    let mut visitor = HoverFinder::new(db, byte_offset);
+    match PostOrderWalk::walk_program(db, program, &mut visitor) {
         ControlFlow::Break(result) => result,
         ControlFlow::Continue(()) => None,
     }
@@ -47,10 +47,11 @@ struct HoverFinder<'a> {
     byte_offset: usize,
 }
 
-impl<'a> Visitor<Option<HoverResult>> for HoverFinder<'a> {
+impl<'a> Visitor for HoverFinder<'a> {
+    type Item = Option<HoverResult>;
     fn visit_field(
         &mut self,
-        cx: &ItemContext,
+        vcx: &VisitContext,
         field: &Field,
         reference: &Ident,
     ) -> ControlFlow<Option<HoverResult>> {
@@ -58,11 +59,11 @@ impl<'a> Visitor<Option<HoverResult>> for HoverFinder<'a> {
             match field.parent {
                 FieldParent::Struct(s) => {
                     let struct_ty = pretty::ty(
-                        cx,
+                        &*vcx.cx,
                         self.db,
                         hir::struct_ty(self.db, s, s.name(self.db).span()),
                     );
-                    let ty = pretty::ty(cx, self.db, field.ty);
+                    let ty = pretty::ty(&*vcx.cx, self.db, field.ty);
                     break_code(
                         [
                             format!("struct {struct_ty}"),
@@ -72,8 +73,8 @@ impl<'a> Visitor<Option<HoverResult>> for HoverFinder<'a> {
                     )
                 }
                 FieldParent::List(list_ty) => {
-                    let list_ty = pretty::ty(cx, self.db, list_ty);
-                    let ty = pretty::ty(cx, self.db, field.ty);
+                    let list_ty = pretty::ty(&*vcx.cx, self.db, list_ty);
+                    let ty = pretty::ty(&*vcx.cx, self.db, field.ty);
                     break_code(
                         [format!("[{list_ty}]"), format!("len: {ty}")],
                         Some(reference.span()),
@@ -87,15 +88,15 @@ impl<'a> Visitor<Option<HoverResult>> for HoverFinder<'a> {
 
     fn visit_var(
         &mut self,
-        cx: &ItemContext,
+        vcx: &VisitContext,
         var: VariableRef,
     ) -> ControlFlow<Option<HoverResult>> {
         if var.contains_pos(self.byte_offset) {
-            let name = cx.var_ident(var);
-            let ty = pretty::ty(cx, self.db, cx.var_ty(var));
+            let name = vcx.cx.var_ident(var);
+            let ty = pretty::ty(&*vcx.cx, self.db, vcx.cx.var_ty(var));
 
             break_code(
-                [match cx.decl(var).kind() {
+                [match vcx.cx.decl(var).kind() {
                     VariableDeclarationKind::Let => format!("let {name}: {ty}"),
                     VariableDeclarationKind::Parameter => format!("{name}: {ty}"),
                     VariableDeclarationKind::Function => ty,
@@ -108,21 +109,29 @@ impl<'a> Visitor<Option<HoverResult>> for HoverFinder<'a> {
         }
     }
 
-    fn visit_param(&mut self, cx: &ItemContext, param: &Param) -> ControlFlow<Option<HoverResult>> {
+    fn visit_param(
+        &mut self,
+        vcx: &VisitContext,
+        param: &Param,
+    ) -> ControlFlow<Option<HoverResult>> {
         if param.name.contains_pos(self.byte_offset) {
             let name = &param.name;
-            let ty = pretty::ty(cx, self.db, param.ty);
+            let ty = pretty::ty(&*vcx.cx, self.db, param.ty);
             break_code([format!("{name}: {ty}")], None)
         } else {
             ControlFlow::Continue(())
         }
     }
 
-    fn visit_expr(&mut self, cx: &ItemContext, expr: ExprIdx) -> ControlFlow<Option<HoverResult>> {
-        let span = cx.expr_span(expr);
+    fn visit_expr(
+        &mut self,
+        vcx: &VisitContext,
+        expr: ExprIdx,
+    ) -> ControlFlow<Option<HoverResult>> {
+        let span = vcx.source_map.expr_span(expr);
         if span.contains_pos(self.byte_offset) {
-            let expr = cx.expr(expr);
-            let ty = pretty::ty(cx, self.db, expr.ty);
+            let expr = vcx.cx.expr(expr);
+            let ty = pretty::ty(&*vcx.cx, self.db, expr.ty);
             if let ExprData::Result = &expr.data {
                 return break_code([format!("result: {ty}")], None);
             } else {
@@ -133,13 +142,13 @@ impl<'a> Visitor<Option<HoverResult>> for HoverFinder<'a> {
         ControlFlow::Continue(())
     }
 
-    fn visit_ty(&mut self, cx: &ItemContext, ty: Type) -> ControlFlow<Option<HoverResult>> {
+    fn visit_ty(&mut self, vcx: &VisitContext, ty: Type) -> ControlFlow<Option<HoverResult>> {
         let span = match ty.span(self.db) {
             Some(span) if span.contains(self.byte_offset) => span,
             _ => return ControlFlow::Continue(()),
         };
 
-        let pretty_ty = pretty::ty(cx, self.db, ty);
+        let pretty_ty = pretty::ty(&*vcx.cx, self.db, ty);
 
         let s = match ty.data(self.db) {
             TypeData::Struct(_) => format!("struct {pretty_ty}"),

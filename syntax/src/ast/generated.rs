@@ -343,7 +343,7 @@ pub enum SyntaxKind {
     CONTINUE_EXPR,
     BREAK_EXPR,
     LABEL,
-    BLOCK,
+    BLOCK_EXPR,
     STMT_LIST,
     RETURN_STMT,
     WHILE_STMT,
@@ -1059,7 +1059,7 @@ impl Fn {
     pub fn decreases(&self) -> Option<Decreases> {
         support::child(&self.syntax)
     }
-    pub fn body(&self) -> Option<Block> {
+    pub fn body(&self) -> Option<BlockExpr> {
         support::child(&self.syntax)
     }
     pub fn semicolon_token(&self) -> Option<SyntaxToken> {
@@ -1125,7 +1125,7 @@ impl TypeInvariant {
     pub fn invariant_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![invariant])
     }
-    pub fn block(&self) -> Option<Block> {
+    pub fn block_expr(&self) -> Option<BlockExpr> {
         support::child(&self.syntax)
     }
 }
@@ -1156,7 +1156,7 @@ impl Macro {
     pub fn param_list(&self) -> Option<ParamList> {
         support::child(&self.syntax)
     }
-    pub fn block(&self) -> Option<Block> {
+    pub fn block_expr(&self) -> Option<BlockExpr> {
         support::child(&self.syntax)
     }
 }
@@ -1284,10 +1284,10 @@ impl AstNode for Decreases {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Block {
+pub struct BlockExpr {
     pub(crate) syntax: SyntaxNode,
 }
-impl Block {
+impl BlockExpr {
     pub fn l_curly_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T!['{'])
     }
@@ -1301,9 +1301,9 @@ impl Block {
         support::token(&self.syntax, T!['}'])
     }
 }
-impl AstNode for Block {
+impl AstNode for BlockExpr {
     fn can_cast(kind: SyntaxKind) -> bool {
-        kind == BLOCK
+        kind == BLOCK_EXPR
     }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
@@ -1830,7 +1830,7 @@ impl WhileStmt {
     pub fn decreases(&self) -> Option<Decreases> {
         support::child(&self.syntax)
     }
-    pub fn block(&self) -> Option<Block> {
+    pub fn block_expr(&self) -> Option<BlockExpr> {
         support::child(&self.syntax)
     }
 }
@@ -1931,7 +1931,7 @@ impl WhileExpr {
     pub fn while_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![while])
     }
-    pub fn body(&self) -> Option<Block> {
+    pub fn body(&self) -> Option<BlockExpr> {
         support::child(&self.syntax)
     }
 }
@@ -2571,6 +2571,7 @@ pub enum Expr {
     WhileExpr(WhileExpr),
     PrefixExpr(PrefixExpr),
     BinExpr(BinExpr),
+    BlockExpr(BlockExpr),
     RangeExpr(RangeExpr),
     CallExpr(CallExpr),
     ListExpr(ListExpr),
@@ -2607,6 +2608,11 @@ impl From<PrefixExpr> for Expr {
 impl From<BinExpr> for Expr {
     fn from(node: BinExpr) -> Expr {
         Expr::BinExpr(node)
+    }
+}
+impl From<BlockExpr> for Expr {
+    fn from(node: BlockExpr) -> Expr {
+        Expr::BlockExpr(node)
     }
 }
 impl From<RangeExpr> for Expr {
@@ -2678,6 +2684,7 @@ impl AstNode for Expr {
                 | WHILE_EXPR
                 | PREFIX_EXPR
                 | BIN_EXPR
+                | BLOCK_EXPR
                 | RANGE_EXPR
                 | CALL_EXPR
                 | LIST_EXPR
@@ -2699,6 +2706,7 @@ impl AstNode for Expr {
             WHILE_EXPR => Expr::WhileExpr(WhileExpr { syntax }),
             PREFIX_EXPR => Expr::PrefixExpr(PrefixExpr { syntax }),
             BIN_EXPR => Expr::BinExpr(BinExpr { syntax }),
+            BLOCK_EXPR => Expr::BlockExpr(BlockExpr { syntax }),
             RANGE_EXPR => Expr::RangeExpr(RangeExpr { syntax }),
             CALL_EXPR => Expr::CallExpr(CallExpr { syntax }),
             LIST_EXPR => Expr::ListExpr(ListExpr { syntax }),
@@ -2722,6 +2730,7 @@ impl AstNode for Expr {
             Expr::WhileExpr(it) => &it.syntax,
             Expr::PrefixExpr(it) => &it.syntax,
             Expr::BinExpr(it) => &it.syntax,
+            Expr::BlockExpr(it) => &it.syntax,
             Expr::RangeExpr(it) => &it.syntax,
             Expr::CallExpr(it) => &it.syntax,
             Expr::ListExpr(it) => &it.syntax,
@@ -2819,26 +2828,26 @@ impl From<WhileStmt> for Stmt {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum IfExprElse {
     IfExpr(IfExpr),
-    Block(Block),
+    BlockExpr(BlockExpr),
 }
 impl From<IfExpr> for IfExprElse {
     fn from(node: IfExpr) -> IfExprElse {
         IfExprElse::IfExpr(node)
     }
 }
-impl From<Block> for IfExprElse {
-    fn from(node: Block) -> IfExprElse {
-        IfExprElse::Block(node)
+impl From<BlockExpr> for IfExprElse {
+    fn from(node: BlockExpr) -> IfExprElse {
+        IfExprElse::BlockExpr(node)
     }
 }
 impl AstNode for IfExprElse {
     fn can_cast(kind: SyntaxKind) -> bool {
-        matches!(kind, IF_EXPR | BLOCK)
+        matches!(kind, IF_EXPR | BLOCK_EXPR)
     }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         let res = match syntax.kind() {
             IF_EXPR => IfExprElse::IfExpr(IfExpr { syntax }),
-            BLOCK => IfExprElse::Block(Block { syntax }),
+            BLOCK_EXPR => IfExprElse::BlockExpr(BlockExpr { syntax }),
             _ => return None,
         };
         Some(res)
@@ -2846,7 +2855,7 @@ impl AstNode for IfExprElse {
     fn syntax(&self) -> &SyntaxNode {
         match self {
             IfExprElse::IfExpr(it) => &it.syntax,
-            IfExprElse::Block(it) => &it.syntax,
+            IfExprElse::BlockExpr(it) => &it.syntax,
         }
     }
 }
@@ -2930,7 +2939,7 @@ impl std::fmt::Display for Decreases {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
-impl std::fmt::Display for Block {
+impl std::fmt::Display for BlockExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }

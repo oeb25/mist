@@ -6,9 +6,11 @@ use la_arena::{Arena, ArenaMap};
 use miette::Diagnostic;
 use mist_syntax::{
     ast::{
+        self,
         operators::{ArithOp, BinaryOp, CmpOp},
         HasAttrs, HasName, Spanned,
     },
+    ptr::AstPtr,
     SourceSpan,
 };
 use thiserror::Error;
@@ -25,7 +27,7 @@ fn id<T>(t: T) -> T {
     t
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum VariableDeclarationKind {
     Let,
     Parameter,
@@ -33,7 +35,7 @@ pub enum VariableDeclarationKind {
     Undefined,
 }
 
-#[derive(new, Debug, Clone, PartialEq, Eq)]
+#[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VariableDeclaration {
     name: Ident,
     kind: VariableDeclarationKind,
@@ -64,19 +66,21 @@ impl Spanned for &'_ VariableDeclaration {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct ItemContext {
     function_context: Option<FunctionContext>,
     declarations: Trace<Variable, VariableDeclaration>,
     types: ArenaMap<VariableIdx, Type>,
-    trace: Trace<Expr, ExprOrSpan>,
+    expr_arena: Arena<Expr>,
+
+    body_expr: Option<ExprIdx>,
 }
 
 impl std::ops::Index<ExprIdx> for ItemContext {
     type Output = Expr;
 
     fn index(&self, index: ExprIdx) -> &Self::Output {
-        &self.trace.arena[index]
+        &self.expr_arena[index]
     }
 }
 impl std::ops::Index<VariableIdx> for ItemContext {
@@ -87,22 +91,6 @@ impl std::ops::Index<VariableIdx> for ItemContext {
     }
 }
 impl ItemContext {
-    pub fn new(db: &dyn crate::Db, program: Program, item: hir::Item) -> ItemContext {
-        match item {
-            hir::Item::Type(_) => TypeCheckExpr::init(db, program, None).into(),
-            // TODO: We should do something about a special `this` or something
-            hir::Item::TypeInvariant(_) => TypeCheckExpr::init(db, program, None).into(),
-            hir::Item::Function(f) => Self::new_function(db, program, f),
-        }
-    }
-    pub fn new_function(
-        db: &dyn crate::Db,
-        program: Program,
-        function: hir::Function,
-    ) -> ItemContext {
-        TypeCheckExpr::init(db, program, Some(function)).into()
-    }
-
     pub fn function_context(&self) -> Option<&FunctionContext> {
         self.function_context.as_ref()
     }
@@ -112,14 +100,14 @@ impl ItemContext {
     pub fn conditions(&self) -> impl Iterator<Item = &Condition> {
         self.function_context.iter().flat_map(|cx| &cx.conditions)
     }
+    pub fn body_expr(&self) -> Option<ExprIdx> {
+        self.body_expr
+    }
     pub fn var_ty(&self, var: impl Into<VariableIdx>) -> Type {
         self.types[var.into()]
     }
     pub fn expr(&self, expr: ExprIdx) -> &Expr {
-        &self.trace.arena[expr]
-    }
-    pub fn expr_span(&self, expr: ExprIdx) -> SourceSpan {
-        self.trace.map[expr].span()
+        &self.expr_arena[expr]
     }
     pub fn var(&self, var: impl Into<VariableIdx>) -> Variable {
         self.declarations.arena[var.into()]
@@ -190,7 +178,7 @@ impl Scope {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FunctionContext {
     function_var: VariableRef,
     conditions: Vec<Condition>,
@@ -209,30 +197,38 @@ impl FunctionContext {
     }
 }
 
-pub struct TypeCheckExpr<'w> {
-    db: &'w dyn crate::Db,
-    program: Program,
-    function_context: Option<FunctionContext>,
-    return_ty: Option<Type>,
-    scope: Scope,
-    scope_stack: Vec<Scope>,
-    declarations: Trace<Variable, VariableDeclaration>,
-    types: ArenaMap<VariableIdx, Type>,
-    trace: Trace<Expr, ExprOrSpan>,
+type ExprPtr = AstPtr<ast::Expr>;
+type ExprSrc = ExprOrSpan;
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ItemSourceMap {
+    expr_map: HashMap<ExprSrc, ExprIdx>,
+    expr_map_back: HashMap<ExprIdx, ExprSrc>,
 }
 
-impl From<TypeCheckExpr<'_>> for ItemContext {
-    fn from(value: TypeCheckExpr<'_>) -> Self {
-        ItemContext {
-            function_context: value.function_context,
-            declarations: value.declarations,
-            types: value.types,
-            trace: value.trace,
-        }
+impl ItemSourceMap {
+    pub fn expr_span(&self, expr: ExprIdx) -> SourceSpan {
+        self.expr_map_back[&expr].span()
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeCheckExpr<'w> {
+    db: &'w dyn crate::Db,
+    program: Program,
+    return_ty: Option<Type>,
+    scope: Scope,
+    scope_stack: Vec<Scope>,
+    source_map: ItemSourceMap,
+    item: ItemContext,
+}
+
+impl From<TypeCheckExpr<'_>> for (ItemContext, ItemSourceMap) {
+    fn from(value: TypeCheckExpr<'_>) -> Self {
+        (value.item, value.source_map)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Trace<T, V> {
     arena: Arena<T>,
     map: ArenaMap<la_arena::Idx<T>, V>,
@@ -260,12 +256,12 @@ impl<T, V> Default for Trace<T, V> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, derive_more::From)]
 enum ExprOrSpan {
-    Expr(mist_syntax::ast::Expr),
+    Expr(ExprPtr),
     Span(SourceSpan),
 }
 
 impl ExprOrSpan {
-    fn into_expr(self) -> Option<mist_syntax::ast::Expr> {
+    fn into_expr(self) -> Option<ExprPtr> {
         match self {
             ExprOrSpan::Expr(expr) => Some(expr),
             ExprOrSpan::Span(_) => None,
@@ -280,6 +276,16 @@ impl Spanned for &'_ ExprOrSpan {
         }
     }
 }
+impl From<ast::Expr> for ExprOrSpan {
+    fn from(value: ast::Expr) -> Self {
+        AstPtr::new(&value).into()
+    }
+}
+impl From<&'_ ast::Expr> for ExprOrSpan {
+    fn from(value: &ast::Expr) -> Self {
+        AstPtr::new(value).into()
+    }
+}
 
 impl<'a> TypeCheckExpr<'a> {
     pub(crate) fn init(
@@ -290,13 +296,11 @@ impl<'a> TypeCheckExpr<'a> {
         let mut checker = Self {
             db,
             program,
-            function_context: None,
             return_ty: function.and_then(|f| f.ret(db)),
-            declarations: Trace::new(),
-            types: ArenaMap::new(),
             scope: Default::default(),
             scope_stack: vec![],
-            trace: Trace::new(),
+            source_map: Default::default(),
+            item: Default::default(),
         };
 
         let is_ghost = if let Some(f) = function {
@@ -349,7 +353,7 @@ impl<'a> TypeCheckExpr<'a> {
             );
 
             if Some(f) == function {
-                checker.function_context = Some(FunctionContext {
+                checker.item.function_context = Some(FunctionContext {
                     function_var: VariableRef::new(var, var_span),
                     decreases: Default::default(),
                     conditions: vec![],
@@ -369,10 +373,10 @@ impl<'a> TypeCheckExpr<'a> {
                 .syntax(db)
                 .conditions()
                 .map(|c| match c {
-                    mist_syntax::ast::Condition::Requires(r) => {
+                    ast::Condition::Requires(r) => {
                         Condition::Requires(checker.check_boolean_exprs(r.comma_exprs()))
                     }
-                    mist_syntax::ast::Condition::Ensures(r) => {
+                    ast::Condition::Ensures(r) => {
                         Condition::Ensures(checker.check_boolean_exprs(r.comma_exprs()))
                     }
                 })
@@ -380,13 +384,24 @@ impl<'a> TypeCheckExpr<'a> {
 
             let decreases = checker.check_decreases(f.syntax(db).decreases());
 
-            if let Some(cx) = &mut checker.function_context {
+            if let Some(cx) = &mut checker.item.function_context {
                 cx.conditions = conditions;
                 cx.decreases = decreases;
             }
         }
 
         checker
+    }
+
+    pub fn set_body_expr_from_block(&mut self, block: Block, node: ast::BlockExpr) {
+        let idx = self.alloc_expr(
+            Expr::new(block.return_ty, ExprData::Block(block)),
+            ast::Expr::from(node),
+        );
+        self.item.body_expr = Some(idx);
+    }
+    pub fn set_body_expr(&mut self, body_expr: ExprIdx) {
+        self.item.body_expr = Some(body_expr);
     }
 
     pub fn ghosted(mut self) -> Self {
@@ -410,7 +425,7 @@ impl<'a> TypeCheckExpr<'a> {
             .pop()
             .expect("tried to pop scope while none was pushed");
     }
-    fn check_if_expr(&mut self, if_expr: mist_syntax::ast::IfExpr) -> IfExpr {
+    fn check_if_expr(&mut self, if_expr: ast::IfExpr) -> IfExpr {
         let condition = self.check(if_expr.span(), if_expr.condition());
 
         let condition_ty = self.expr_ty(condition);
@@ -436,7 +451,7 @@ impl<'a> TypeCheckExpr<'a> {
         }
 
         let then_branch = if let Some(then_branch) = if_expr.then_branch() {
-            self.check_block(then_branch, |f| {
+            self.check_block(&then_branch, |f| {
                 if is_ghost {
                     f | ScopeFlags::GHOST
                 } else {
@@ -448,8 +463,8 @@ impl<'a> TypeCheckExpr<'a> {
         };
         let else_branch =
             if_expr.else_branch().map(|else_branch| match else_branch {
-                mist_syntax::ast::IfExprElse::IfExpr(e) => Else::If(self.check_if_expr(e)),
-                mist_syntax::ast::IfExprElse::Block(b) => Else::Block(self.check_block(b, |f| {
+                ast::IfExprElse::IfExpr(e) => Else::If(self.check_if_expr(e)),
+                ast::IfExprElse::BlockExpr(b) => Else::Block(self.check_block(&b, |f| {
                     if is_ghost {
                         f | ScopeFlags::GHOST
                     } else {
@@ -488,21 +503,17 @@ impl<'a> TypeCheckExpr<'a> {
         }
     }
     pub fn expr_ty(&self, expr: ExprIdx) -> Type {
-        self.trace.arena[expr].ty
+        self.item.expr_arena[expr].ty
     }
     pub fn expr_span(&self, expr: ExprIdx) -> SourceSpan {
-        self.trace.map[expr].span()
+        self.source_map.expr_map_back[&expr].span()
     }
-    pub fn check(
-        &mut self,
-        fallback_span: SourceSpan,
-        expr: Option<mist_syntax::ast::Expr>,
-    ) -> ExprIdx {
+    pub fn check(&mut self, fallback_span: SourceSpan, expr: Option<ast::Expr>) -> ExprIdx {
         let expr = if let Some(expr) = expr {
             expr
         } else {
             return self.expr_error(
-                fallback_span.into(),
+                fallback_span,
                 None,
                 None,
                 TypeCheckErrorKind::MissingExpression,
@@ -510,26 +521,26 @@ impl<'a> TypeCheckExpr<'a> {
         };
 
         let new = match &expr {
-            mist_syntax::ast::Expr::Literal(it) => match it.kind() {
-                mist_syntax::ast::LiteralKind::IntNumber(s) => Expr::new(
+            ast::Expr::Literal(it) => match it.kind() {
+                ast::LiteralKind::IntNumber(s) => Expr::new(
                     Type::int(self.db).with_ghost(self.db, self.scope.is_ghost()),
                     ExprData::Literal(Literal::Int(s.to_string().parse().unwrap())),
                 ),
-                mist_syntax::ast::LiteralKind::Bool(b) => Expr::new(
+                ast::LiteralKind::Bool(b) => Expr::new(
                     Type::bool(self.db).with_ghost(self.db, self.scope.is_ghost()),
                     ExprData::Literal(Literal::Bool(b)),
                 ),
             },
-            mist_syntax::ast::Expr::IfExpr(it) => {
+            ast::Expr::IfExpr(it) => {
                 let if_expr = self.check_if_expr(it.clone());
                 Expr::new(if_expr.return_ty, ExprData::If(if_expr))
             }
-            mist_syntax::ast::Expr::WhileExpr(_) => todo!(),
-            mist_syntax::ast::Expr::PrefixExpr(it) => {
+            ast::Expr::WhileExpr(_) => todo!(),
+            ast::Expr::PrefixExpr(it) => {
                 let (op_token, op) = if let Some(op) = it.op_details() {
                     op
                 } else {
-                    todo!()
+                    todo!("{it:#?}")
                 };
                 let inner = self.check(it.span(), it.expr());
                 let inner_span = self.expr_span(inner);
@@ -538,11 +549,11 @@ impl<'a> TypeCheckExpr<'a> {
                 let is_ghost = self.is_ghost(inner);
 
                 let ty: Type = match op {
-                    mist_syntax::ast::operators::UnaryOp::Not => {
+                    ast::operators::UnaryOp::Not => {
                         self.expect_ty(inner_span, Type::bool(self.db), inner_ty);
                         Type::bool(self.db)
                     }
-                    mist_syntax::ast::operators::UnaryOp::Neg => {
+                    ast::operators::UnaryOp::Neg => {
                         self.expect_ty(inner_span, Type::int(self.db), inner_ty);
                         Type::int(self.db)
                     }
@@ -552,7 +563,11 @@ impl<'a> TypeCheckExpr<'a> {
 
                 Expr::new(ty, ExprData::Unary { op, inner })
             }
-            mist_syntax::ast::Expr::BinExpr(it) => {
+            ast::Expr::BlockExpr(it) => {
+                let block = self.check_block(it, |f| f);
+                Expr::new(block.return_ty, ExprData::Block(block))
+            }
+            ast::Expr::BinExpr(it) => {
                 let lhs = self.check(it.span(), it.lhs());
                 let (op_token, op) = if let Some(op) = it.op_details() {
                     op
@@ -641,7 +656,7 @@ impl<'a> TypeCheckExpr<'a> {
 
                 Expr::new(ty, ExprData::Bin { lhs, op, rhs })
             }
-            mist_syntax::ast::Expr::CallExpr(it) => {
+            ast::Expr::CallExpr(it) => {
                 let fn_expr = self.check(it.span(), it.expr());
                 let args: Vec<_> = it
                     .arg_list()
@@ -650,7 +665,7 @@ impl<'a> TypeCheckExpr<'a> {
                     .map(|arg| self.check(arg.span(), arg.expr()))
                     .collect();
 
-                match self.trace.arena[fn_expr].ty.data(self.db) {
+                match self.item.expr_arena[fn_expr].ty.data(self.db) {
                     TypeData::Function {
                         attrs,
                         name: _,
@@ -677,7 +692,7 @@ impl<'a> TypeCheckExpr<'a> {
                         if args.len() != params.len() {
                             return self.expr_error(
                                 it.expr()
-                                    .map(Into::into)
+                                    .map(ExprOrSpan::from)
                                     .unwrap_or_else(|| it.span().into()),
                                 None,
                                 None,
@@ -688,9 +703,9 @@ impl<'a> TypeCheckExpr<'a> {
                         }
                         for (a, b) in args.iter().zip(params.iter().map(|p| p.ty)) {
                             self.expect_ty(
-                                self.trace.map[*a].span(),
+                                self.expr_span(*a),
                                 b.with_ghost(self.db, ghostify_pure),
-                                self.trace.arena[*a].ty,
+                                self.item.expr_arena[*a].ty,
                             );
                         }
 
@@ -712,14 +727,14 @@ impl<'a> TypeCheckExpr<'a> {
                     t => todo!("`{t:?}` is not a function"),
                 }
             }
-            mist_syntax::ast::Expr::RangeExpr(it) => {
+            ast::Expr::RangeExpr(it) => {
                 let lhs = it.lhs().map(|lhs| self.check(lhs.span(), Some(lhs)));
                 let rhs = it.rhs().map(|rhs| self.check(rhs.span(), Some(rhs)));
 
                 let ty = match (lhs, rhs) {
                     (None, None) => {
                         return self.expr_error(
-                            expr.into(),
+                            expr,
                             None,
                             None,
                             TypeCheckErrorKind::NotYetImplemented("inference of '..'".to_string()),
@@ -756,7 +771,7 @@ impl<'a> TypeCheckExpr<'a> {
                     ExprData::Range { lhs, rhs },
                 )
             }
-            mist_syntax::ast::Expr::IndexExpr(it) => {
+            ast::Expr::IndexExpr(it) => {
                 let base = self.check(it.span(), it.base());
                 let index = self.check(it.span(), it.index());
 
@@ -793,7 +808,7 @@ impl<'a> TypeCheckExpr<'a> {
                     }
                     _ => {
                         return self.expr_error(
-                            ExprOrSpan::Expr(expr),
+                            expr,
                             None,
                             None,
                             TypeCheckErrorKind::NotYetImplemented(format!(
@@ -804,7 +819,7 @@ impl<'a> TypeCheckExpr<'a> {
                     }
                 }
             }
-            mist_syntax::ast::Expr::ListExpr(it) => {
+            ast::Expr::ListExpr(it) => {
                 let mut elem_ty = None;
                 let elems: Vec<_> = it
                     .comma_exprs()
@@ -828,7 +843,7 @@ impl<'a> TypeCheckExpr<'a> {
                     )
                 } else {
                     return self.expr_error(
-                        it.span().into(),
+                        it.span(),
                         None,
                         None,
                         TypeCheckErrorKind::NotYetImplemented(
@@ -837,7 +852,7 @@ impl<'a> TypeCheckExpr<'a> {
                     );
                 }
             }
-            mist_syntax::ast::Expr::FieldExpr(it) => {
+            ast::Expr::FieldExpr(it) => {
                 let expr = self.check(it.span(), it.expr());
                 let field = if let Some(field) = it.field() {
                     Ident::from(field)
@@ -857,7 +872,7 @@ impl<'a> TypeCheckExpr<'a> {
                                 Some(field.clone())
                             } else {
                                 return self.expr_error(
-                                    field.span().into(),
+                                    field.span(),
                                     None,
                                     None,
                                     TypeCheckErrorKind::UnknownStructField {
@@ -908,7 +923,7 @@ impl<'a> TypeCheckExpr<'a> {
                         }),
                         _ => {
                             return self.expr_error(
-                                it.span().into(),
+                                it.span(),
                                 None,
                                 None,
                                 TypeCheckErrorKind::NotYetImplemented(format!(
@@ -919,7 +934,7 @@ impl<'a> TypeCheckExpr<'a> {
                     },
                     _ => {
                         return self.expr_error(
-                            it.span().into(),
+                            it.span(),
                             None,
                             None,
                             TypeCheckErrorKind::NotYetImplemented(format!(
@@ -942,7 +957,7 @@ impl<'a> TypeCheckExpr<'a> {
                     },
                 )
             }
-            mist_syntax::ast::Expr::StructExpr(it) => {
+            ast::Expr::StructExpr(it) => {
                 let name: Ident = if let Some(name) = it.name() {
                     name.into()
                 } else {
@@ -954,7 +969,7 @@ impl<'a> TypeCheckExpr<'a> {
                     TypeData::Struct(s) => *s,
                     _ => {
                         let expr_err = self.expr_error(
-                            name.span().into(),
+                            name.span(),
                             None,
                             None,
                             TypeCheckErrorKind::UnknownStruct { name },
@@ -1010,18 +1025,18 @@ impl<'a> TypeCheckExpr<'a> {
                     },
                 }
             }
-            mist_syntax::ast::Expr::ParenExpr(e) => return self.check(fallback_span, e.expr()),
-            mist_syntax::ast::Expr::RefExpr(it) => {
+            ast::Expr::ParenExpr(e) => return self.check(fallback_span, e.expr()),
+            ast::Expr::RefExpr(it) => {
                 let span = expr.span();
                 let expr = self.check(it.span(), it.expr());
                 let is_mut = it.mut_token().is_some();
-                let inner = self.trace.arena[expr].ty;
+                let inner = self.item.expr_arena[expr].ty;
 
                 let ty = Type::new(self.db, TypeData::Ref { is_mut, inner }, Some(span));
 
                 Expr::new(ty, ExprData::Ref { is_mut, expr })
             }
-            mist_syntax::ast::Expr::IdentExpr(it) => {
+            ast::Expr::IdentExpr(it) => {
                 let name = if let Some(name) = it.name() {
                     name
                 } else {
@@ -1033,11 +1048,11 @@ impl<'a> TypeCheckExpr<'a> {
 
                 Expr::new(ty, ExprData::Ident(VariableRef::new(var, name.span())))
             }
-            mist_syntax::ast::Expr::NullExpr(_) => Expr::new(
+            ast::Expr::NullExpr(_) => Expr::new(
                 Type::new(self.db, TypeData::Null, Some(expr.span())),
                 ExprData::Literal(Literal::Null),
             ),
-            mist_syntax::ast::Expr::ResultExpr(_) => {
+            ast::Expr::ResultExpr(_) => {
                 let ty = if let Some(return_ty) = self.return_ty {
                     return_ty
                 } else {
@@ -1050,7 +1065,7 @@ impl<'a> TypeCheckExpr<'a> {
                 };
                 Expr::new(ty, ExprData::Result)
             }
-            mist_syntax::ast::Expr::QuantifierExpr(it) => {
+            ast::Expr::QuantifierExpr(it) => {
                 let quantifier = match it.quantifier() {
                     Some(q) if q.forall_token().is_some() => Quantifier::Forall,
                     Some(q) if q.exists_token().is_some() => Quantifier::Exists,
@@ -1081,7 +1096,7 @@ impl<'a> TypeCheckExpr<'a> {
             }
         };
 
-        self.trace.alloc(expr.into(), new)
+        self.alloc_expr(new, AstPtr::new(&expr))
     }
     pub(crate) fn pretty_ty(&self, ty: Type) -> String {
         hir::pretty::ty(self, self.db, ty)
@@ -1111,7 +1126,8 @@ impl<'a> TypeCheckExpr<'a> {
     }
     fn unify_inner(&mut self, expected: Type, actual: Type) -> Option<Type> {
         Some(match (expected.data(self.db), actual.data(self.db)) {
-            (TypeData::Error, _) | (_, TypeData::Error) => expected,
+            (TypeData::Error, _) => actual,
+            (_, TypeData::Error) => expected,
             (TypeData::Void, TypeData::Void) => expected,
             (
                 &TypeData::Ref {
@@ -1192,23 +1208,31 @@ impl<'a> TypeCheckExpr<'a> {
     }
     fn expr_error(
         &mut self,
-        expr_or_span: ExprOrSpan,
+        expr_or_span: impl Into<ExprOrSpan>,
         label: Option<String>,
         help: Option<String>,
         kind: TypeCheckErrorKind,
     ) -> ExprIdx {
+        let expr_or_span = expr_or_span.into();
         let span = expr_or_span.span();
 
         self.push_error(span, label, help, kind);
 
-        self.trace.alloc(
-            expr_or_span,
+        self.alloc_expr(
             Expr::new(Type::error(self.db), ExprData::Missing),
+            expr_or_span,
         )
+    }
+    fn alloc_expr(&mut self, expr: Expr, ptr: impl Into<ExprOrSpan>) -> ExprIdx {
+        let ptr = ptr.into();
+        let idx = self.item.expr_arena.alloc(expr);
+        self.source_map.expr_map_back.insert(idx, ptr.clone());
+        self.source_map.expr_map.insert(ptr, idx);
+        idx
     }
     pub fn check_boolean_exprs(
         &mut self,
-        exprs: impl Iterator<Item = mist_syntax::ast::CommaExpr>,
+        exprs: impl Iterator<Item = ast::CommaExpr>,
     ) -> Vec<ExprIdx> {
         let bool_ty = Type::bool(self.db).ghost(self.db);
         exprs
@@ -1223,7 +1247,7 @@ impl<'a> TypeCheckExpr<'a> {
         &mut self,
         span: SourceSpan,
         kind: AssertionKind,
-        exprs: impl Iterator<Item = mist_syntax::ast::CommaExpr>,
+        exprs: impl Iterator<Item = ast::CommaExpr>,
     ) -> Statement {
         Statement::new(
             span,
@@ -1233,10 +1257,10 @@ impl<'a> TypeCheckExpr<'a> {
             },
         )
     }
-    fn find_type(&self, ty: mist_syntax::ast::Type) -> Type {
+    fn find_type(&self, ty: ast::Type) -> Type {
         crate::hir::find_type(self.db, self.program, ty)
     }
-    fn check_decreases(&mut self, decreases: Option<mist_syntax::ast::Decreases>) -> Decreases {
+    fn check_decreases(&mut self, decreases: Option<ast::Decreases>) -> Decreases {
         if let Some(d) = decreases {
             if d.underscore_token().is_some() {
                 Decreases::Inferred
@@ -1249,14 +1273,14 @@ impl<'a> TypeCheckExpr<'a> {
     }
     pub fn check_block(
         &mut self,
-        block: mist_syntax::ast::Block,
+        block: &ast::BlockExpr,
         f: impl FnOnce(ScopeFlags) -> ScopeFlags,
     ) -> Block {
         self.push_scope(f);
         let stmts = block
             .statements()
             .map(|stmt| match stmt {
-                mist_syntax::ast::Stmt::LetStmt(it) => {
+                ast::Stmt::LetStmt(it) => {
                     let span = it.span();
                     let name = it.name().unwrap();
                     let explicit_ty = it.ty().map(|ty| self.find_type(ty));
@@ -1289,10 +1313,10 @@ impl<'a> TypeCheckExpr<'a> {
                         },
                     )
                 }
-                mist_syntax::ast::Stmt::Item(it) => Statement::new(
+                ast::Stmt::Item(it) => Statement::new(
                     it.span(),
                     StatementData::Expr(self.expr_error(
-                        it.span().into(),
+                        it.span(),
                         None,
                         None,
                         TypeCheckErrorKind::NotYetImplemented(
@@ -1300,17 +1324,17 @@ impl<'a> TypeCheckExpr<'a> {
                         ),
                     )),
                 ),
-                mist_syntax::ast::Stmt::ExprStmt(it) => Statement::new(
+                ast::Stmt::ExprStmt(it) => Statement::new(
                     it.span(),
                     StatementData::Expr(self.check(it.span(), it.expr())),
                 ),
-                mist_syntax::ast::Stmt::AssertStmt(it) => {
+                ast::Stmt::AssertStmt(it) => {
                     self.check_assertion(it.span(), AssertionKind::Assert, it.comma_exprs())
                 }
-                mist_syntax::ast::Stmt::AssumeStmt(it) => {
+                ast::Stmt::AssumeStmt(it) => {
                     self.check_assertion(it.span(), AssertionKind::Assume, it.comma_exprs())
                 }
-                mist_syntax::ast::Stmt::ReturnStmt(it) => {
+                ast::Stmt::ReturnStmt(it) => {
                     if let Some(expr) = it.expr() {
                         let expr_span = expr.span();
                         let expr_idx = self.check(expr.span(), Some(expr));
@@ -1323,7 +1347,7 @@ impl<'a> TypeCheckExpr<'a> {
                         Statement::new(it.span(), StatementData::Return(None))
                     }
                 }
-                mist_syntax::ast::Stmt::WhileStmt(it) => Statement::new(
+                ast::Stmt::WhileStmt(it) => Statement::new(
                     it.span(),
                     StatementData::While {
                         expr: self.check(it.span(), it.expr()),
@@ -1332,7 +1356,7 @@ impl<'a> TypeCheckExpr<'a> {
                             .map(|inv| self.check_boolean_exprs(inv.comma_exprs()))
                             .collect(),
                         decreases: self.check_decreases(it.decreases()),
-                        body: self.check_block(it.block().unwrap(), id),
+                        body: self.check_block(&it.block_expr().unwrap(), id),
                     },
                 ),
             })
@@ -1359,21 +1383,22 @@ impl<'a> TypeCheckExpr<'a> {
     }
     pub fn declare_variable(&mut self, decl: VariableDeclaration, ty: Type) -> VariableIdx {
         let name = decl.name.to_string();
-        let var = self.declarations.alloc(
+        let var = self.item.declarations.alloc(
             decl,
             Variable::new(self.db, VariableId::new(self.db, name.clone())),
         );
         self.scope.insert(name.clone(), var);
-        self.types.insert(var, ty);
+        self.item.types.insert(var, ty);
         var
     }
     pub fn var_ty(&self, var: VariableIdx) -> Type {
         *self
+            .item
             .types
             .get(var)
             .expect("VariableIdx was not in types map")
     }
-    pub fn lookup_name(&mut self, name: &mist_syntax::ast::Name) -> VariableIdx {
+    pub fn lookup_name(&mut self, name: &ast::Name) -> VariableIdx {
         if let Some(var) = self.scope.get(&name.to_string()) {
             var
         } else {
@@ -1402,7 +1427,7 @@ impl<'a> TypeCheckExpr<'a> {
 pub fn check_param_list(
     db: &dyn crate::Db,
     program: Program,
-    param_list: Option<mist_syntax::ast::ParamList>,
+    param_list: Option<ast::ParamList>,
 ) -> ParamList {
     ParamList {
         params: param_list
@@ -1434,17 +1459,17 @@ impl hir::pretty::PrettyPrint for ItemContext {
     }
 
     fn resolve_expr(&self, idx: ExprIdx) -> &Expr {
-        &self.trace.arena[idx]
+        &self.expr_arena[idx]
     }
 }
 
 impl hir::pretty::PrettyPrint for TypeCheckExpr<'_> {
     fn resolve_var(&self, idx: VariableIdx) -> String {
-        self.declarations.map[idx].name.to_string()
+        self.item.declarations.map[idx].name.to_string()
     }
 
     fn resolve_expr(&self, idx: ExprIdx) -> &Expr {
-        &self.trace.arena[idx]
+        &self.item.expr_arena[idx]
     }
 }
 

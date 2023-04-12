@@ -6,6 +6,7 @@ fn im_not_ghost() -> bool {
     im_ghost()
 }
 
+// TODO: Maybe this should be okay
 fn implicit_ghost_cast_in_non_ghost() -> ghost bool {
     true
 }
@@ -40,7 +41,7 @@ fn implicit_ghost() {
     if y {
         x = 15;
         y = true;
-    }
+    };
 }
 
 fn implicit_ghost_return(y: ghost bool) -> int {

@@ -52,8 +52,6 @@ fn insertion_sort(xs: [int]) -> [int]
         same_elements(xs, result)
     dec xs.len
 {
-    let v = xs.len;
-    assert v >= 0;
     if xs.len == 0 {
         []
     } else {

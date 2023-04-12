@@ -1,4 +1,4 @@
-use std::ops::ControlFlow;
+use std::{ops::ControlFlow, sync::Arc};
 
 use derive_new::new;
 
@@ -8,179 +8,150 @@ use crate::{
         ParamList, Program, Statement, StatementData, Type, TypeData, TypeDecl, TypeInvariant,
         VariableRef,
     },
-    typecheck::ItemContext,
+    typecheck::{ItemContext, ItemSourceMap},
 };
 
-pub trait Walker {
-    fn walk_program<T>(
-        &mut self,
-        visitor: &mut impl Visitor<T>,
+pub trait Walker<'db>: Sized {
+    fn init(db: &'db dyn crate::Db, vcx: VisitContext) -> Self
+    where
+        Self:;
+    fn walk_program<'v, V: Visitor>(
+        db: &'db dyn crate::Db,
         program: Program,
-    ) -> ControlFlow<T>;
-    fn walk_ty_decl<T>(
+        visitor: &'v mut V,
+    ) -> ControlFlow<V::Item> {
+        for item in program.items(db) {
+            let Some(item) = hir::item(db, program, item.clone()) else { continue };
+            let Some((cx, source_map)) = hir::item_lower(db, program, item) else { continue };
+            let cx = Arc::new(cx);
+            let source_map = Arc::new(source_map);
+            let mut walker = Self::init(db, VisitContext { cx, source_map });
+            match item {
+                hir::Item::Type(ty_decl) => {
+                    walker.walk_ty_decl(visitor, program, ty_decl)?;
+                }
+                hir::Item::TypeInvariant(ty_inv) => {
+                    walker.walk_ty_inv(visitor, program, ty_inv)?;
+                }
+                hir::Item::Function(f) => {
+                    walker.walk_function(visitor, f)?;
+                }
+            }
+        }
+        ControlFlow::Continue(())
+    }
+    fn walk_ty_decl<V: Visitor>(
         &mut self,
-        visitor: &mut impl Visitor<T>,
+        visitor: &mut V,
         program: Program,
-        cx: &ItemContext,
         ty_decl: TypeDecl,
-    ) -> ControlFlow<T>;
-    fn walk_ty_inv<T>(
+    ) -> ControlFlow<V::Item>;
+    fn walk_ty_inv<V: Visitor>(
         &mut self,
-        visitor: &mut impl Visitor<T>,
+        visitor: &mut V,
         program: Program,
-        cx: &ItemContext,
         ty_inv: TypeInvariant,
-    ) -> ControlFlow<T>;
-    fn walk_field<T>(
+    ) -> ControlFlow<V::Item>;
+    fn walk_field<V: Visitor>(
         &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
+        visitor: &mut V,
         field: &Field,
         reference: &Ident,
-    ) -> ControlFlow<T>;
-    fn walk_function<T>(
+    ) -> ControlFlow<V::Item>;
+    fn walk_function<V: Visitor>(
         &mut self,
-        visitor: &mut impl Visitor<T>,
-        program: Program,
-        cx: &ItemContext,
+        visitor: &mut V,
         function: Function,
-    ) -> ControlFlow<T>;
-    fn walk_ty<T>(
+    ) -> ControlFlow<V::Item>;
+    fn walk_ty<V: Visitor>(&mut self, visitor: &mut V, ty: Type) -> ControlFlow<V::Item>;
+    fn walk_decreases<V: Visitor>(
         &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
-        ty: Type,
-    ) -> ControlFlow<T>;
-    fn walk_decreases<T>(
-        &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
+        visitor: &mut V,
         decreases: Decreases,
-    ) -> ControlFlow<T>;
-    fn walk_exprs<T>(
+    ) -> ControlFlow<V::Item>;
+    fn walk_exprs<V: Visitor>(
         &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
+        visitor: &mut V,
         exprs: &[ExprIdx],
-    ) -> ControlFlow<T>;
-    fn walk_expr<T>(
+    ) -> ControlFlow<V::Item>;
+    fn walk_expr<V: Visitor>(&mut self, visitor: &mut V, expr: ExprIdx) -> ControlFlow<V::Item>;
+    fn walk_if_expr<V: Visitor>(
         &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
-        expr: ExprIdx,
-    ) -> ControlFlow<T>;
-    fn walk_if_expr<T>(
-        &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
+        visitor: &mut V,
         if_expr: &IfExpr,
-    ) -> ControlFlow<T>;
-    fn walk_block<T>(
+    ) -> ControlFlow<V::Item>;
+    fn walk_block<V: Visitor>(&mut self, visitor: &mut V, block: &Block) -> ControlFlow<V::Item>;
+    fn walk_param_list<V: Visitor>(
         &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
-        block: &Block,
-    ) -> ControlFlow<T>;
-    fn walk_param_list<T>(
-        &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
+        visitor: &mut V,
         param_list: &ParamList,
-    ) -> ControlFlow<T>;
+    ) -> ControlFlow<V::Item>;
+}
 
-    fn ty<T>(&mut self, visitor: &mut impl Visitor<T>, cx: &ItemContext, ty: Type) -> Option<T> {
-        self.walk_ty(visitor, cx, ty).break_value()
-    }
-    fn exprs<T>(
-        &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
-        exprs: &[ExprIdx],
-    ) -> Option<T> {
-        self.walk_exprs(visitor, cx, exprs).break_value()
-    }
-    fn expr<T>(
-        &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
-        expr: ExprIdx,
-    ) -> Option<T> {
-        self.walk_expr(visitor, cx, expr).break_value()
-    }
-    fn if_expr<T>(
-        &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
-        if_expr: &IfExpr,
-    ) -> Option<T> {
-        self.walk_if_expr(visitor, cx, if_expr).break_value()
-    }
-    fn block<T>(
-        &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
-        block: &Block,
-    ) -> Option<T> {
-        self.walk_block(visitor, cx, block).break_value()
-    }
-    fn param_list<T>(
-        &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
-        param_list: &ParamList,
-    ) -> Option<T> {
-        self.walk_param_list(visitor, cx, param_list).break_value()
-    }
+pub struct VisitContext {
+    pub cx: Arc<ItemContext>,
+    pub source_map: Arc<ItemSourceMap>,
 }
 
 #[allow(unused)]
-pub trait Visitor<T> {
+pub trait Visitor {
+    type Item;
+
     #[must_use]
-    fn visit_ty_decl(&mut self, cx: &ItemContext, ty_decl: TypeDecl) -> ControlFlow<T> {
+    fn visit_ty_decl(&mut self, vcx: &VisitContext, ty_decl: TypeDecl) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
     #[must_use]
-    fn visit_function(&mut self, cx: &ItemContext, function: Function) -> ControlFlow<T> {
+    fn visit_function(
+        &mut self,
+        vcx: &VisitContext,
+        function: Function,
+    ) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
     #[must_use]
     fn visit_field(
         &mut self,
-        cx: &ItemContext,
+        vcx: &VisitContext,
         field: &Field,
         reference: &Ident,
-    ) -> ControlFlow<T> {
+    ) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
     #[must_use]
-    fn visit_var(&mut self, cx: &ItemContext, var: VariableRef) -> ControlFlow<T> {
+    fn visit_var(&mut self, vcx: &VisitContext, var: VariableRef) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
     #[must_use]
-    fn visit_param(&mut self, cx: &ItemContext, param: &Param) -> ControlFlow<T> {
+    fn visit_param(&mut self, vcx: &VisitContext, param: &Param) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
     #[must_use]
-    fn visit_expr(&mut self, cx: &ItemContext, expr: ExprIdx) -> ControlFlow<T> {
+    fn visit_expr(&mut self, vcx: &VisitContext, expr: ExprIdx) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
     #[must_use]
-    fn visit_decreases(&mut self, cx: &ItemContext, decreases: Decreases) -> ControlFlow<T> {
+    fn visit_decreases(
+        &mut self,
+        vcx: &VisitContext,
+        decreases: Decreases,
+    ) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
     #[must_use]
-    fn visit_ty(&mut self, cx: &ItemContext, ty: Type) -> ControlFlow<T> {
+    fn visit_ty(&mut self, vcx: &VisitContext, ty: Type) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
     #[must_use]
-    fn visit_stmt(&mut self, cx: &ItemContext, stmt: &Statement) -> ControlFlow<T> {
+    fn visit_stmt(&mut self, vcx: &VisitContext, stmt: &Statement) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
 }
 
 #[derive(new)]
-pub struct OrderedWalk<'a, O> {
-    db: &'a dyn crate::Db,
+pub struct OrderedWalk<'db, O> {
+    db: &'db dyn crate::Db,
+    vcx: VisitContext,
     order: O,
 }
 
@@ -189,12 +160,8 @@ pub trait Order {
     fn visit_post(&self) -> bool;
 }
 
+#[derive(Default)]
 pub struct PreOrder;
-impl PreOrder {
-    pub fn new(db: &dyn crate::Db) -> OrderedWalk<PreOrder> {
-        OrderedWalk { db, order: Self }
-    }
-}
 impl Order for PreOrder {
     fn visit_pre(&self) -> bool {
         true
@@ -203,13 +170,10 @@ impl Order for PreOrder {
         false
     }
 }
+pub type PreOrderWalk<'a> = OrderedWalk<'a, PreOrder>;
 
+#[derive(Default)]
 pub struct PostOrder;
-impl PostOrder {
-    pub fn new(db: &dyn crate::Db) -> OrderedWalk<PostOrder> {
-        OrderedWalk { db, order: Self }
-    }
-}
 impl Order for PostOrder {
     fn visit_pre(&self) -> bool {
         false
@@ -218,6 +182,7 @@ impl Order for PostOrder {
         true
     }
 }
+pub type PostOrderWalk<'a> = OrderedWalk<'a, PostOrder>;
 
 impl<O> OrderedWalk<'_, O>
 where
@@ -231,96 +196,107 @@ where
     }
 }
 
-impl<O> Walker for OrderedWalk<'_, O>
+impl<'db, O> Walker<'db> for OrderedWalk<'db, O>
 where
-    O: Order,
+    O: Order + Default,
 {
-    fn walk_program<T>(
-        &mut self,
-        visitor: &mut impl Visitor<T>,
-        program: Program,
-    ) -> ControlFlow<T> {
-        walk_program(self, self.db, visitor, program)
+    fn init(db: &'db dyn crate::Db, vcx: VisitContext) -> Self {
+        Self {
+            db,
+            vcx,
+            order: O::default(),
+        }
     }
 
-    fn walk_ty_decl<T>(
+    fn walk_ty_decl<V: Visitor>(
         &mut self,
-        visitor: &mut impl Visitor<T>,
+        visitor: &mut V,
         program: Program,
-        cx: &ItemContext,
         ty_decl: TypeDecl,
-    ) -> ControlFlow<T> {
+    ) -> ControlFlow<V::Item> {
         if self.pre() {
-            visitor.visit_ty_decl(cx, ty_decl)?;
+            visitor.visit_ty_decl(&self.vcx, ty_decl)?;
         }
         match ty_decl.data(self.db) {
             hir::TypeDeclData::Struct(s) => {
                 self.walk_ty(
                     visitor,
-                    cx,
                     hir::find_named_type(self.db, program, s.name(self.db)),
                 )?;
                 for f in hir::struct_fields(self.db, program, s) {
-                    self.walk_field(visitor, cx, &f, &f.name)?
+                    self.walk_field(visitor, &f, &f.name)?
                 }
             }
         }
         if self.post() {
-            visitor.visit_ty_decl(cx, ty_decl)?;
+            visitor.visit_ty_decl(&self.vcx, ty_decl)?;
         }
         ControlFlow::Continue(())
     }
 
-    fn walk_ty_inv<T>(
+    fn walk_ty_inv<V: Visitor>(
         &mut self,
-        visitor: &mut impl Visitor<T>,
+        visitor: &mut V,
         program: Program,
-        cx: &ItemContext,
         ty_inv: TypeInvariant,
-    ) -> ControlFlow<T> {
+    ) -> ControlFlow<V::Item> {
         self.walk_ty(
             visitor,
-            cx,
             hir::find_named_type(self.db, program, ty_inv.name(self.db)),
         )?;
-        self.walk_block(visitor, cx, &hir::ty_inv_block(self.db, program, ty_inv).1)
-    }
-
-    fn walk_field<T>(
-        &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
-        field: &Field,
-        reference: &Ident,
-    ) -> ControlFlow<T> {
-        if self.pre() {
-            visitor.visit_field(cx, field, reference)?;
-        }
-        self.walk_ty(visitor, cx, field.ty);
-        if self.post() {
-            visitor.visit_field(cx, field, reference)?;
+        if let Some(body_expr) = self.vcx.cx.body_expr() {
+            self.walk_expr(visitor, body_expr)?;
         }
         ControlFlow::Continue(())
     }
 
-    fn walk_function<T>(
+    fn walk_field<V: Visitor>(
         &mut self,
-        visitor: &mut impl Visitor<T>,
-        program: Program,
-        cx: &ItemContext,
-        function: Function,
-    ) -> ControlFlow<T> {
-        walk_function(self, self.db, visitor, program, cx, function)
+        visitor: &mut V,
+        field: &Field,
+        reference: &Ident,
+    ) -> ControlFlow<V::Item> {
+        if self.pre() {
+            visitor.visit_field(&self.vcx, field, reference)?;
+        }
+        self.walk_ty(visitor, field.ty);
+        if self.post() {
+            visitor.visit_field(&self.vcx, field, reference)?;
+        }
+        ControlFlow::Continue(())
     }
 
-    fn walk_ty<T>(
+    fn walk_function<V: Visitor>(
         &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
-        ty: Type,
-    ) -> ControlFlow<T> {
+        visitor: &mut V,
+        function: Function,
+    ) -> ControlFlow<V::Item> {
+        let Some(fx) = self.vcx.cx.function_context().cloned() else { return ControlFlow::Continue(()) };
+
+        visitor.visit_var(&self.vcx, fx.function_var())?;
+
+        self.walk_param_list(visitor, function.param_list(self.db))?;
+
+        for it in fx.conditions() {
+            self.walk_exprs(visitor, it.exprs())?;
+        }
+
+        self.walk_decreases(visitor, fx.decreases())?;
+
+        if let Some(ret_ty) = function.ret(self.db) {
+            self.walk_ty(visitor, ret_ty)?;
+        }
+
+        if let Some(body_expr) = self.vcx.cx.body_expr() {
+            self.walk_expr(visitor, body_expr)?;
+        }
+
+        ControlFlow::Continue(())
+    }
+
+    fn walk_ty<V: Visitor>(&mut self, visitor: &mut V, ty: Type) -> ControlFlow<V::Item> {
         if self.pre() {
-            visitor.visit_ty(cx, ty)?;
+            visitor.visit_ty(&self.vcx, ty)?;
         }
 
         match ty.data(self.db) {
@@ -330,68 +306,61 @@ where
             | TypeData::List(inner)
             | TypeData::Range(inner)
             | TypeData::Optional(inner) => {
-                self.walk_ty(visitor, cx, *inner)?;
+                self.walk_ty(visitor, *inner)?;
             }
             TypeData::Struct(_) => {}
             TypeData::Function {
                 params, return_ty, ..
             } => {
                 for param in params.iter() {
-                    self.walk_ty(visitor, cx, param.ty)?;
+                    self.walk_ty(visitor, param.ty)?;
                 }
-                self.walk_ty(visitor, cx, *return_ty)?;
+                self.walk_ty(visitor, *return_ty)?;
             }
         }
         if self.post() {
-            visitor.visit_ty(cx, ty)?;
+            visitor.visit_ty(&self.vcx, ty)?;
         }
         ControlFlow::Continue(())
     }
 
-    fn walk_decreases<T>(
+    fn walk_decreases<V: Visitor>(
         &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
+        visitor: &mut V,
         decreases: Decreases,
-    ) -> ControlFlow<T> {
+    ) -> ControlFlow<V::Item> {
         if self.pre() {
-            visitor.visit_decreases(cx, decreases)?;
+            visitor.visit_decreases(&self.vcx, decreases)?;
         }
         match decreases {
-            Decreases::Expr(expr) => self.walk_expr(visitor, cx, expr)?,
+            Decreases::Expr(expr) => self.walk_expr(visitor, expr)?,
             Decreases::Unspecified | Decreases::Inferred => {}
         }
         if self.post() {
-            visitor.visit_decreases(cx, decreases)?;
+            visitor.visit_decreases(&self.vcx, decreases)?;
         }
         ControlFlow::Continue(())
     }
 
-    fn walk_exprs<T>(
+    fn walk_exprs<V: Visitor>(
         &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
+        visitor: &mut V,
         exprs: &[ExprIdx],
-    ) -> ControlFlow<T> {
+    ) -> ControlFlow<V::Item> {
         for expr in exprs {
-            self.walk_expr(visitor, cx, *expr)?;
+            self.walk_expr(visitor, *expr)?;
         }
         ControlFlow::Continue(())
     }
-    fn walk_expr<T>(
-        &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
-        expr: ExprIdx,
-    ) -> ControlFlow<T> {
+    fn walk_expr<V: Visitor>(&mut self, visitor: &mut V, expr: ExprIdx) -> ControlFlow<V::Item> {
         if self.pre() {
-            visitor.visit_expr(cx, expr)?;
+            visitor.visit_expr(&self.vcx, expr)?;
         }
 
-        match &cx.expr(expr).data {
+        match self.vcx.cx.expr(expr).data.clone() {
             ExprData::Literal(_) | ExprData::Missing | ExprData::Result => {}
             ExprData::Ident(var) => {
-                visitor.visit_var(cx, *var)?;
+                visitor.visit_var(&self.vcx, var)?;
             }
             ExprData::Field {
                 expr,
@@ -399,106 +368,103 @@ where
                 field_name,
                 ..
             } => {
-                self.walk_expr(visitor, cx, *expr)?;
+                self.walk_expr(visitor, expr)?;
                 if let Some(field) = field {
-                    self.walk_field(visitor, cx, field, field_name)?;
+                    self.walk_field(visitor, &field, &field_name)?;
                 }
             }
             ExprData::Struct { fields, .. } => {
                 for f in fields {
-                    self.walk_field(visitor, cx, &f.decl, &f.name)?;
-                    self.walk_expr(visitor, cx, f.value)?;
+                    self.walk_field(visitor, &f.decl, &f.name)?;
+                    self.walk_expr(visitor, f.value)?;
                 }
             }
             ExprData::If(if_expr) => {
-                self.walk_if_expr(visitor, cx, if_expr)?;
+                self.walk_if_expr(visitor, &if_expr)?;
             }
             ExprData::Call { expr, args } => {
-                self.walk_expr(visitor, cx, *expr)?;
+                self.walk_expr(visitor, expr)?;
                 for arg in args {
-                    self.walk_expr(visitor, cx, *arg)?;
+                    self.walk_expr(visitor, arg)?;
                 }
+            }
+            ExprData::Block(block) => {
+                self.walk_block(visitor, &block)?;
             }
             ExprData::Bin { lhs, op: _, rhs } => {
-                self.walk_expr(visitor, cx, *lhs)?;
-                self.walk_expr(visitor, cx, *rhs)?;
+                self.walk_expr(visitor, lhs)?;
+                self.walk_expr(visitor, rhs)?;
             }
             ExprData::Unary { op: _, inner } => {
-                self.walk_expr(visitor, cx, *inner)?;
+                self.walk_expr(visitor, inner)?;
             }
             ExprData::Ref { expr, .. } => {
-                self.walk_expr(visitor, cx, *expr)?;
+                self.walk_expr(visitor, expr)?;
             }
-            &ExprData::Index { base, index } => {
-                self.walk_expr(visitor, cx, base)?;
-                self.walk_expr(visitor, cx, index)?;
+            ExprData::Index { base, index } => {
+                self.walk_expr(visitor, base)?;
+                self.walk_expr(visitor, index)?;
             }
-            &ExprData::Range { lhs, rhs } => {
+            ExprData::Range { lhs, rhs } => {
                 if let Some(e) = lhs {
-                    self.walk_expr(visitor, cx, e)?;
+                    self.walk_expr(visitor, e)?;
                 }
                 if let Some(e) = rhs {
-                    self.walk_expr(visitor, cx, e)?;
+                    self.walk_expr(visitor, e)?;
                 }
             }
             ExprData::List { elems } => {
                 for elem in elems {
-                    self.walk_expr(visitor, cx, *elem)?;
+                    self.walk_expr(visitor, elem)?;
                 }
             }
             ExprData::Quantifier { params, expr, .. } => {
-                self.walk_param_list(visitor, cx, params)?;
-                self.walk_expr(visitor, cx, *expr)?;
+                self.walk_param_list(visitor, &params)?;
+                self.walk_expr(visitor, expr)?;
             }
         };
 
         if self.post() {
-            visitor.visit_expr(cx, expr)?;
+            visitor.visit_expr(&self.vcx, expr)?;
         }
 
         ControlFlow::Continue(())
     }
 
-    fn walk_if_expr<T>(
+    fn walk_if_expr<V: Visitor>(
         &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
+        visitor: &mut V,
         if_expr: &IfExpr,
-    ) -> ControlFlow<T> {
-        self.walk_expr(visitor, cx, if_expr.condition)?;
-        self.walk_block(visitor, cx, &if_expr.then_branch)?;
+    ) -> ControlFlow<V::Item> {
+        self.walk_expr(visitor, if_expr.condition)?;
+        self.walk_block(visitor, &if_expr.then_branch)?;
         match if_expr.else_branch.as_deref() {
-            Some(Else::Block(block)) => self.walk_block(visitor, cx, block),
-            Some(Else::If(if_expr)) => self.walk_if_expr(visitor, cx, if_expr),
+            Some(Else::Block(block)) => self.walk_block(visitor, block),
+            Some(Else::If(if_expr)) => self.walk_if_expr(visitor, if_expr),
             None => ControlFlow::Continue(()),
         }
     }
 
-    fn walk_block<T>(
-        &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
-        block: &Block,
-    ) -> ControlFlow<T> {
+    fn walk_block<V: Visitor>(&mut self, visitor: &mut V, block: &Block) -> ControlFlow<V::Item> {
         for stmt in &block.stmts {
             if self.pre() {
-                visitor.visit_stmt(cx, stmt)?;
+                visitor.visit_stmt(&self.vcx, stmt)?;
             }
 
             match &stmt.data {
-                StatementData::Return(Some(expr)) => self.walk_expr(visitor, cx, *expr)?,
+                StatementData::Return(Some(expr)) => self.walk_expr(visitor, *expr)?,
                 StatementData::Return(None) => {}
-                StatementData::Expr(expr) => self.walk_expr(visitor, cx, *expr)?,
+                StatementData::Expr(expr) => self.walk_expr(visitor, *expr)?,
                 &StatementData::Let {
                     variable,
                     explicit_ty,
                     initializer,
                 } => {
-                    visitor.visit_var(cx, variable)?;
+                    visitor.visit_var(&self.vcx, variable)?;
                     if let Some(ty) = explicit_ty {
-                        self.walk_ty(visitor, cx, ty)?;
+                        self.walk_ty(visitor, ty)?;
                     }
-                    self.walk_expr(visitor, cx, initializer)?;
+                    self.walk_expr(visitor, initializer)?;
                 }
                 StatementData::While {
                     expr,
@@ -506,102 +472,43 @@ where
                     decreases,
                     body,
                 } => {
-                    self.walk_expr(visitor, cx, *expr)?;
+                    self.walk_expr(visitor, *expr)?;
                     for inv in invariants {
-                        self.walk_exprs(visitor, cx, inv)?;
+                        self.walk_exprs(visitor, inv)?;
                     }
-                    self.walk_decreases(visitor, cx, *decreases)?;
-                    self.walk_block(visitor, cx, body)?;
+                    self.walk_decreases(visitor, *decreases)?;
+                    self.walk_block(visitor, body)?;
                 }
-                StatementData::Assertion { exprs, .. } => self.walk_exprs(visitor, cx, exprs)?,
+                StatementData::Assertion { exprs, .. } => self.walk_exprs(visitor, exprs)?,
             }
 
             if self.post() {
-                visitor.visit_stmt(cx, stmt)?;
+                visitor.visit_stmt(&self.vcx, stmt)?;
             }
         }
 
         if let Some(expr) = block.tail_expr {
-            self.walk_expr(visitor, cx, expr)?;
+            self.walk_expr(visitor, expr)?;
         }
 
         ControlFlow::Continue(())
     }
 
-    fn walk_param_list<T>(
+    fn walk_param_list<V: Visitor>(
         &mut self,
-        visitor: &mut impl Visitor<T>,
-        cx: &ItemContext,
+        visitor: &mut V,
         param_list: &ParamList,
-    ) -> ControlFlow<T> {
+    ) -> ControlFlow<V::Item> {
         for param in &param_list.params {
             if self.pre() {
-                visitor.visit_param(cx, param)?;
+                visitor.visit_param(&self.vcx, param)?;
             }
-            self.walk_ty(visitor, cx, param.ty)?;
+            self.walk_ty(visitor, param.ty)?;
             if self.post() {
-                visitor.visit_param(cx, param)?;
+                visitor.visit_param(&self.vcx, param)?;
             }
         }
 
         ControlFlow::Continue(())
     }
-}
-
-fn walk_program<T>(
-    walker: &mut impl Walker,
-    db: &dyn crate::Db,
-    visitor: &mut impl Visitor<T>,
-    program: Program,
-) -> ControlFlow<T> {
-    for item in program.items(db) {
-        let Some(item) = hir::item(db, program, item.clone()) else { continue };
-        let cx = ItemContext::new(db, program, item);
-        match item {
-            hir::Item::Type(ty_decl) => {
-                walker.walk_ty_decl(visitor, program, &cx, ty_decl)?;
-            }
-            hir::Item::TypeInvariant(ty_inv) => {
-                walker.walk_ty_inv(visitor, program, &cx, ty_inv)?;
-            }
-            hir::Item::Function(f) => {
-                walker.walk_function(visitor, program, &cx, f)?;
-            }
-        }
-    }
-    ControlFlow::Continue(())
-}
-
-fn walk_function<T>(
-    walker: &mut impl Walker,
-    db: &dyn crate::Db,
-    visitor: &mut impl Visitor<T>,
-    program: Program,
-    cx: &ItemContext,
-    function: Function,
-) -> ControlFlow<T> {
-    let Some(fx) = cx.function_context() else { return ControlFlow::Continue(()) };
-
-    {
-        visitor.visit_var(cx, fx.function_var())?;
-
-        walker.walk_param_list(visitor, cx, function.param_list(db))?;
-
-        for it in fx.conditions() {
-            walker.walk_exprs(visitor, cx, it.exprs())?;
-        }
-
-        walker.walk_decreases(visitor, cx, fx.decreases())?;
-
-        if let Some(ret_ty) = function.ret(db) {
-            walker.walk_ty(visitor, cx, ret_ty)?;
-        }
-    }
-
-    let body = hir::function_body(db, program, function);
-    if let Some((cx, body)) = body {
-        walker.walk_block(visitor, &cx, &body)?;
-    }
-
-    ControlFlow::Continue(())
 }

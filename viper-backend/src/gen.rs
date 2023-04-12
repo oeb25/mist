@@ -1,8 +1,6 @@
 use std::cmp::Ordering;
 
-use mist_core::hir::{
-    function_body, Block, ExprIdx, ItemContext, Program, Quantifier, Type, TypeData,
-};
+use mist_core::hir::{self, Block, ExprIdx, ItemContext, Program, Quantifier, Type, TypeData};
 use mist_syntax::ast::operators::{ArithOp, BinaryOp, CmpOp, LogicOp};
 use silvers::{
     expression::{
@@ -16,20 +14,17 @@ use silvers::{
 use tracing::error;
 
 #[salsa::tracked]
-pub fn viper_file(
-    db: &dyn crate::Db,
-    program: mist_core::hir::Program,
-) -> silvers::program::Program {
+pub fn viper_file(db: &dyn crate::Db, program: hir::Program) -> silvers::program::Program {
     let mut fields = vec![];
     let mut predicates = vec![];
     let mut methods = vec![];
     let mut functions = vec![];
 
     for item in program.items(db) {
-        let Some(item) = mist_core::hir::item(db, program, item.clone()) else { continue };
+        let Some(item) = hir::item(db, program, item.clone()) else { continue };
         match item {
-            mist_core::hir::Item::Type(ty_decl) => match ty_decl.data(db) {
-                mist_core::hir::TypeDeclData::Struct(s) => {
+            hir::Item::Type(ty_decl) => match ty_decl.data(db) {
+                hir::TypeDeclData::Struct(s) => {
                     let lowering = ViperLowering {
                         db,
                         cx: ItemContext::default(),
@@ -44,7 +39,7 @@ pub fn viper_file(
                         }],
                         body: None,
                     });
-                    for field in mist_core::hir::struct_fields(db, program, s) {
+                    for field in hir::struct_fields(db, program, s) {
                         let ty = lowering.lower_ty(field.ty);
                         fields.push(Field {
                             name: field.name.to_string(),
@@ -53,9 +48,10 @@ pub fn viper_file(
                     }
                 }
             },
-            mist_core::hir::Item::TypeInvariant(_) => {}
-            mist_core::hir::Item::Function(function) => {
-                match viper_function(db, program, function) {
+            hir::Item::TypeInvariant(_) => {}
+            hir::Item::Function(function) => {
+                let Some((cx, source_map)) = hir::item_lower(db, program, item) else { continue };
+                match viper_function(db, program, function, cx) {
                     ViperFunction::Function(it) => functions.push(it),
                     ViperFunction::Method(it) => methods.push(it),
                 }
@@ -76,12 +72,12 @@ pub fn viper_file(
 #[salsa::tracked]
 pub fn viper_function(
     db: &dyn crate::Db,
-    program: mist_core::hir::Program,
-    function: mist_core::hir::Function,
+    program: hir::Program,
+    function: hir::Function,
+    cx: ItemContext,
 ) -> ViperFunction {
     let is_pure = function.attrs(db).is_pure();
 
-    let cx = ItemContext::new_function(db, program, function);
     let mut pres = vec![];
     let mut posts = vec![];
 
@@ -89,7 +85,7 @@ pub fn viper_function(
         if is_pure {
             let lowering = ViperLowering {
                 db,
-                cx,
+                cx: cx.clone(),
                 program,
                 return_variable: None,
             };
@@ -134,7 +130,7 @@ pub fn viper_function(
             );
             let lowering = ViperLowering {
                 db,
-                cx,
+                cx: cx.clone(),
                 program,
                 return_variable: Some(LocalVar::new(
                     ret_name.to_string(),
@@ -160,7 +156,7 @@ pub fn viper_function(
     } else {
         let lowering = ViperLowering {
             db,
-            cx,
+            cx: cx.clone(),
             program,
             return_variable: None,
         };
@@ -194,7 +190,7 @@ pub fn viper_function(
 
     for condition in lowering.cx.conditions() {
         match condition {
-            mist_core::hir::Condition::Requires(it) => {
+            hir::Condition::Requires(it) => {
                 for &expr in it {
                     let (pre, lowered_expr) = lowering.lower_expr(Default::default(), expr);
                     if !pre.is_empty() {
@@ -207,7 +203,7 @@ pub fn viper_function(
                     }
                 }
             }
-            mist_core::hir::Condition::Ensures(it) => {
+            hir::Condition::Ensures(it) => {
                 for &expr in it {
                     let (post, lowered_expr) = lowering.lower_expr(Default::default(), expr);
                     if !post.is_empty() {
@@ -231,9 +227,10 @@ pub fn viper_function(
                     .unwrap_or_else(|| Type::new(db, TypeData::Error, None)),
             )
             .ty;
-        let body = if let Some((cx, body)) = function_body(db, program, function) {
+        let body = if let Some(body_expr) = cx.body_expr() {
             let lowering = ViperLowering { cx, ..lowering };
-            Some(lowering.lower_block_to_expr(LowerExprFlags::default(), body))
+            let (pre_stmts, body) = lowering.lower_expr(LowerExprFlags::default(), body_expr);
+            body
         } else {
             None
         };
@@ -247,9 +244,11 @@ pub fn viper_function(
             body,
         })
     } else {
-        let body = if let Some((cx, body)) = function_body(db, program, function) {
+        let body = if let Some(body_expr) = cx.body_expr() {
             let lowering = ViperLowering { cx, ..lowering };
-            Some(lowering.lower_block(LowerExprFlags::default(), body))
+            let (pre_stmts, body) = lowering.lower_expr(LowerExprFlags::default(), body_expr);
+            // TODO
+            None
         } else {
             None
         };
@@ -315,12 +314,12 @@ pub struct LowerTypeFlags {
 impl ViperLowering<'_> {
     pub fn lower_expr(&self, flags: LowerExprFlags, expr: ExprIdx) -> (Vec<Stmt>, Option<Exp>) {
         match &self.cx[expr].data {
-            mist_core::hir::ExprData::Literal(it) => match it {
-                mist_core::hir::Literal::Null => (vec![], Some(Exp::null())),
-                mist_core::hir::Literal::Int(val) => (vec![], Some(Exp::int(*val))),
-                mist_core::hir::Literal::Bool(val) => (vec![], Some(Exp::boolean(*val))),
+            hir::ExprData::Literal(it) => match it {
+                hir::Literal::Null => (vec![], Some(Exp::null())),
+                hir::Literal::Int(val) => (vec![], Some(Exp::int(*val))),
+                hir::Literal::Bool(val) => (vec![], Some(Exp::boolean(*val))),
             },
-            mist_core::hir::ExprData::Result => {
+            hir::ExprData::Result => {
                 if let Some(var) = self.return_variable.clone() {
                     (
                         vec![],
@@ -335,7 +334,7 @@ impl ViperLowering<'_> {
                     )
                 }
             }
-            mist_core::hir::ExprData::Ident(it) => (
+            hir::ExprData::Ident(it) => (
                 vec![],
                 Some(Exp::AbstractLocalVar(
                     silvers::expression::AbstractLocalVar::LocalVar(LocalVar::new(
@@ -344,7 +343,7 @@ impl ViperLowering<'_> {
                     )),
                 )),
             ),
-            mist_core::hir::ExprData::Field {
+            hir::ExprData::Field {
                 expr, field_name, ..
             } => {
                 let (rcr_stmts, rcr) =
@@ -363,7 +362,7 @@ impl ViperLowering<'_> {
                     ))),
                 )
             }
-            mist_core::hir::ExprData::Struct {
+            hir::ExprData::Struct {
                 struct_declaration,
                 fields,
                 ..
@@ -377,14 +376,10 @@ impl ViperLowering<'_> {
                     FinalValuePlacement::LocalVar(lhs) => {
                         stmts.push(Stmt::NewStmt {
                             lhs: lhs.clone(),
-                            fields: mist_core::hir::struct_fields(
-                                self.db,
-                                self.program,
-                                *struct_declaration,
-                            )
-                            .iter()
-                            .map(|f| Field::new(f.name.to_string(), self.lower_ty(f.ty).ty))
-                            .collect(),
+                            fields: hir::struct_fields(self.db, self.program, *struct_declaration)
+                                .iter()
+                                .map(|f| Field::new(f.name.to_string(), self.lower_ty(f.ty).ty))
+                                .collect(),
                         });
                         Exp::AbstractLocalVar(AbstractLocalVar::LocalVar(lhs))
                     }
@@ -407,16 +402,14 @@ impl ViperLowering<'_> {
 
                 (stmts, Some(rcr))
             }
-            mist_core::hir::ExprData::Missing => (vec![], None),
-            mist_core::hir::ExprData::If(it) => {
+            hir::ExprData::Missing => (vec![], None),
+            hir::ExprData::If(it) => {
                 let (mut stmts, condition) = self.lower_expr(flags.clone(), it.condition);
                 let then_stmts = self.lower_block(flags.clone(), it.then_branch.clone());
                 let else_stmts = if let Some(else_branch) = &it.else_branch {
                     match else_branch.as_ref() {
-                        mist_core::hir::Else::If(_) => todo!(),
-                        mist_core::hir::Else::Block(block) => {
-                            self.lower_block(flags.clone(), block.clone())
-                        }
+                        hir::Else::If(_) => todo!(),
+                        hir::Else::Block(block) => self.lower_block(flags.clone(), block.clone()),
                     }
                 } else {
                     Seqn {
@@ -443,8 +436,8 @@ impl ViperLowering<'_> {
                             (vec![], None)
                         }
                         FinalValuePlacement::Expression => match it.else_branch.as_deref() {
-                            Some(mist_core::hir::Else::If(_)) => todo!(),
-                            Some(mist_core::hir::Else::Block(else_block)) => (
+                            Some(hir::Else::If(_)) => todo!(),
+                            Some(hir::Else::Block(else_block)) => (
                                 stmts,
                                 Some(Exp::Cond {
                                     cond: Box::new(condition),
@@ -476,9 +469,12 @@ impl ViperLowering<'_> {
                     }
                 }
             }
-            mist_core::hir::ExprData::Call { expr, args } => {
+            hir::ExprData::Block(block) => {
+                (vec![], Some(self.lower_block_to_expr(flags, block.clone())))
+            }
+            hir::ExprData::Call { expr, args } => {
                 let funcname = match &self.cx[*expr].data {
-                    mist_core::hir::ExprData::Ident(var) => self.cx.var_ident(var).to_string(),
+                    hir::ExprData::Ident(var) => self.cx.var_ident(var).to_string(),
                     _ => todo!(),
                 };
 
@@ -501,11 +497,11 @@ impl ViperLowering<'_> {
 
                 (stmts, Some(Exp::FuncApp { funcname, args }))
             }
-            &mist_core::hir::ExprData::Unary { op, inner } => {
+            &hir::ExprData::Unary { op, inner } => {
                 // TODO
                 self.lower_expr(flags, inner)
             }
-            &mist_core::hir::ExprData::Bin { lhs, op, rhs } => {
+            &hir::ExprData::Bin { lhs, op, rhs } => {
                 let mut stmts = vec![];
 
                 let (lhs_stmts, lhs) = self.lower_expr(flags.with_final_value_placement(None), lhs);
@@ -574,11 +570,11 @@ impl ViperLowering<'_> {
                     }),
                 )
             }
-            mist_core::hir::ExprData::Range { lhs, rhs } => {
+            hir::ExprData::Range { lhs, rhs } => {
                 // TODO
                 (vec![], None)
             }
-            mist_core::hir::ExprData::Index { base, index } => {
+            hir::ExprData::Index { base, index } => {
                 let (mut pre_stmts, base) = self.lower_expr(flags.clone(), *base);
                 let (index_pre_stmts, index) = self.lower_expr(flags, *index);
 
@@ -594,7 +590,7 @@ impl ViperLowering<'_> {
                     }),
                 )
             }
-            mist_core::hir::ExprData::List { elems } => {
+            hir::ExprData::List { elems } => {
                 let mut stmts = vec![];
 
                 let elems = elems
@@ -617,8 +613,8 @@ impl ViperLowering<'_> {
                     Some(Exp::Seq(silvers::expression::SeqExp::Explicit { elems })),
                 )
             }
-            mist_core::hir::ExprData::Ref { is_mut, expr } => self.lower_expr(flags, *expr),
-            mist_core::hir::ExprData::Quantifier {
+            hir::ExprData::Ref { is_mut, expr } => self.lower_expr(flags, *expr),
+            hir::ExprData::Quantifier {
                 quantifier,
                 params,
                 expr,
@@ -703,8 +699,8 @@ impl ViperLowering<'_> {
                 }
             }
             1 => match &block.stmts[0].data {
-                mist_core::hir::StatementData::Return(_) => todo!(),
-                mist_core::hir::StatementData::Expr(expr) => {
+                hir::StatementData::Return(_) => todo!(),
+                hir::StatementData::Expr(expr) => {
                     let (stmts, expr) = self.lower_expr(flags, *expr);
                     if !stmts.is_empty() {
                         tracing::error!("lower_block_to_expr stmt expr had stmts");
@@ -716,7 +712,7 @@ impl ViperLowering<'_> {
                         Exp::null()
                     }
                 }
-                mist_core::hir::StatementData::Let {
+                hir::StatementData::Let {
                     variable,
                     explicit_ty: _,
                     initializer,
@@ -724,13 +720,13 @@ impl ViperLowering<'_> {
                     tracing::error!("lower_block_to_expr of let stmt");
                     Exp::null()
                 }
-                mist_core::hir::StatementData::While {
+                hir::StatementData::While {
                     expr,
                     invariants,
                     decreases: _,
                     body,
                 } => todo!(),
-                mist_core::hir::StatementData::Assertion { kind, exprs } => todo!(),
+                hir::StatementData::Assertion { kind, exprs } => todo!(),
             },
             _ => {
                 tracing::error!("lower_block_to_expr not yet implemented");
@@ -744,7 +740,7 @@ impl ViperLowering<'_> {
             .stmts
             .iter()
             .flat_map(|stmt| match &stmt.data {
-                mist_core::hir::StatementData::Return(Some(it)) => {
+                hir::StatementData::Return(Some(it)) => {
                     let (mut stmts, expr) = self.lower_expr(flags.clone(), *it);
                     if let Some(ret_var) = self.return_variable.clone() {
                         if let Some(expr) = expr {
@@ -765,19 +761,19 @@ impl ViperLowering<'_> {
                     }
                     stmts
                 }
-                mist_core::hir::StatementData::Return(None) => {
+                hir::StatementData::Return(None) => {
                     vec![Stmt::Assume {
                         exp: Exp::boolean(false),
                     }]
                 }
-                mist_core::hir::StatementData::Expr(it) => {
+                hir::StatementData::Expr(it) => {
                     let (mut stmts, expr) = self.lower_expr(flags.clone(), *it);
                     if let Some(expr) = expr {
                         stmts.push(Stmt::Expression(expr));
                     }
                     stmts
                 }
-                &mist_core::hir::StatementData::Let {
+                &hir::StatementData::Let {
                     variable,
                     explicit_ty: _,
                     initializer,
@@ -808,7 +804,7 @@ impl ViperLowering<'_> {
 
                     stmts
                 }
-                mist_core::hir::StatementData::While {
+                hir::StatementData::While {
                     expr,
                     invariants,
                     decreases: _,
@@ -842,7 +838,7 @@ impl ViperLowering<'_> {
                         body,
                     }]
                 }
-                mist_core::hir::StatementData::Assertion { kind, exprs } => {
+                hir::StatementData::Assertion { kind, exprs } => {
                     let mut stmts = vec![];
 
                     for expr in exprs {
@@ -853,12 +849,10 @@ impl ViperLowering<'_> {
                             Exp::null()
                         });
                         match kind {
-                            mist_core::hir::AssertionKind::Assert => {
-                                stmts.push(Stmt::Assert { exp })
-                            }
-                            mist_core::hir::AssertionKind::Assume => todo!(),
-                            mist_core::hir::AssertionKind::Inhale => todo!(),
-                            mist_core::hir::AssertionKind::Exhale => todo!(),
+                            hir::AssertionKind::Assert => stmts.push(Stmt::Assert { exp }),
+                            hir::AssertionKind::Assume => todo!(),
+                            hir::AssertionKind::Inhale => todo!(),
+                            hir::AssertionKind::Exhale => todo!(),
                         }
                     }
 
@@ -873,11 +867,7 @@ impl ViperLowering<'_> {
         }
     }
 
-    pub fn lower_input_param(
-        &self,
-        ty: mist_core::hir::Type,
-        flags: LowerTypeFlags,
-    ) -> TypeWithConstraint {
+    pub fn lower_input_param(&self, ty: hir::Type, flags: LowerTypeFlags) -> TypeWithConstraint {
         match ty.data(self.db) {
             TypeData::Error => TypeWithConstraint {
                 ty: SType::Atomic(silvers::typ::AtomicType::InternalType),
@@ -928,10 +918,8 @@ impl ViperLowering<'_> {
             ),
             TypeData::Primitive(it) => {
                 let ty = match it {
-                    mist_core::hir::Primitive::Int => SType::Atomic(silvers::typ::AtomicType::Int),
-                    mist_core::hir::Primitive::Bool => {
-                        SType::Atomic(silvers::typ::AtomicType::Bool)
-                    }
+                    hir::Primitive::Int => SType::Atomic(silvers::typ::AtomicType::Int),
+                    hir::Primitive::Bool => SType::Atomic(silvers::typ::AtomicType::Bool),
                 };
                 TypeWithConstraint {
                     ty,
@@ -1012,8 +1000,8 @@ impl ViperLowering<'_> {
             TypeData::Optional(inner) => self.lower_ty(*inner),
             TypeData::Primitive(it) => {
                 let ty = match it {
-                    mist_core::hir::Primitive::Int => SType::int(),
-                    mist_core::hir::Primitive::Bool => SType::bool(),
+                    hir::Primitive::Int => SType::int(),
+                    hir::Primitive::Bool => SType::bool(),
                 };
 
                 TypeWithConstraint {

@@ -322,7 +322,8 @@ impl<'src> Parser<'src> {
 
     fn type_invariant(&mut self, attr_checkpoint: Checkpoint) {
         assert_eq!(self.current(), Some(T![invariant]));
-        self.builder.start_node_at(attr_checkpoint, STRUCT.into());
+        self.builder
+            .start_node_at(attr_checkpoint, TYPE_INVARIANT.into());
         self.bump();
 
         self.name();
@@ -552,7 +553,7 @@ impl<'src> Parser<'src> {
 
     fn block(&mut self) {
         self.skip_ws();
-        self.builder.start_node(BLOCK.into());
+        self.builder.start_node(BLOCK_EXPR.into());
         self.expect_control(T!['{']);
 
         let mut trailing = None;
@@ -1247,7 +1248,8 @@ fn prefix_binding_power(op: Option<SyntaxKind>) -> Option<(SyntaxKind, (), u8)> 
     let op = op?;
     match op {
         T![&] | T![!] => Some((op, (), 8)),
-        T![+] | T![-] => Some((op, (), 9)),
+        // T![+] |
+        T![-] => Some((op, (), 9)),
         T![forall] | T![exists] => Some((op, (), 10)),
         _ => None,
     }

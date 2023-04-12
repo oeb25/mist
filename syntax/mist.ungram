@@ -27,7 +27,7 @@ Fn =
  ('->' ret:Type)?
  Condition*
  Decreases?
- (body:Block | ';')
+ (body:BlockExpr | ';')
 
 Attr =
   'ghost'
@@ -62,12 +62,12 @@ Struct =
 StructField = Attrs Name ':' Type ','?
 
 TypeInvariant =
-  'invariant' Name Block
+  'invariant' Name BlockExpr
 
 Macro =
-  'macro' Name ParamList Block
+  'macro' Name ParamList BlockExpr
 
-Block =
+BlockExpr =
  '{'
    statements:Stmt*
    tail_expr:Expr?
@@ -130,7 +130,7 @@ WhileStmt =
  'while' Expr
  Invariant*
  Decreases?
- Block
+ BlockExpr
 
 Invariant =
  'invariant' CommaExpr*
@@ -141,6 +141,7 @@ Expr =
 | WhileExpr
 | PrefixExpr
 | BinExpr
+| BlockExpr
 | RangeExpr
 | CallExpr
 | ListExpr
@@ -155,14 +156,14 @@ Expr =
 | QuantifierExpr
 
 IfExpr =
-  'if' condition:Expr then_branch:Block
+  'if' condition:Expr then_branch:BlockExpr
   ('else' else_branch:IfExprElse)?
 
 IfExprElse =
-  IfExpr | Block
+  IfExpr | BlockExpr
 
 WhileExpr =
-  'while' condition:Expr body:Block
+  'while' condition:Expr body:BlockExpr
 
 PrefixExpr =
   op:('-' | '!') Expr
