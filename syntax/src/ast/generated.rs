@@ -345,7 +345,7 @@ pub enum SyntaxKind {
     LABEL,
     BLOCK_EXPR,
     STMT_LIST,
-    RETURN_STMT,
+    RETURN_EXPR,
     WHILE_STMT,
     YIELD_EXPR,
     YEET_EXPR,
@@ -1784,36 +1784,6 @@ impl AstNode for AssumeStmt {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ReturnStmt {
-    pub(crate) syntax: SyntaxNode,
-}
-impl ReturnStmt {
-    pub fn return_token(&self) -> Option<SyntaxToken> {
-        support::token(&self.syntax, T![return])
-    }
-    pub fn expr(&self) -> Option<Expr> {
-        support::child(&self.syntax)
-    }
-    pub fn semicolon_token(&self) -> Option<SyntaxToken> {
-        support::token(&self.syntax, T ! [;])
-    }
-}
-impl AstNode for ReturnStmt {
-    fn can_cast(kind: SyntaxKind) -> bool {
-        kind == RETURN_STMT
-    }
-    fn cast(syntax: SyntaxNode) -> Option<Self> {
-        if Self::can_cast(syntax.kind()) {
-            Some(Self { syntax })
-        } else {
-            None
-        }
-    }
-    fn syntax(&self) -> &SyntaxNode {
-        &self.syntax
-    }
-}
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct WhileStmt {
     pub(crate) syntax: SyntaxNode,
 }
@@ -1837,6 +1807,36 @@ impl WhileStmt {
 impl AstNode for WhileStmt {
     fn can_cast(kind: SyntaxKind) -> bool {
         kind == WHILE_STMT
+    }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ReturnExpr {
+    pub(crate) syntax: SyntaxNode,
+}
+impl ReturnExpr {
+    pub fn return_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![return])
+    }
+    pub fn expr(&self) -> Option<Expr> {
+        support::child(&self.syntax)
+    }
+    pub fn semicolon_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T ! [;])
+    }
+}
+impl AstNode for ReturnExpr {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == RETURN_EXPR
     }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
@@ -2568,6 +2568,7 @@ impl AstNode for Type {
 pub enum Expr {
     Literal(Literal),
     IfExpr(IfExpr),
+    ReturnExpr(ReturnExpr),
     WhileExpr(WhileExpr),
     PrefixExpr(PrefixExpr),
     BinExpr(BinExpr),
@@ -2593,6 +2594,11 @@ impl From<Literal> for Expr {
 impl From<IfExpr> for Expr {
     fn from(node: IfExpr) -> Expr {
         Expr::IfExpr(node)
+    }
+}
+impl From<ReturnExpr> for Expr {
+    fn from(node: ReturnExpr) -> Expr {
+        Expr::ReturnExpr(node)
     }
 }
 impl From<WhileExpr> for Expr {
@@ -2681,6 +2687,7 @@ impl AstNode for Expr {
             kind,
             LITERAL
                 | IF_EXPR
+                | RETURN_EXPR
                 | WHILE_EXPR
                 | PREFIX_EXPR
                 | BIN_EXPR
@@ -2703,6 +2710,7 @@ impl AstNode for Expr {
         let res = match syntax.kind() {
             LITERAL => Expr::Literal(Literal { syntax }),
             IF_EXPR => Expr::IfExpr(IfExpr { syntax }),
+            RETURN_EXPR => Expr::ReturnExpr(ReturnExpr { syntax }),
             WHILE_EXPR => Expr::WhileExpr(WhileExpr { syntax }),
             PREFIX_EXPR => Expr::PrefixExpr(PrefixExpr { syntax }),
             BIN_EXPR => Expr::BinExpr(BinExpr { syntax }),
@@ -2727,6 +2735,7 @@ impl AstNode for Expr {
         match self {
             Expr::Literal(it) => &it.syntax,
             Expr::IfExpr(it) => &it.syntax,
+            Expr::ReturnExpr(it) => &it.syntax,
             Expr::WhileExpr(it) => &it.syntax,
             Expr::PrefixExpr(it) => &it.syntax,
             Expr::BinExpr(it) => &it.syntax,
@@ -2787,7 +2796,6 @@ pub enum Stmt {
     ExprStmt(ExprStmt),
     AssertStmt(AssertStmt),
     AssumeStmt(AssumeStmt),
-    ReturnStmt(ReturnStmt),
     WhileStmt(WhileStmt),
 }
 impl From<LetStmt> for Stmt {
@@ -2813,11 +2821,6 @@ impl From<AssertStmt> for Stmt {
 impl From<AssumeStmt> for Stmt {
     fn from(node: AssumeStmt) -> Stmt {
         Stmt::AssumeStmt(node)
-    }
-}
-impl From<ReturnStmt> for Stmt {
-    fn from(node: ReturnStmt) -> Stmt {
-        Stmt::ReturnStmt(node)
     }
 }
 impl From<WhileStmt> for Stmt {
@@ -3024,12 +3027,12 @@ impl std::fmt::Display for AssumeStmt {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
-impl std::fmt::Display for ReturnStmt {
+impl std::fmt::Display for WhileStmt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
-impl std::fmt::Display for WhileStmt {
+impl std::fmt::Display for ReturnExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }

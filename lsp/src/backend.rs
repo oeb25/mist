@@ -3,10 +3,12 @@ use std::sync::Arc;
 use itertools::Itertools;
 use mist_core::hir::{Program, SourceProgram};
 use mist_syntax::SourceSpan;
+use mist_viper_backend::gen::ViperHints;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::request::{GotoDeclarationParams, GotoDeclarationResponse};
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
+use tracing::debug;
 
 use crate::highlighting::{TokenModifier, TokenType};
 use crate::hover::HoverElement;
@@ -194,7 +196,31 @@ impl Backend {
             return Err(tower_lsp::jsonrpc::Error::invalid_request());
         };
         let inlay_hints = crate::highlighting::inlay_hints(&db, source);
-        Ok(Some(inlay_hints.iter().cloned().map_into().collect()))
+
+        let program = mist_core::hir::parse_program(&db, source);
+        let hints = mist_viper_backend::gen::viper_file::accumulated::<ViperHints>(&db, program);
+
+        Ok(Some(
+            inlay_hints
+                .iter()
+                .cloned()
+                .chain(
+                    hints
+                        .into_iter()
+                        .map(|hint| crate::highlighting::InlayHint {
+                            position: mist_core::util::Position::from_byte_offset(
+                                source.text(&db),
+                                hint.span.end(),
+                            ),
+                            label: hint.viper,
+                            kind: None,
+                            padding_left: Some(true),
+                            padding_right: None,
+                        }),
+                )
+                .map_into()
+                .collect(),
+        ))
     }
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let db = self.db();
@@ -272,13 +298,17 @@ impl Backend {
             let program = mist_core::hir::parse_program(&db, source);
 
             let parse_errors = program.errors(&db);
-            let type_errors = mist_viper_backend::gen::viper_file::accumulated::<
+            let type_errors = crate::highlighting::semantic_tokens::accumulated::<
                 mist_core::TypeCheckErrors,
+            >(&db, source);
+            let viper_errors = mist_viper_backend::gen::viper_file::accumulated::<
+                mist_viper_backend::lower::ViperLowerErrors,
             >(&db, program);
 
             itertools::chain!(
                 parse_errors.iter().cloned().map(miette::Error::new),
                 type_errors.into_iter().map(miette::Error::new),
+                viper_errors.into_iter().map(miette::Error::new),
             )
             .flat_map(|e| miette_to_diagnostic(&text, e))
             .collect()

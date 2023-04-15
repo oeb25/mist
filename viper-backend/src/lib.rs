@@ -2,17 +2,14 @@
 
 pub mod db;
 pub mod gen;
-
-use miette::{miette, IntoDiagnostic, Result};
-use mist_syntax::ast::{Item, SourceFile, Struct};
-use silvers::{
-    program::{LocalVarDecl, Predicate, Program},
-    typ::{AtomicType, Type},
-};
-use tracing::info;
+pub mod lower;
 
 #[salsa::jar(db=Db)]
-pub struct Jar(crate::gen::viper_file, crate::gen::viper_function);
+pub struct Jar(
+    crate::gen::viper_file,
+    crate::gen::ViperHints,
+    crate::lower::ViperLowerErrors,
+);
 
 pub trait Db: mist_core::Db + salsa::DbWithJar<Jar> {}
 

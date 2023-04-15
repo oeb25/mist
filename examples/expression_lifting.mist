@@ -1,0 +1,7 @@
+fn something(x: int) -> int {
+    x
+}
+
+fn client() -> int {
+    something(if true { something(12) } else { 4 })
+}

@@ -605,7 +605,7 @@ impl<'src> Parser<'src> {
             Some(T![let]) => self.let_stmt(),
             Some(T![assume]) => self.assume_stmt(),
             Some(T![assert]) => self.assert_stmt(),
-            Some(T![return]) => self.return_stmt(),
+            // Some(T![return]) => self.return_stmt(),
             Some(T![while]) => {
                 self.while_stmt();
             }
@@ -697,18 +697,6 @@ impl<'src> Parser<'src> {
         self.builder.finish_node();
     }
 
-    fn return_stmt(&mut self) {
-        assert_eq!(self.current(), Some(T![return]));
-
-        self.builder.start_node(RETURN_STMT.into());
-        self.bump();
-
-        self.expr(Location::NONE);
-        self.semicolon();
-
-        self.builder.finish_node();
-    }
-
     fn while_stmt(&mut self) {
         assert_eq!(self.current(), Some(T![while]));
 
@@ -788,6 +776,15 @@ impl<'src> Parser<'src> {
             Some(T![false] | T![true]) => {
                 self.builder.start_node(LITERAL.into());
                 self.bump();
+                self.builder.finish_node();
+            }
+            Some(T![return]) => {
+                self.builder.start_node(RETURN_EXPR.into());
+                self.bump();
+
+                self.expr(Location::NONE);
+                self.semicolon();
+
                 self.builder.finish_node();
             }
             Some(T![result]) => {
@@ -1222,6 +1219,7 @@ fn is_start_of_expr(token: SyntaxKind) -> bool {
             | T![result]
             | T![&]
             | T![!]
+            | T![-]
             | T!['(']
             | T!['[']
             | INT_NUMBER,

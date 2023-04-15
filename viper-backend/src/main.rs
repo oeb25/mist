@@ -18,7 +18,7 @@ fn main() -> Result<()> {
     let program = mist_core::hir::parse_program(&db, source);
     let viper_file = mist_viper_backend::gen::viper_file(&db, program);
 
-    println!("{viper_file}");
+    // println!("{viper_file}");
 
     Ok(())
 }

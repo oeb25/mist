@@ -6,7 +6,7 @@ use crate::{
     hir::{
         self, Block, Decreases, Else, ExprData, ExprIdx, Field, Function, Ident, IfExpr, Param,
         ParamList, Program, Statement, StatementData, Type, TypeData, TypeDecl, TypeInvariant,
-        VariableRef,
+        VariableIdx, VariableRef,
     },
     typecheck::{ItemContext, ItemSourceMap},
 };
@@ -84,7 +84,7 @@ pub trait Walker<'db>: Sized {
     fn walk_param_list<V: Visitor>(
         &mut self,
         visitor: &mut V,
-        param_list: &ParamList,
+        param_list: &ParamList<VariableIdx>,
     ) -> ControlFlow<V::Item>;
 }
 
@@ -123,7 +123,11 @@ pub trait Visitor {
         ControlFlow::Continue(())
     }
     #[must_use]
-    fn visit_param(&mut self, vcx: &VisitContext, param: &Param) -> ControlFlow<Self::Item> {
+    fn visit_param(
+        &mut self,
+        vcx: &VisitContext,
+        param: &Param<VariableIdx>,
+    ) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
     #[must_use]
@@ -275,7 +279,8 @@ where
 
         visitor.visit_var(&self.vcx, fx.function_var())?;
 
-        self.walk_param_list(visitor, function.param_list(self.db))?;
+        let params = self.vcx.cx.params().clone();
+        self.walk_param_list(visitor, &params)?;
 
         for it in fx.conditions() {
             self.walk_exprs(visitor, it.exprs())?;
@@ -391,6 +396,10 @@ where
             ExprData::Block(block) => {
                 self.walk_block(visitor, &block)?;
             }
+            ExprData::Return(Some(inner)) => {
+                self.walk_expr(visitor, inner)?;
+            }
+            ExprData::Return(None) => {}
             ExprData::Bin { lhs, op: _, rhs } => {
                 self.walk_expr(visitor, lhs)?;
                 self.walk_expr(visitor, rhs)?;
@@ -452,8 +461,6 @@ where
             }
 
             match &stmt.data {
-                StatementData::Return(Some(expr)) => self.walk_expr(visitor, *expr)?,
-                StatementData::Return(None) => {}
                 StatementData::Expr(expr) => self.walk_expr(visitor, *expr)?,
                 &StatementData::Let {
                     variable,
@@ -497,7 +504,7 @@ where
     fn walk_param_list<V: Visitor>(
         &mut self,
         visitor: &mut V,
-        param_list: &ParamList,
+        param_list: &ParamList<VariableIdx>,
     ) -> ControlFlow<V::Item> {
         for param in &param_list.params {
             if self.pre() {

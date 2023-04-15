@@ -4,7 +4,7 @@ use derive_new::new;
 use mist_core::{
     hir::{
         self, pretty, ExprData, ExprIdx, Field, FieldParent, Ident, Param, SourceProgram, Type,
-        TypeData, VariableRef,
+        TypeData, VariableIdx, VariableRef,
     },
     salsa,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
@@ -112,10 +112,10 @@ impl<'a> Visitor for HoverFinder<'a> {
     fn visit_param(
         &mut self,
         vcx: &VisitContext,
-        param: &Param,
+        param: &Param<VariableIdx>,
     ) -> ControlFlow<Option<HoverResult>> {
-        if param.name.contains_pos(self.byte_offset) {
-            let name = &param.name;
+        let name = vcx.cx.var_ident(param.name);
+        if name.contains_pos(self.byte_offset) {
             let ty = pretty::ty(&*vcx.cx, self.db, param.ty);
             break_code([format!("{name}: {ty}")], None)
         } else {

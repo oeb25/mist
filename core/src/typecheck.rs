@@ -14,7 +14,6 @@ use mist_syntax::{
     SourceSpan,
 };
 use thiserror::Error;
-use tracing::debug;
 
 use crate::hir::{
     self, AssertionKind, Block, Condition, Decreases, Else, Expr, ExprData, ExprIdx, Field,
@@ -73,6 +72,7 @@ pub struct ItemContext {
     types: ArenaMap<VariableIdx, Type>,
     expr_arena: Arena<Expr>,
 
+    params: ParamList<VariableIdx>,
     body_expr: Option<ExprIdx>,
 }
 
@@ -99,6 +99,9 @@ impl ItemContext {
     }
     pub fn conditions(&self) -> impl Iterator<Item = &Condition> {
         self.function_context.iter().flat_map(|cx| &cx.conditions)
+    }
+    pub fn params(&self) -> &ParamList<VariableIdx> {
+        &self.params
     }
     pub fn body_expr(&self) -> Option<ExprIdx> {
         self.body_expr
@@ -362,12 +365,22 @@ impl<'a> TypeCheckExpr<'a> {
         }
 
         if let Some(f) = function {
-            for p in &f.param_list(db).params {
-                checker.declare_variable(
-                    VariableDeclaration::new_param(p.name.clone()),
-                    p.ty.with_ghost(db, is_ghost),
-                );
-            }
+            checker.item.params = f
+                .param_list(db)
+                .params
+                .iter()
+                .map(|p| {
+                    let var = checker.declare_variable(
+                        VariableDeclaration::new_param(p.name.clone()),
+                        p.ty.with_ghost(db, is_ghost),
+                    );
+                    Param {
+                        is_ghost: p.is_ghost,
+                        name: var,
+                        ty: p.ty,
+                    }
+                })
+                .collect();
 
             let conditions = f
                 .syntax(db)
@@ -566,6 +579,20 @@ impl<'a> TypeCheckExpr<'a> {
             ast::Expr::BlockExpr(it) => {
                 let block = self.check_block(it, |f| f);
                 Expr::new(block.return_ty, ExprData::Block(block))
+            }
+            ast::Expr::ReturnExpr(it) => {
+                if let Some(expr) = it.expr() {
+                    let expr_span = expr.span();
+                    let expr_idx = self.check(expr.span(), Some(expr));
+
+                    let return_ty = self.return_ty.unwrap_or_else(|| Type::void(self.db));
+                    self.expect_ty(expr_span, return_ty, self.expr_ty(expr_idx));
+
+                    // TODO: These properly should not be Error
+                    Expr::new(Type::error(self.db), ExprData::Return(Some(expr_idx)))
+                } else {
+                    Expr::new(Type::error(self.db), ExprData::Return(None))
+                }
             }
             ast::Expr::BinExpr(it) => {
                 let lhs = self.check(it.span(), it.lhs());
@@ -897,7 +924,6 @@ impl<'a> TypeCheckExpr<'a> {
                     },
                     TypeData::Struct(s) => {
                         let fields = self.struct_fields(*s);
-                        debug!("struct '{}' has fields {:?}", s.name(self.db), fields);
                         if let Some(field) = fields.iter().find(|f| f.name.deref() == field.deref())
                         {
                             Some(field.clone())
@@ -1075,12 +1101,21 @@ impl<'a> TypeCheckExpr<'a> {
                 let params = check_param_list(self.db, self.program, it.param_list());
 
                 self.push_scope(|f| f);
-                for param in &params.params {
-                    self.declare_variable(
-                        VariableDeclaration::new_param(param.name.clone()),
-                        param.ty,
-                    );
-                }
+                let params = params
+                    .params
+                    .iter()
+                    .map(|param| {
+                        let var = self.declare_variable(
+                            VariableDeclaration::new_param(param.name.clone()),
+                            param.ty,
+                        );
+                        Param {
+                            is_ghost: true,
+                            name: var,
+                            ty: param.ty,
+                        }
+                    })
+                    .collect();
 
                 let expr = self.check(it.span(), it.expr());
                 self.pop_scope();
@@ -1334,19 +1369,6 @@ impl<'a> TypeCheckExpr<'a> {
                 ast::Stmt::AssumeStmt(it) => {
                     self.check_assertion(it.span(), AssertionKind::Assume, it.comma_exprs())
                 }
-                ast::Stmt::ReturnStmt(it) => {
-                    if let Some(expr) = it.expr() {
-                        let expr_span = expr.span();
-                        let expr_idx = self.check(expr.span(), Some(expr));
-
-                        let return_ty = self.return_ty.unwrap_or_else(|| Type::void(self.db));
-                        self.expect_ty(expr_span, return_ty, self.expr_ty(expr_idx));
-
-                        Statement::new(it.span(), StatementData::Return(Some(expr_idx)))
-                    } else {
-                        Statement::new(it.span(), StatementData::Return(None))
-                    }
-                }
                 ast::Stmt::WhileStmt(it) => Statement::new(
                     it.span(),
                     StatementData::While {
@@ -1359,6 +1381,7 @@ impl<'a> TypeCheckExpr<'a> {
                         body: self.check_block(&it.block_expr().unwrap(), id),
                     },
                 ),
+                _ => todo!(),
             })
             .collect();
         let (tail_expr, return_ty) = if let Some(tail_expr) = block.tail_expr() {
@@ -1428,7 +1451,7 @@ pub fn check_param_list(
     db: &dyn crate::Db,
     program: Program,
     param_list: Option<ast::ParamList>,
-) -> ParamList {
+) -> ParamList<Ident> {
     ParamList {
         params: param_list
             .map(|pl| {
@@ -1454,8 +1477,12 @@ pub fn check_param_list(
 }
 
 impl hir::pretty::PrettyPrint for ItemContext {
-    fn resolve_var(&self, idx: VariableIdx) -> String {
-        self.declarations.map[idx].name.to_string()
+    fn resolve_var(&self, idx: VariableIdx) -> Ident {
+        self.declarations.map[idx].name.clone()
+    }
+
+    fn resolve_var_ty(&self, idx: VariableIdx) -> Type {
+        self.var_ty(idx)
     }
 
     fn resolve_expr(&self, idx: ExprIdx) -> &Expr {
@@ -1464,8 +1491,12 @@ impl hir::pretty::PrettyPrint for ItemContext {
 }
 
 impl hir::pretty::PrettyPrint for TypeCheckExpr<'_> {
-    fn resolve_var(&self, idx: VariableIdx) -> String {
-        self.item.declarations.map[idx].name.to_string()
+    fn resolve_var(&self, idx: VariableIdx) -> Ident {
+        self.item.declarations.map[idx].name.clone()
+    }
+
+    fn resolve_var_ty(&self, idx: VariableIdx) -> Type {
+        self.var_ty(idx)
     }
 
     fn resolve_expr(&self, idx: ExprIdx) -> &Expr {

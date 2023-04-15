@@ -30,8 +30,9 @@ function to_multiset(xs: Seq[Int]): Multiset[Int]
         : Multiset(xs[0]) union to_multiset(xs)
 }
 
-define same_elements(xs, ys) (
-    to_multiset(xs) == to_multiset(ys)
+define same_elements(_0, _1) (
+    // to_multiset(_0) == to_multiset(_1)
+    (let _3 == (to_multiset(_0)) in (let _4 == (to_multiset(_1)) in (_3 == _4)))
 )
 
 method insertion_sort(xs: Seq[Int]) returns (ys: Seq[Int])
@@ -88,4 +89,19 @@ method lemma_insert_smallest(x: Int, xs: Seq[Int])
         var ys: Seq[Int] := Seq(x) ++ xs
         assert xs == ys[1..] // triggering ground term
     }
+}
+
+function wow(): Int {
+(let _1 == ((true
+  ? (let _3 == ((true
+      ? 11
+      : 12)) in
+    (true
+      ? _3
+      : (_3 * _3)))
+  : 13)) in
+(let _10 == ((_1 > 5)) in
+(_10
+  ? _1
+  : -_1)))
 }

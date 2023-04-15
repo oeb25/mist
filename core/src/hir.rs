@@ -2,6 +2,7 @@ mod lower;
 
 use derive_more::Display;
 use derive_new::new;
+use itertools::Itertools;
 use mist_syntax::{
     ast::{
         self,
@@ -287,7 +288,7 @@ pub struct Function {
     pub name: Ident,
     pub attrs: AttrFlags,
     #[return_ref]
-    pub param_list: ParamList,
+    pub param_list: ParamList<Ident>,
     pub ret: Option<Type>,
 }
 
@@ -420,6 +421,12 @@ pub struct VariableRef {
     idx: VariableIdx,
     span: SourceSpan,
 }
+
+impl VariableRef {
+    pub fn idx(&self) -> VariableIdx {
+        self.idx
+    }
+}
 impl Spanned for VariableRef {
     fn span(self) -> SourceSpan {
         self.span
@@ -442,12 +449,44 @@ impl From<&'_ VariableRef> for VariableIdx {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ParamList {
-    pub params: Vec<Param>,
+pub struct ParamList<I> {
+    pub params: Vec<Param<I>>,
 }
 
-impl std::ops::Deref for ParamList {
-    type Target = [Param];
+impl<I> ParamList<I> {
+    pub fn map<O>(&self, mut f: impl FnMut(&I) -> O) -> ParamList<O> {
+        ParamList {
+            params: self
+                .params
+                .iter()
+                .map(|param| Param {
+                    is_ghost: param.is_ghost,
+                    name: f(&param.name),
+                    ty: param.ty,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl<I> Default for ParamList<I> {
+    fn default() -> Self {
+        Self {
+            params: Default::default(),
+        }
+    }
+}
+
+impl<I> FromIterator<Param<I>> for ParamList<I> {
+    fn from_iter<T: IntoIterator<Item = Param<I>>>(iter: T) -> Self {
+        ParamList {
+            params: iter.into_iter().collect(),
+        }
+    }
+}
+
+impl<I> std::ops::Deref for ParamList<I> {
+    type Target = [Param<I>];
 
     fn deref(&self) -> &Self::Target {
         &self.params
@@ -455,9 +494,9 @@ impl std::ops::Deref for ParamList {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Param {
+pub struct Param<I> {
     pub is_ghost: bool,
-    pub name: Ident,
+    pub name: I,
     pub ty: Type,
 }
 
@@ -533,7 +572,7 @@ pub enum ExprData {
     },
     Quantifier {
         quantifier: Quantifier,
-        params: ParamList,
+        params: ParamList<VariableIdx>,
         expr: ExprIdx,
     },
     Result,
@@ -541,14 +580,36 @@ pub enum ExprData {
         lhs: Option<ExprIdx>,
         rhs: Option<ExprIdx>,
     },
-}
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Literal {
-    Null,
-    Int(i64),
-    Bool(bool),
+    Return(Option<ExprIdx>),
 }
 #[derive(Debug, Display, Clone, PartialEq, Eq, Hash)]
+pub enum Literal {
+    #[display(fmt = "null")]
+    Null,
+    #[display(fmt = "{_0}")]
+    Int(i64),
+    #[display(fmt = "{_0}")]
+    Bool(bool),
+}
+
+impl Literal {
+    pub fn as_bool(&self) -> Option<&bool> {
+        if let Self::Bool(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_int(&self) -> Option<&i64> {
+        if let Self::Int(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+}
+#[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Quantifier {
     #[display(fmt = "forall")]
     Forall,
@@ -605,7 +666,6 @@ pub struct Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StatementData {
-    Return(Option<ExprIdx>),
     Expr(ExprIdx),
     Let {
         variable: VariableRef,
@@ -624,11 +684,15 @@ pub enum StatementData {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Display, Clone, PartialEq, Eq, Hash)]
 pub enum AssertionKind {
+    #[display(fmt = "assert")]
     Assert,
+    #[display(fmt = "assume")]
     Assume,
+    #[display(fmt = "inhale")]
     Inhale,
+    #[display(fmt = "exhale")]
     Exhale,
 }
 
@@ -656,7 +720,7 @@ pub enum TypeData {
     Function {
         attrs: AttrFlags,
         name: Option<Ident>,
-        params: ParamList,
+        params: ParamList<Ident>,
         return_ty: Type,
     },
     Range(Type),
@@ -682,7 +746,7 @@ impl Type {
             self
         }
     }
-    pub(crate) fn strip_ghost(self, db: &dyn crate::Db) -> Self {
+    pub fn strip_ghost(self, db: &dyn crate::Db) -> Self {
         match self.data(db) {
             TypeData::Ghost(inner) => inner.strip_ghost(db),
             _ => self,
@@ -736,7 +800,8 @@ pub mod pretty {
     use itertools::Itertools;
 
     pub trait PrettyPrint {
-        fn resolve_var(&self, idx: VariableIdx) -> String;
+        fn resolve_var(&self, idx: VariableIdx) -> Ident;
+        fn resolve_var_ty(&self, idx: VariableIdx) -> Type;
         fn resolve_expr(&self, idx: ExprIdx) -> &Expr;
     }
 
@@ -748,7 +813,7 @@ pub mod pretty {
         pp: &impl PrettyPrint,
         db: &dyn crate::Db,
         strip_ghost: bool,
-        params: &ParamList,
+        params: &ParamList<Ident>,
     ) -> String {
         format!(
             "({})",
@@ -839,7 +904,7 @@ pub mod pretty {
                 Literal::Int(i) => i.to_string(),
                 Literal::Bool(b) => b.to_string(),
             },
-            ExprData::Ident(i) => pp.resolve_var(i.idx),
+            ExprData::Ident(i) => pp.resolve_var(i.idx).to_string(),
             ExprData::Field {
                 expr, field_name, ..
             } => format!("{}.{field_name}", pp_expr(pp, db, *expr)),
@@ -858,6 +923,8 @@ pub mod pretty {
             ExprData::Missing => "<missing>".to_string(),
             ExprData::If(it) => format!("if {}", pp_expr(pp, db, it.condition)),
             ExprData::Block(block) => "<block>".to_string(),
+            ExprData::Return(Some(e)) => format!("return {}", pp_expr(pp, db, *e)),
+            ExprData::Return(None) => "return".to_string(),
             ExprData::Call { expr, args } => format!(
                 "{}({})",
                 pp_expr(pp, db, *expr),
@@ -896,7 +963,7 @@ pub mod pretty {
                 expr,
             } => format!(
                 "{quantifier}{} {{ {} }}",
-                pp_params(pp, db, true, params),
+                pp_params(pp, db, true, &params.map(|var| pp.resolve_var(*var))),
                 pp_expr(pp, db, *expr)
             ),
             ExprData::Result => "result".to_string(),

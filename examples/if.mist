@@ -27,3 +27,16 @@ fn early_return() -> int
 fn branch_type_mismatch() {
     let x = if true { 12 } else { let y = false; y };
 }
+
+fn nested_if(b: bool) -> int {
+    let a = true;
+    if b {
+        1
+    } else {
+        if a {
+            2
+        } else {
+            3
+        }
+    }
+}

@@ -1,0 +1,41 @@
+domain Range {
+  function range_from(x: Int): Range
+  function range_to(x: Int): Range
+  function range_from_to(from: Int, to: Int): Range
+}
+
+domain RangeIndex[T] {
+  function range_index(x: Seq[T], r: Range): Seq[T]
+  axiom axRangefrom {
+    forall x: Int, s: Seq[T] :: range_index(s, range_from(x)) == s[x..]
+  }
+  axiom axRangeto {
+    forall x: Int, s: Seq[T] :: range_index(s, range_to(x)) == s[x..]
+  }
+  axiom axRangeFromTo {
+    forall from: Int, to: Int, s: Seq[T] :: range_index(s, range_from_to(from, to)) == s[from..to]
+  }
+}
+
+
+method client() {
+    var r: Range := range_from(1);
+    var xs: Seq[Int] := Seq(1, 2, 3);
+    assert range_index(xs, r) == Seq(2, 3)
+}
+
+
+function insert(_0: Int, _1: Seq[Int]): Seq[Int] {
+    ((((|_1| == 0) ? Seq(_0) : (let _6 == (_1[0]) in (let _8 == ((_0 < _6)) in (_8 ? (let _9 == (0) in (let _10 == (Seq(_0)) in (_10 ++ _1))) : (let _13 == (range_from(1)) in (let _14 == (range_index(_1, _13)) in (let _11 == (insert(_0, _14)) in (let _15 == (0) in (let _16 == (Seq(_6)) in (_16 ++ _11))))))))))))
+}
+
+method lemma_insert_smallest(x: Int, xs: Seq[Int])
+    // requires sorted(xs)
+    // requires |xs| > 0 ==> x <= xs[0]
+    // ensures sorted(Seq(x) ++ xs)
+{
+    if (|xs| > 0) {
+        var ys: Seq[Int] := Seq(x) ++ xs
+        assert xs == ys[1..] // triggering ground term
+    }
+}

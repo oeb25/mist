@@ -106,7 +106,6 @@ Stmt =
 | ExprStmt
 | AssertStmt
 | AssumeStmt
-| ReturnStmt
 | WhileStmt
 
 LetStmt =
@@ -123,7 +122,7 @@ AssertStmt =
 AssumeStmt =
  'assume' CommaExpr* ';'
 
-ReturnStmt =
+ReturnExpr =
  'return' Expr ';'
 
 WhileStmt =
@@ -138,6 +137,7 @@ Invariant =
 Expr =
   Literal
 | IfExpr
+| ReturnExpr
 | WhileExpr
 | PrefixExpr
 | BinExpr

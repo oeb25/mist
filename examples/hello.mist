@@ -1,1 +1,2 @@
-fn a() requires false;
+fn a() ens 1 + 2
+;

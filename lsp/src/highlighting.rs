@@ -5,7 +5,7 @@ use std::{ops::ControlFlow, sync::Arc};
 use derive_new::new;
 use itertools::Itertools;
 use mist_core::{
-    hir::{self, ExprIdx, SourceProgram, VariableRef},
+    hir::{self, ExprIdx, SourceProgram, VariableIdx, VariableRef},
     salsa,
     util::Position,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
@@ -167,8 +167,12 @@ impl<'src> Visitor for Highlighter<'src> {
         ControlFlow::Continue(())
     }
 
-    fn visit_param(&mut self, _: &VisitContext, param: &hir::Param) -> ControlFlow<()> {
-        self.push(&param.name, TT::Parameter, None);
+    fn visit_param(
+        &mut self,
+        vcx: &VisitContext,
+        param: &hir::Param<VariableIdx>,
+    ) -> ControlFlow<()> {
+        self.push(vcx.cx.var_span(param.name), TT::Parameter, None);
 
         ControlFlow::Continue(())
     }

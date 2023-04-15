@@ -1,7 +1,8 @@
-#![feature(control_flow_enum)]
+#![feature(control_flow_enum, get_many_mut)]
 
 mod db;
 pub mod hir;
+pub mod mir;
 mod typecheck;
 pub mod util;
 pub mod visit;

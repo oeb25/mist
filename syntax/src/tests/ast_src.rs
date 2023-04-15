@@ -228,7 +228,7 @@ pub(crate) const KINDS_SRC: KindsSrc<'_> = KindsSrc {
         "LABEL",
         "BLOCK_EXPR",
         "STMT_LIST",
-        "RETURN_STMT",
+        "RETURN_EXPR",
         "WHILE_STMT",
         "YIELD_EXPR",
         "YEET_EXPR",

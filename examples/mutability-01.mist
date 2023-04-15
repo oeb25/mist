@@ -4,7 +4,6 @@ struct Person {
 }
 
 pure fn mut_age(a: bool, p: &mut Person) -> &mut int
-  ens if a { result ~ p.age } else { result ~ p.height }
 {
   if a {
     &mut p.age
