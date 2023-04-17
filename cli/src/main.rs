@@ -8,6 +8,7 @@ use itertools::Itertools;
 use miette::{bail, Context, IntoDiagnostic, Result};
 use mist_core::{hir, mir, salsa, util::Position};
 use mist_syntax::SourceSpan;
+use mist_viper_backend::gen::ViperOutput;
 use tracing::{error, info, warn};
 use tracing_subscriber::prelude::*;
 use viperserver::verification::Details;
@@ -41,10 +42,6 @@ async fn main() -> Result<()> {
 
 #[derive(Debug, Parser)]
 enum Cli {
-    /// Analyze the given file and report errors, but don't generate any files
-    Check { file: PathBuf },
-    /// Format the given file and print the result to stdout
-    Fmt { file: PathBuf },
     /// Generate the MIR for the given file
     Mir { file: PathBuf },
     /// Generate the Viper code for the given file
@@ -59,24 +56,6 @@ enum Cli {
 
 async fn cli() -> Result<()> {
     match Cli::parse() {
-        Cli::Check { file } => {
-            let db = crate::db::Database::default();
-
-            let source = std::fs::read_to_string(&file)
-                .into_diagnostic()
-                .wrap_err_with(|| format!("failed to read `{}`", file.display()))?;
-            let source = hir::SourceProgram::new(&db, source);
-            let program = hir::parse_program(&db, source);
-        }
-        Cli::Fmt { file } => {
-            let db = crate::db::Database::default();
-
-            let source = std::fs::read_to_string(&file)
-                .into_diagnostic()
-                .wrap_err_with(|| format!("failed to read `{}`", file.display()))?;
-            let source = hir::SourceProgram::new(&db, source);
-            let program = hir::parse_program(&db, source);
-        }
         Cli::Mir { file } => {
             let db = crate::db::Database::default();
 
@@ -86,13 +65,10 @@ async fn cli() -> Result<()> {
             let source = hir::SourceProgram::new(&db, source);
             let program = hir::parse_program(&db, source);
             for (_, cx, _, mir, _) in mir::lower_program(&db, program) {
-                println!(
-                    "{}",
-                    mir.serialize(mir::serialize::Color::Yes, &db, program, &cx)
-                );
+                println!("{}", mir.serialize(mir::serialize::Color::Yes, &db, &cx));
                 let cfg = mir::analysis::cfg::Cfg::compute(&mir);
 
-                let dot = cfg.dot(&db, program, &cx, &mir);
+                let dot = cfg.dot(&db, &cx, &mir);
                 mir::analysis::cfg::dot_imgcat(dot);
             }
         }
@@ -106,15 +82,13 @@ async fn cli() -> Result<()> {
             let program = hir::parse_program(&db, source);
             for (item, cx, _, mir, _) in mir::lower_program(&db, program) {
                 info!("{}", item.name(&db));
-                println!(
-                    "{}",
-                    mir.serialize(mir::serialize::Color::Yes, &db, program, &cx)
-                );
+                println!("{}", mir.serialize(mir::serialize::Color::Yes, &db, &cx));
                 let cfg = mir::analysis::cfg::Cfg::compute(&mir);
-                let dot = cfg.dot(&db, program, &cx, &mir);
+                let dot = cfg.dot(&db, &cx, &mir);
                 mir::analysis::cfg::dot_imgcat(dot);
                 match mist_viper_backend::gen::viper_item(&db, cx, item, &mir) {
-                    Ok(Some(output)) => {
+                    Ok(Some((viper_item, viper_body, _viper_source_map))) => {
+                        let output = ViperOutput::generate(&viper_body, &viper_item);
                         println!("{}", output.buf);
                     }
                     Ok(None) => {
@@ -135,7 +109,9 @@ async fn cli() -> Result<()> {
                 .wrap_err_with(|| format!("failed to read `{}`", file.display()))?;
             let source = hir::SourceProgram::new(&db, src.clone());
             let program = hir::parse_program(&db, source);
-            let viper_src = mist_viper_backend::gen::viper_file(&db, program);
+            let (viper_program, viper_body, _viper_source_map) =
+                mist_viper_backend::gen::viper_file(&db, program)?;
+            let viper_src = ViperOutput::generate(&viper_body, &viper_program).buf;
 
             let parse_errors = program.errors(&db);
             let type_errors = mist_viper_backend::gen::viper_file::accumulated::<
@@ -167,7 +143,7 @@ async fn cli() -> Result<()> {
                 .suffix(".vpr")
                 .tempfile_in("./")
                 .into_diagnostic()?;
-            // write!(viper_file, "{viper_src}").into_diagnostic()?;
+            write!(viper_file, "{viper_src}").into_diagnostic()?;
 
             dbg!(&viper_file);
             viper_file.flush().into_diagnostic()?;
@@ -207,14 +183,14 @@ async fn cli() -> Result<()> {
                         }
                     }
                     Vs::InvalidArgsReport { .. } => eprintln!("? {status:?}"),
-                    Vs::AstConstructionResult { details, status } => {
-                        // let src = viper_src.to_string();
-                        // let viper_file = viper_file.path().canonicalize().into_diagnostic()?;
-                        // let errors = details_to_miette(viper_file.as_path(), &src, details);
-                        // for err in errors {
-                        //     eprintln!("{err:?}");
-                        //     num_errors += 1;
-                        // }
+                    Vs::AstConstructionResult { details, .. } => {
+                        let src = viper_src.to_string();
+                        let viper_file = viper_file.path().canonicalize().into_diagnostic()?;
+                        let errors = details_to_miette(viper_file.as_path(), &src, details);
+                        for err in errors {
+                            eprintln!("{err:?}");
+                            num_errors += 1;
+                        }
                     }
                     Vs::ProgramOutline { .. } => {}
                     Vs::ProgramDefinitions { .. } => {}
@@ -222,13 +198,13 @@ async fn cli() -> Result<()> {
                     Vs::ExceptionReport { .. } => eprintln!("? {status:?}"),
                     Vs::ConfigurationConfirmation { .. } => {}
                     Vs::VerificationResult { details, .. } => {
-                        // let src = viper_src.to_string();
-                        // let viper_file = viper_file.path().canonicalize().into_diagnostic()?;
-                        // let errors = details_to_miette(viper_file.as_path(), &src, details);
-                        // for err in errors {
-                        //     eprintln!("{err:?}");
-                        //     num_errors += 1;
-                        // }
+                        let src = viper_src.to_string();
+                        let viper_file = viper_file.path().canonicalize().into_diagnostic()?;
+                        let errors = details_to_miette(viper_file.as_path(), &src, details);
+                        for err in errors {
+                            eprintln!("{err:?}");
+                            num_errors += 1;
+                        }
                     }
                     Vs::BackendSubProcessReport { .. } => eprintln!("? {status:?}"),
                 }

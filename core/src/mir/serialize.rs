@@ -3,11 +3,7 @@ use std::fmt::Write;
 use derive_new::new;
 use owo_colors::{colors::*, OwoColorize};
 
-use crate::{
-    hir::{self, Program},
-    mir::Terminator,
-    typecheck::ItemContext,
-};
+use crate::{mir::Terminator, typecheck::ItemContext};
 
 use super::{
     BlockId, Body, FunctionData, FunctionId, Instruction, InstructionId, MExpr, Slot, SlotId,
@@ -17,7 +13,6 @@ use super::{
 struct Serializer<'a> {
     color: Color,
     db: &'a dyn crate::Db,
-    program: Program,
     cx: &'a ItemContext,
     body: &'a Body,
     #[new(default)]
@@ -29,14 +24,8 @@ struct Serializer<'a> {
 }
 
 impl Body {
-    pub fn serialize(
-        &self,
-        color: Color,
-        db: &dyn crate::Db,
-        program: Program,
-        cx: &ItemContext,
-    ) -> String {
-        Serializer::new(color, db, program, cx, self).finish()
+    pub fn serialize(&self, color: Color, db: &dyn crate::Db, cx: &ItemContext) -> String {
+        Serializer::new(color, db, cx, self).finish()
     }
 }
 
@@ -51,11 +40,10 @@ impl MExpr {
         &self,
         color: Color,
         db: &dyn crate::Db,
-        program: Program,
         cx: &ItemContext,
         body: &Body,
     ) -> String {
-        let mut s = Serializer::new(color, db, program, cx, body);
+        let mut s = Serializer::new(color, db, cx, body);
         s.expr(self);
         s.output
     }
@@ -63,36 +51,33 @@ impl MExpr {
 pub fn serialize_terminator(
     color: Color,
     db: &dyn crate::Db,
-    program: Program,
     cx: &ItemContext,
     body: &Body,
     term: &Terminator,
 ) -> String {
-    let mut s = Serializer::new(color, db, program, cx, body).with_color(color);
+    let mut s = Serializer::new(color, db, cx, body).with_color(color);
     s.terminator(term);
     s.output
 }
 pub fn serialize_block(
     color: Color,
     db: &dyn crate::Db,
-    program: Program,
     cx: &ItemContext,
     body: &Body,
     bid: BlockId,
 ) -> String {
-    let mut s = Serializer::new(color, db, program, cx, body).with_color(color);
+    let mut s = Serializer::new(color, db, cx, body).with_color(color);
     s.block(bid);
     s.output
 }
 pub fn serialize_slot(
     color: Color,
     db: &dyn crate::Db,
-    program: Program,
     cx: &ItemContext,
     body: &Body,
     slot: SlotId,
 ) -> String {
-    let mut s = Serializer::new(color, db, program, cx, body).with_color(color);
+    let mut s = Serializer::new(color, db, cx, body).with_color(color);
     s.slot(slot);
     s.output
 }

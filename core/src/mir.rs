@@ -32,7 +32,7 @@ impl Block {
 
     fn set_terminator(&mut self, term: Terminator) -> Option<Terminator> {
         let old = self.terminator.replace(term);
-        if let Some(old) = &old {
+        if let Some(_old) = &old {
             debug!("terminator was replaced!");
         }
         old
@@ -70,12 +70,7 @@ impl Terminator {
             Terminator::Return => vec![],
             Terminator::Goto(b) => vec![*b],
             Terminator::Switch(_, switch) => switch.targets.values().copied().collect(),
-            Terminator::Call {
-                func,
-                args,
-                destination,
-                target,
-            } => target.iter().copied().collect(),
+            Terminator::Call { target, .. } => target.iter().copied().collect(),
         }
     }
 }
@@ -166,6 +161,7 @@ pub enum MExpr {
     UnaryOp(UnaryOp, Operand),
 }
 impl MExpr {
+    #[allow(dead_code)]
     fn map_slots(&self, mut map: impl FnMut(SlotId) -> SlotId) -> MExpr {
         match self {
             MExpr::Literal(_) => self.clone(),
@@ -184,6 +180,7 @@ impl MExpr {
         }
     }
 
+    #[allow(dead_code)]
     fn contains_side_effects(&self) -> bool {
         match self {
             MExpr::Call(_, _) => true,

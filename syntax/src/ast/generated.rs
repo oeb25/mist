@@ -1,4 +1,4 @@
-#![allow(bad_style, missing_docs, unreachable_pub)]
+#![allow(bad_style, missing_docs, unreachable_pub, dead_code, unused)]
 use crate::{support, SyntaxNode, SyntaxNodeChildren, SyntaxToken};
 use support::{AstChildren, AstNode, AstToken};
 

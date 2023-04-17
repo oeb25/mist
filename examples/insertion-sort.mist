@@ -32,7 +32,7 @@ struct Multiset {
 
 pure ghost fn union(x: Multiset, y: Multiset) -> Multiset;
 
-pure ghost fn to_multiset(xs: [int]) -> Multiset
+ghost fn to_multiset(xs: [int]) -> Multiset
     dec xs.len
 {
     if xs.len == 0 {

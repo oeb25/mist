@@ -38,7 +38,6 @@ impl AstNode for Stmt {
             Stmt::AssertStmt(it) => &it.syntax,
             Stmt::AssumeStmt(it) => &it.syntax,
             Stmt::WhileStmt(it) => &it.syntax,
-            _ => todo!(),
         }
     }
 }

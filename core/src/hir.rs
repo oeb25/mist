@@ -2,7 +2,6 @@ mod lower;
 
 use derive_more::Display;
 use derive_new::new;
-use itertools::Itertools;
 use mist_syntax::{
     ast::{
         self,
@@ -28,7 +27,7 @@ mod ident {
     }
     impl Ident {
         pub fn as_str(&self) -> &str {
-            &self
+            self
         }
     }
     impl From<ast::Name> for Ident {
@@ -100,7 +99,7 @@ pub fn parse_program(db: &dyn crate::Db, source: SourceProgram) -> Program {
 #[salsa::tracked]
 pub fn item(db: &dyn crate::Db, program: Program, item: ItemId) -> Option<Item> {
     match item {
-        ItemId::Const { ast } => None,
+        ItemId::Const { .. } => None,
         ItemId::Fn { ast: f } => {
             let name = if let Some(name) = f.name() {
                 name
@@ -155,9 +154,9 @@ pub fn item(db: &dyn crate::Db, program: Program, item: ItemId) -> Option<Item> 
         }
         ItemId::TypeInvariant { ast: i } => {
             let name = Ident::from(i.name().unwrap());
-            Some(Item::TypeInvariant(TypeInvariant::new(db, i, name.clone())))
+            Some(Item::TypeInvariant(TypeInvariant::new(db, i, name)))
         }
-        ItemId::Macro { ast } => None,
+        ItemId::Macro { .. } => None,
     }
 }
 
@@ -344,7 +343,7 @@ pub fn find_type(db: &dyn crate::Db, program: Program, ty: mist_syntax::ast::Typ
             _ if it.bool_token().is_some() => TypeData::Primitive(Primitive::Bool),
             _ => {
                 todo!();
-                TypeData::Error
+                // TypeData::Error
             }
         },
         mist_syntax::ast::Type::Optional(it) => {
@@ -769,6 +768,7 @@ impl Type {
             _ => false,
         }
     }
+    #[allow(unused)]
     pub(crate) fn with_span(self, db: &dyn crate::Db, span: SourceSpan) -> Self {
         Type::new(db, self.data(db).clone(), Some(span))
     }
@@ -932,7 +932,7 @@ pub mod pretty {
             ),
             ExprData::Missing => "<missing>".to_string(),
             ExprData::If(it) => format!("if {}", pp_expr(pp, db, it.condition)),
-            ExprData::Block(block) => "<block>".to_string(),
+            ExprData::Block(_block) => "<block>".to_string(),
             ExprData::Return(Some(e)) => format!("return {}", pp_expr(pp, db, *e)),
             ExprData::Return(None) => "return".to_string(),
             ExprData::Call { expr, args } => format!(

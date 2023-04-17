@@ -1,5 +1,6 @@
-use std::{cmp::Ordering, io::Write, process::Stdio};
+use std::cmp::Ordering;
 
+use derive_new::new;
 use la_arena::{Arena, ArenaMap, Idx};
 
 use miette::Diagnostic;
@@ -16,6 +17,8 @@ use silvers::{
 use tracing::error;
 
 use crate::gen::{VExpr, VExprId};
+
+use self::pure::PureLower;
 
 pub mod pure;
 
@@ -61,7 +64,24 @@ fn lower_lit(l: &hir::Literal) -> Exp<VExprId> {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(new)]
+pub(crate) struct ViperLowerer {
+    #[new(default)]
+    viper_body: ViperBody,
+    #[new(default)]
+    source_map: ViperSourceMap,
+}
+
+impl ViperLowerer {
+    pub fn pure<'a>(&'a mut self, cx: &'a hir::ItemContext, mir: &'a mir::Body) -> PureLower<'a> {
+        PureLower::new(cx, mir, &mut self.viper_body, &mut self.source_map)
+    }
+    pub fn finish(self) -> (ViperBody, ViperSourceMap) {
+        (self.viper_body, self.source_map)
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ViperBody {
     arena: Arena<VExpr>,
 }
@@ -74,13 +94,13 @@ impl std::ops::Index<VExprId> for ViperBody {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ViperSourceMap {
     inst_expr: ArenaMap<mir::InstructionId, VExprId>,
     inst_expr_back: ArenaMap<VExprId, mir::InstructionId>,
 }
 
-#[derive(Debug, Clone, thiserror::Error, Diagnostic)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Diagnostic)]
 pub enum ViperLowerError {
     #[error("not yet implemented: {_0}")]
     NotYetImplemented(String),

@@ -15,7 +15,7 @@ fn sourcegen_ast() -> color_eyre::Result<()> {
         .unwrap();
 
     let preamble = quote! {
-        #![allow(bad_style, missing_docs, unreachable_pub)]
+        #![allow(bad_style, missing_docs, unreachable_pub, dead_code, unused)]
 
         use crate::{SyntaxToken, SyntaxNode, SyntaxNodeChildren, support};
         use support::{AstNode, AstChildren, AstToken};

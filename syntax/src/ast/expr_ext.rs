@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use crate::{
     ast,
     support::{self, AstNode, AstToken},
-    SourceSpan, SyntaxToken, T,
+    SyntaxToken, T,
 };
 
 use super::operators::{ArithOp, BinaryOp, CmpOp, LogicOp, UnaryOp};

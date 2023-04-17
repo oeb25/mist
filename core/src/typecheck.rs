@@ -550,7 +550,7 @@ impl<'a> TypeCheckExpr<'a> {
             }
             ast::Expr::WhileExpr(_) => todo!(),
             ast::Expr::PrefixExpr(it) => {
-                let (op_token, op) = if let Some(op) = it.op_details() {
+                let (_op_token, op) = if let Some(op) = it.op_details() {
                     op
                 } else {
                     todo!("{it:#?}")
@@ -596,7 +596,7 @@ impl<'a> TypeCheckExpr<'a> {
             }
             ast::Expr::BinExpr(it) => {
                 let lhs = self.check(it.span(), it.lhs());
-                let (op_token, op) = if let Some(op) = it.op_details() {
+                let (_op_token, op) = if let Some(op) = it.op_details() {
                     op
                 } else {
                     todo!()
@@ -1381,7 +1381,6 @@ impl<'a> TypeCheckExpr<'a> {
                         body: self.check_block(&it.block_expr().unwrap(), id),
                     },
                 ),
-                _ => todo!(),
             })
             .collect();
         let (tail_expr, return_ty) = if let Some(tail_expr) = block.tail_expr() {
@@ -1410,7 +1409,7 @@ impl<'a> TypeCheckExpr<'a> {
             decl,
             Variable::new(self.db, VariableId::new(self.db, name.clone())),
         );
-        self.scope.insert(name.clone(), var);
+        self.scope.insert(name, var);
         self.item.types.insert(var, ty);
         var
     }
@@ -1464,7 +1463,7 @@ pub fn check_param_list(
                             todo!()
                         },
                         ty: if let Some(ty) = p.ty() {
-                            crate::hir::find_type(db, program, ty.clone())
+                            crate::hir::find_type(db, program, ty)
                         } else {
                             Type::new(db, TypeData::Error, None)
                         }

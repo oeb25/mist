@@ -54,11 +54,11 @@ use super::*;
 pub struct PureLower<'a> {
     cx: &'a hir::ItemContext,
     body: &'a mir::Body,
+    viper_body: &'a mut ViperBody,
+    source_map: &'a mut ViperSourceMap,
     cfg: cfg::Cfg,
     postdominance_frontier: cfg::PostdominanceFrontier,
     postdominators: cfg::Postdominators,
-    viper_body: ViperBody,
-    source_map: ViperSourceMap,
     var_refs: ArenaMap<mir::SlotId, VExprId>,
     times_referenced: ArenaMap<mir::SlotId, usize>,
     inlined: ArenaMap<VExprId, VExprId>,
@@ -108,16 +108,21 @@ impl LowerResult {
 }
 
 impl<'a> PureLower<'a> {
-    pub fn new(cx: &'a hir::ItemContext, body: &'a mir::Body) -> Self {
+    pub fn new(
+        cx: &'a hir::ItemContext,
+        body: &'a mir::Body,
+        viper_body: &'a mut ViperBody,
+        source_map: &'a mut ViperSourceMap,
+    ) -> Self {
         let cfg = Cfg::compute(body);
         Self {
             cx,
             body,
+            viper_body,
+            source_map,
             cfg,
             postdominance_frontier: Default::default(),
             postdominators: Default::default(),
-            viper_body: Default::default(),
-            source_map: Default::default(),
             var_refs: Default::default(),
             times_referenced: Default::default(),
             inlined: Default::default(),
@@ -130,7 +135,7 @@ impl<'a> PureLower<'a> {
         self.final_block(entry)
     }
 
-    pub fn finish(mut self) -> (ViperBody, ViperSourceMap) {
+    pub fn finish(self) {
         let mut inlines = vec![];
         for (original_id, _) in self.viper_body.arena.iter() {
             let mut id = original_id;
@@ -144,7 +149,25 @@ impl<'a> PureLower<'a> {
         for (from, to) in inlines {
             self.viper_body.arena[from] = self.viper_body.arena[to].clone();
         }
-        (self.viper_body, self.source_map)
+    }
+}
+
+// Perform all inlining when dropping the lowerer
+impl<'a> Drop for PureLower<'a> {
+    fn drop(&mut self) {
+        let mut inlines = vec![];
+        for (original_id, _) in self.viper_body.arena.iter() {
+            let mut id = original_id;
+            while let Some(next) = self.inlined.get(id) {
+                id = *next;
+            }
+            if original_id != id {
+                inlines.push((original_id, id))
+            }
+        }
+        for (from, to) in inlines {
+            self.viper_body.arena[from] = self.viper_body.arena[to].clone();
+        }
     }
 }
 
@@ -339,7 +362,9 @@ impl PureLower<'_> {
                 },
             },
             mir::MExpr::Struct(_, _) => {
-                return Err(ViperLowerError::NotYetImplemented(format!("lower struct")));
+                return Err(ViperLowerError::NotYetImplemented(
+                    "lower struct".to_string(),
+                ));
             }
             mir::MExpr::Slot(s) => {
                 let id = self.slot_to_ref(*s);

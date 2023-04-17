@@ -3,6 +3,7 @@
 pub mod db;
 
 use mist_core::util::Position;
+use mist_viper_backend::gen::ViperOutput;
 use serde::{Deserialize, Serialize};
 use typeshare::typeshare;
 use wasm_bindgen::prelude::*;
@@ -35,7 +36,9 @@ pub fn type_check(src: &str) -> String {
     let program = mist_core::hir::parse_program(&db, source);
 
     let parse_errors = program.errors(&db);
-    let viper_file = mist_viper_backend::gen::viper_file(&db, program);
+    let (viper_program, viper_body, _viper_source_map) =
+        mist_viper_backend::gen::viper_file(&db, program).unwrap();
+    let viper_src = ViperOutput::generate(&viper_body, &viper_program).buf;
     let type_errors = mist_viper_backend::gen::viper_file::accumulated::<mist_core::TypeCheckErrors>(
         &db, program,
     );
@@ -49,7 +52,7 @@ pub fn type_check(src: &str) -> String {
 
     let res = ParseResult {
         markers,
-        parse_tree: viper_file.to_string(),
+        parse_tree: viper_src,
     };
     serde_json::to_string(&res).expect("failed to serialize")
 }

@@ -771,7 +771,7 @@ impl<'src> Parser<'src> {
         //     self.current()
         // );
 
-        let mut lhs = self.builder.checkpoint();
+        let lhs = self.builder.checkpoint();
         match self.current() {
             Some(T![false] | T![true]) => {
                 self.builder.start_node(LITERAL.into());
@@ -933,7 +933,6 @@ impl<'src> Parser<'src> {
                     break;
                 }
 
-                let next = self.builder.checkpoint();
                 match op {
                     T!['('] => {
                         self.builder.start_node_at(lhs, CALL_EXPR.into());
@@ -955,7 +954,6 @@ impl<'src> Parser<'src> {
                     }
                     _ => todo!(),
                 }
-                // lhs = next;
 
                 continue;
             }
@@ -963,7 +961,6 @@ impl<'src> Parser<'src> {
                 if l_bp < min_bp {
                     break;
                 }
-                let next = self.builder.checkpoint();
 
                 match op {
                     T![..] => {
@@ -973,7 +970,7 @@ impl<'src> Parser<'src> {
                             self.expr_bp(loc, r_bp);
                         }
                     }
-                    op => {
+                    _op => {
                         self.builder.start_node_at(lhs, BIN_EXPR.into());
                         self.bump();
                         // eprintln!("normal infix op was: '{op}'");
@@ -981,7 +978,6 @@ impl<'src> Parser<'src> {
                     }
                 }
                 self.builder.finish_node();
-                // lhs = next;
                 continue;
             };
 

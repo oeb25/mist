@@ -1,26 +1,18 @@
 use std::collections::HashMap;
 
-use derive_more::Display;
 use derive_new::new;
 use itertools::Itertools;
-use petgraph::{
-    data::Build,
-    dot::Config,
-    stable_graph::NodeIndex,
-    visit::{depth_first_search, Control, DfsEvent},
-    Graph,
-};
+use petgraph::{stable_graph::NodeIndex, Graph};
 
 pub use petgraph;
 
 use crate::hir;
 
-use super::{serialize, BlockId, Body, Instruction, MExpr, Slot, SlotId};
+use super::{serialize, BlockId, Body, MExpr, SlotId};
 
 pub mod cfg {
-    use la_arena::{Arena, ArenaMap};
+    use la_arena::ArenaMap;
     use petgraph::{algo::dominators::Dominators, visit::IntoNodeIdentifiers, Direction};
-    use tracing::{info, warn};
 
     use crate::mir::Terminator;
 
@@ -52,20 +44,17 @@ pub mod cfg {
         pub fn pretty(
             &self,
             db: &dyn crate::Db,
-            program: hir::Program,
             cx: &hir::ItemContext,
             body: &Body,
         ) -> Graph<String, String> {
-            let fmt_node = |n: &BlockId| {
-                serialize::serialize_block(serialize::Color::No, db, program, cx, body, *n)
-            };
+            let fmt_node =
+                |n: &BlockId| serialize::serialize_block(serialize::Color::No, db, cx, body, *n);
             self.graph.map(
                 |_idx, n| fmt_node(n),
-                |_idx, e| {
-                    serialize::serialize_terminator(serialize::Color::No, db, program, cx, body, e)
-                },
+                |_idx, e| serialize::serialize_terminator(serialize::Color::No, db, cx, body, e),
             )
         }
+        #[allow(dead_code)]
         fn exit_nodes(&self) -> impl Iterator<Item = NodeIndex> + '_ {
             self.graph.externals(Direction::Outgoing)
         }
@@ -128,64 +117,9 @@ pub mod cfg {
             }
             PostdominanceFrontier { relation }
         }
-        pub fn dot(
-            &self,
-            db: &dyn crate::Db,
-            program: hir::Program,
-            cx: &hir::ItemContext,
-            body: &Body,
-        ) -> String {
-            petgraph::dot::Dot::new(&self.pretty(db, program, cx, body)).to_string()
+        pub fn dot(&self, db: &dyn crate::Db, cx: &hir::ItemContext, body: &Body) -> String {
+            petgraph::dot::Dot::new(&self.pretty(db, cx, body)).to_string()
         }
-        // pub fn branching_assignments(&self, body: &Body) {
-        //     let mut reverse_graph = self.graph.clone();
-        //     reverse_graph.reverse();
-        //     let reverse_dominators =
-        //         petgraph::algo::dominators::simple_fast(&reverse_graph, self.exit_node);
-
-        //     for nidx in reverse_graph.node_identifiers() {
-        //         if reverse_graph
-        //             .neighbors_directed(nidx, Direction::Incoming)
-        //             .count()
-        //             >= 2
-        //         {
-        //             let resolve = reverse_dominators.immediate_dominator(nidx).unwrap();
-        //             warn!(
-        //                 ":B{} is a branching and is resolved at :B{}",
-        //                 reverse_graph.node_weight(nidx).unwrap().into_raw(),
-        //                 reverse_graph.node_weight(resolve).unwrap().into_raw(),
-        //             );
-        //         }
-        //     }
-
-        //     let f = frontiers(&self.graph, self.entry_node);
-        //     info!("frontiers:");
-        //     for (n, rest) in f.into_iter().sorted() {
-        //         warn!(
-        //             ":B{} = [{}]",
-        //             self.graph.node_weight(n).unwrap().into_raw(),
-        //             rest.iter()
-        //                 .map(|&m| format!("B:{}", self.graph.node_weight(m).unwrap().into_raw()))
-        //                 .format(", ")
-        //         );
-        //     }
-        //     let f = frontiers(&reverse_graph, self.exit_node);
-        //     info!("postdominance frontiers:");
-        //     for (n, rest) in f.into_iter().sorted() {
-        //         warn!(
-        //             ":B{} = [{}]",
-        //             reverse_graph.node_weight(n).unwrap().into_raw(),
-        //             rest.iter()
-        //                 .map(|&m| format!("B:{}", reverse_graph.node_weight(m).unwrap().into_raw()))
-        //                 .format(", ")
-        //         );
-        //     }
-        //     info!("reverse post order:");
-        //     let mut po = petgraph::visit::DfsPostOrder::new(&self.graph, self.entry_node);
-        //     while let Some(n) = po.next(&self.graph) {
-        //         warn!(":B{}", self.graph.node_weight(n).unwrap().into_raw());
-        //     }
-        // }
     }
 
     fn frontiers(
@@ -244,12 +178,7 @@ pub mod cfg {
                             let t_nid = self.cfg.bid_to_node(s.otherwise);
                             self.cfg.graph.add_edge(nid, t_nid, term.clone());
                         }
-                        Terminator::Call {
-                            func,
-                            args,
-                            destination,
-                            target,
-                        } => {
+                        Terminator::Call { target, .. } => {
                             if let Some(next) = target {
                                 let next_nid = self.cfg.bid_to_node(*next);
                                 self.cfg.graph.add_edge(nid, next_nid, term);

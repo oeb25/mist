@@ -1,8 +1,5 @@
-use std::mem;
-
 use derive_new::new;
 use hir::ItemSourceMap;
-use itertools::Itertools;
 use mist_syntax::ast::operators::BinaryOp;
 
 use crate::{
@@ -121,6 +118,7 @@ impl MirLower<'_> {
         }
         id
     }
+    #[allow(dead_code)]
     fn alloc_block(&mut self, expr: Option<ExprIdx>, block: Block) -> BlockId {
         let id = self.body.blocks.alloc(block);
         if let Some(expr) = expr {
@@ -365,7 +363,7 @@ impl MirLower<'_> {
                     bid
                 }
             }
-            ExprData::Ref { is_mut, expr } => todo!(),
+            ExprData::Ref { .. } => todo!(),
             ExprData::Index { base, index } => {
                 let f = match &self.cx.expr(*index).ty.strip_ghost(self.db).data(self.db) {
                     hir::TypeData::Range(_) => FunctionData::RangeIndex,
@@ -466,8 +464,7 @@ impl MirLower<'_> {
                     None => {}
                 }
                 self.body.blocks[bid].set_terminator(Terminator::Return);
-                let next_bid = target.unwrap_or_else(|| self.body.blocks.alloc(Default::default()));
-                next_bid
+                target.unwrap_or_else(|| self.body.blocks.alloc(Default::default()))
             }
         }
     }
