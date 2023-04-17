@@ -1,2 +1,20 @@
 fn a() ens 1 + 2
 ;
+
+fn main() -> int {
+    let x = 12;
+    x + x
+}
+
+fn wow() -> int
+    req true
+    ens false
+{
+    let x = 5000;
+    let y = x + x;
+    let x = if true {
+        let a = if true { 1000 } else { 2000 };
+        if true { a } else { 3000 }
+    } else { y };
+    if x > 5 { x } else { -x }
+}

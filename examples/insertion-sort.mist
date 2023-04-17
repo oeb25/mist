@@ -94,11 +94,3 @@ ghost fn lemma_insert_smallest(x: int, xs: [int])
         assert xs == ys[1..]; // triggering ground term
     }
 }
-
-fn wow() -> int {
-    let x = if true {
-        let a = if true { 11 } else { 12 };
-        if true { a } else { a * a }
-    } else { 13 };
-    if x > 5 { x } else { -x }
-}

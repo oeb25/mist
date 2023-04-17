@@ -268,6 +268,16 @@ pub enum Item {
     Function(Function),
 }
 
+impl Item {
+    pub fn name(&self, db: &dyn crate::Db) -> Ident {
+        match self {
+            Item::Type(t) => t.name(db).clone(),
+            Item::TypeInvariant(t) => t.name(db),
+            Item::Function(f) => f.name(db).clone(),
+        }
+    }
+}
+
 #[salsa::tracked]
 pub struct TypeDecl {
     #[return_ref]

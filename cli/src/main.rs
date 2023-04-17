@@ -6,9 +6,9 @@ use clap::Parser;
 use futures_util::StreamExt;
 use itertools::Itertools;
 use miette::{bail, Context, IntoDiagnostic, Result};
-use mist_core::{salsa, util::Position};
+use mist_core::{hir, mir, salsa, util::Position};
 use mist_syntax::SourceSpan;
-use tracing::info;
+use tracing::{error, info, warn};
 use tracing_subscriber::prelude::*;
 use viperserver::verification::Details;
 
@@ -65,8 +65,8 @@ async fn cli() -> Result<()> {
             let source = std::fs::read_to_string(&file)
                 .into_diagnostic()
                 .wrap_err_with(|| format!("failed to read `{}`", file.display()))?;
-            let source = mist_core::hir::SourceProgram::new(&db, source);
-            let program = mist_core::hir::parse_program(&db, source);
+            let source = hir::SourceProgram::new(&db, source);
+            let program = hir::parse_program(&db, source);
         }
         Cli::Fmt { file } => {
             let db = crate::db::Database::default();
@@ -74,8 +74,8 @@ async fn cli() -> Result<()> {
             let source = std::fs::read_to_string(&file)
                 .into_diagnostic()
                 .wrap_err_with(|| format!("failed to read `{}`", file.display()))?;
-            let source = mist_core::hir::SourceProgram::new(&db, source);
-            let program = mist_core::hir::parse_program(&db, source);
+            let source = hir::SourceProgram::new(&db, source);
+            let program = hir::parse_program(&db, source);
         }
         Cli::Mir { file } => {
             let db = crate::db::Database::default();
@@ -83,10 +83,17 @@ async fn cli() -> Result<()> {
             let source = std::fs::read_to_string(&file)
                 .into_diagnostic()
                 .wrap_err_with(|| format!("failed to read `{}`", file.display()))?;
-            let source = mist_core::hir::SourceProgram::new(&db, source);
-            let program = mist_core::hir::parse_program(&db, source);
-            for (_, cx, _, mir, _) in mist_core::mir::lower_program(&db, program) {
-                println!("{}", mir.serialize(&db, program, &cx))
+            let source = hir::SourceProgram::new(&db, source);
+            let program = hir::parse_program(&db, source);
+            for (_, cx, _, mir, _) in mir::lower_program(&db, program) {
+                println!(
+                    "{}",
+                    mir.serialize(mir::serialize::Color::Yes, &db, program, &cx)
+                );
+                let cfg = mir::analysis::cfg::Cfg::compute(&mir);
+
+                let dot = cfg.dot(&db, program, &cx, &mir);
+                mir::analysis::cfg::dot_imgcat(dot);
             }
         }
         Cli::MirViper { file } => {
@@ -95,17 +102,26 @@ async fn cli() -> Result<()> {
             let source = std::fs::read_to_string(&file)
                 .into_diagnostic()
                 .wrap_err_with(|| format!("failed to read `{}`", file.display()))?;
-            let source = mist_core::hir::SourceProgram::new(&db, source);
-            let program = mist_core::hir::parse_program(&db, source);
-            for (_, cx, _, mir, _) in mist_core::mir::lower_program(&db, program) {
-                mist_viper_backend::lower::lower_body_pure(&db, program, &cx, &mir);
-                let mut opt_mir = mir.clone();
-                mist_core::mir::optimize::optimize(&mut opt_mir);
-                info!("OPTIMIZE!");
-                mist_viper_backend::lower::lower_body_pure(&db, program, &cx, &opt_mir);
-                info!("...");
-                // mist_viper_backend::lower::lower_body_purest(&db, program, &cx, &mir);
-                // mist_viper_backend::lower::lower_body_purest(&db, program, &cx, &opt_mir);
+            let source = hir::SourceProgram::new(&db, source);
+            let program = hir::parse_program(&db, source);
+            for (item, cx, _, mir, _) in mir::lower_program(&db, program) {
+                info!("{}", item.name(&db));
+                println!(
+                    "{}",
+                    mir.serialize(mir::serialize::Color::Yes, &db, program, &cx)
+                );
+                let cfg = mir::analysis::cfg::Cfg::compute(&mir);
+                let dot = cfg.dot(&db, program, &cx, &mir);
+                mir::analysis::cfg::dot_imgcat(dot);
+                match mist_viper_backend::gen::viper_item(&db, cx, item, &mir) {
+                    Ok(Some(output)) => {
+                        println!("{}", output.buf);
+                    }
+                    Ok(None) => {
+                        warn!("no viper code generated")
+                    }
+                    Err(err) => error!("{}", err),
+                }
             }
         }
         Cli::Viper {
@@ -117,8 +133,8 @@ async fn cli() -> Result<()> {
             let src = std::fs::read_to_string(&file)
                 .into_diagnostic()
                 .wrap_err_with(|| format!("failed to read `{}`", file.display()))?;
-            let source = mist_core::hir::SourceProgram::new(&db, src.clone());
-            let program = mist_core::hir::parse_program(&db, source);
+            let source = hir::SourceProgram::new(&db, src.clone());
+            let program = hir::parse_program(&db, source);
             let viper_src = mist_viper_backend::gen::viper_file(&db, program);
 
             let parse_errors = program.errors(&db);

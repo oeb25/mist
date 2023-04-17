@@ -1,9 +1,11 @@
 use std::fmt::Write;
 
 use derive_new::new;
+use owo_colors::{colors::*, OwoColorize};
 
 use crate::{
     hir::{self, Program},
+    mir::Terminator,
     typecheck::ItemContext,
 };
 
@@ -13,6 +15,7 @@ use super::{
 
 #[derive(new)]
 struct Serializer<'a> {
+    color: Color,
     db: &'a dyn crate::Db,
     program: Program,
     cx: &'a ItemContext,
@@ -26,63 +29,115 @@ struct Serializer<'a> {
 }
 
 impl Body {
-    pub fn serialize(&self, db: &dyn crate::Db, program: Program, cx: &ItemContext) -> String {
-        Serializer::new(db, program, cx, self).finish()
+    pub fn serialize(
+        &self,
+        color: Color,
+        db: &dyn crate::Db,
+        program: Program,
+        cx: &ItemContext,
+    ) -> String {
+        Serializer::new(color, db, program, cx, self).finish()
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Color {
+    No,
+    Yes,
 }
 
 impl MExpr {
     pub fn serialize(
         &self,
+        color: Color,
         db: &dyn crate::Db,
         program: Program,
         cx: &ItemContext,
         body: &Body,
     ) -> String {
-        let mut s = Serializer::new(db, program, cx, body);
+        let mut s = Serializer::new(color, db, program, cx, body);
         s.expr(self);
         s.output
     }
 }
+pub fn serialize_terminator(
+    color: Color,
+    db: &dyn crate::Db,
+    program: Program,
+    cx: &ItemContext,
+    body: &Body,
+    term: &Terminator,
+) -> String {
+    let mut s = Serializer::new(color, db, program, cx, body).with_color(color);
+    s.terminator(term);
+    s.output
+}
+pub fn serialize_block(
+    color: Color,
+    db: &dyn crate::Db,
+    program: Program,
+    cx: &ItemContext,
+    body: &Body,
+    bid: BlockId,
+) -> String {
+    let mut s = Serializer::new(color, db, program, cx, body).with_color(color);
+    s.block(bid);
+    s.output
+}
 pub fn serialize_slot(
+    color: Color,
     db: &dyn crate::Db,
     program: Program,
     cx: &ItemContext,
     body: &Body,
     slot: SlotId,
 ) -> String {
-    let mut s = Serializer::new(db, program, cx, body);
+    let mut s = Serializer::new(color, db, program, cx, body).with_color(color);
     s.slot(slot);
     s.output
 }
 
 macro_rules! w {
-    ($x:ident, $($t:tt)*) => {{
+    ($x:ident, $c:ty, $($t:tt)*) => {{
         if $x.start_of_line {
             for _ in 0..$x.indentation {
                 write!($x.output, "  ").unwrap();
             }
         }
-        write!($x.output, $($t)*).unwrap();
+        if $x.color == Color::Yes {
+            write!($x.output, "{}", format!($($t)*).fg::<$c>()).unwrap();
+        } else {
+            write!($x.output, $($t)*).unwrap();
+        }
         $x.start_of_line = false;
     }};
 }
 macro_rules! wln {
-    ($x:ident, $($t:tt)*) => {{
+    ($x:ident, $c:ty, $($t:tt)*) => {{
         if $x.start_of_line {
             for _ in 0..$x.indentation {
                 write!($x.output, "  ").unwrap();
             }
         }
-        writeln!($x.output, $($t)*).unwrap();
+        if $x.color == Color::Yes {
+            writeln!($x.output, "{}", format!($($t)*).fg::<$c>()).unwrap();
+        } else {
+            writeln!($x.output, $($t)*).unwrap();
+        }
         $x.start_of_line = true;
     }};
 }
 
 impl Serializer<'_> {
     fn finish(mut self) -> String {
-        if let Some(body) = self.body.body_block {
-            self.block(body);
+        for bid in self
+            .body
+            .blocks
+            .iter()
+            .map(|(id, _)| id)
+            .collect::<Vec<_>>()
+        {
+            self.block(bid);
         }
 
         self.output
@@ -95,107 +150,185 @@ impl Serializer<'_> {
     }
 
     fn block(&mut self, body: BlockId) {
-        wln!(self, "{{");
+        self.block_id(Some(body));
+        wln!(self, Default, "");
         self.indented(|this| {
             for inst in &this.body.blocks[body].instructions {
                 this.inst(*inst);
             }
+            if let Some(term) = &this.body.blocks[body].terminator {
+                this.terminator(term);
+            }
         });
-        wln!(self, "}}");
     }
 
     fn inst(&mut self, inst: InstructionId) {
         match &self.body.instructions[inst] {
             Instruction::Assign(s, e) => {
                 self.slot(*s);
-                w!(self, " := ");
+                w!(self, Default, " := ");
                 self.expr(e);
-                wln!(self, "");
+                wln!(self, Default, "");
             }
-            &Instruction::If(cond, then_block, else_block) => {
-                w!(self, "if ");
-                self.slot(cond);
-                w!(self, " ");
-                self.block(then_block);
-                w!(self, "else ");
-                self.block(else_block);
-            }
-            Instruction::While(cond, invs, body) => {
-                w!(self, "while ");
-                self.slot(*cond);
-                wln!(self, "");
-                for inv in invs {
-                    w!(self, "  inv(");
-                    self.slot(self.body.blocks[*inv].dest.unwrap());
-                    w!(self, ") ");
-                    self.indentation += 1;
-                    self.block(*inv);
-                    self.indentation -= 1;
-                }
-                self.block(*body);
-            }
+            // &Instruction::If(cond, then_block, else_block) => {
+            //     w!(self, Default, "if ");
+            //     self.slot(cond);
+            //     w!(self, Default, " ");
+            //     self.block(then_block);
+            //     w!(self, Default, "else ");
+            //     self.block(else_block);
+            // }
+            // Instruction::While(cond, invs, body) => {
+            //     w!(self, Default, "while ");
+            //     self.slot(*cond);
+            //     wln!(self, Default, "");
+            //     for inv in invs {
+            //         w!(self, Default, "  inv ");
+            //         // w!(self, Default, "  inv(");
+            //         // self.slot(self.body.blocks[*inv].dest.unwrap());
+            //         // w!(self, Default, ") ");
+            //         self.indentation += 1;
+            //         self.block(*inv);
+            //         self.indentation -= 1;
+            //     }
+            //     self.block(*body);
+            // }
             Instruction::Assertion(kind, slot) => {
-                w!(self, "{kind} ");
+                w!(self, Default, "{kind} ");
                 self.slot(*slot);
-                wln!(self, "");
+                wln!(self, Default, "");
             }
-            Instruction::Call(_, _) => todo!(),
-            Instruction::Return => todo!(),
+            // Instruction::Call(_, _) => todo!(),
+            // Instruction::Return => todo!(),
         }
     }
 
     fn slot(&mut self, s: SlotId) {
         match &self.body.slots[s] {
-            Slot::Temp => w!(self, "%{}", s.into_raw()),
-            Slot::Var(v) => w!(self, "%{}_{}", s.into_raw(), self.cx.var_ident(*v)),
-            Slot::Literal(l) => w!(self, "${l}"),
-            Slot::Result => w!(self, "%result"),
+            Slot::Temp => w!(self, Cyan, "%{}", s.into_raw()),
+            Slot::Var(v) => w!(self, Cyan, "%{}_{}", s.into_raw(), self.cx.var_ident(*v)),
+            Slot::Literal(l) => w!(self, Magenta, "${l}"),
+            Slot::Result => w!(self, Magenta, "%result"),
         }
     }
 
     fn expr(&mut self, e: &MExpr) {
         match e {
-            MExpr::Literal(l) => w!(self, "{l}"),
+            MExpr::Literal(l) => w!(self, Default, "{l}"),
             MExpr::Call(f, args) => {
-                w!(self, "(");
+                w!(self, Default, "(");
                 self.function(*f);
                 for arg in args {
-                    w!(self, " ");
+                    w!(self, Default, " ");
                     self.slot(*arg);
                 }
-                w!(self, ")");
+                w!(self, Default, ")");
             }
             MExpr::Slot(s) => self.slot(*s),
             MExpr::Field(base, f) => {
                 self.slot(*base);
-                w!(self, ".{}", f.name);
+                w!(self, Default, ".{}", f.name);
             }
             MExpr::Struct(s, fields) => {
-                w!(self, "{} {{", s.name(self.db));
+                w!(self, Default, "{} {{", s.name(self.db));
                 let mut first = true;
                 for (field, slot) in fields {
                     if !first {
-                        w!(self, ",");
+                        w!(self, Default, ",");
                     }
                     first = false;
-                    w!(self, " {}: ", field.name);
+                    w!(self, Default, " {}: ", field.name);
                     self.slot(*slot);
                 }
-                w!(self, " }}");
+                w!(self, Default, " }}");
             }
             MExpr::Quantifier(_, _, _, _) => todo!(),
+            MExpr::BinaryOp(op, l, r) => {
+                w!(self, Default, "({op} ");
+                self.slot(*l);
+                w!(self, Default, " ");
+                self.slot(*r);
+                w!(self, Default, ")");
+            }
+            MExpr::UnaryOp(op, x) => {
+                w!(self, Default, "({op} ");
+                self.slot(*x);
+                w!(self, Default, ")");
+            }
         }
     }
 
     fn function(&mut self, f: FunctionId) {
         match &self.body.functions[f].data {
-            FunctionData::Named(var) => w!(self, "{}", self.cx.var_ident(*var)),
-            FunctionData::BinaryOp(op) => w!(self, "{op}"),
-            FunctionData::UnaryOp(op) => w!(self, "{op}"),
-            FunctionData::List => w!(self, "#list"),
-            FunctionData::Index => w!(self, "#index"),
-            FunctionData::RangeIndex => w!(self, "#range-index"),
-            FunctionData::Range(kind) => w!(self, "#range[{kind}]"),
+            FunctionData::Named(var) => w!(self, Default, "{}", self.cx.var_ident(*var)),
+            FunctionData::List => w!(self, Default, "#list"),
+            FunctionData::Index => w!(self, Default, "#index"),
+            FunctionData::RangeIndex => w!(self, Default, "#range-index"),
+            FunctionData::Range(kind) => w!(self, Default, "#range[{kind}]"),
+        }
+    }
+
+    fn block_id(&mut self, bid: Option<BlockId>) {
+        if let Some(bid) = bid {
+            w!(self, Green, ":B{}", bid.into_raw())
+        } else {
+            w!(self, Green, ":B!")
+        }
+    }
+    fn terminator(&mut self, term: &Terminator) {
+        match term {
+            Terminator::Return => wln!(self, Default, "!return"),
+            Terminator::Goto(b) => {
+                w!(self, Yellow, "!goto ");
+                self.block_id(Some(*b));
+                wln!(self, Default, "");
+            }
+            Terminator::Switch(cond, switch) => {
+                w!(self, Yellow, "!switch ");
+                self.slot(*cond);
+                w!(self, Default, " {{");
+                for (idx, value) in switch.values.iter() {
+                    w!(self, Default, " {value} -> ");
+                    self.block_id(Some(switch.targets[idx]));
+                }
+                w!(self, Default, ", otherwise ");
+                self.block_id(Some(switch.otherwise));
+                wln!(self, Default, " }}");
+            }
+            Terminator::Call {
+                func,
+                args,
+                destination,
+                target,
+            } => {
+                w!(self, Yellow, "!call ");
+
+                self.slot(*destination);
+                w!(self, Default, " := ");
+
+                w!(self, Default, "(");
+                self.function(*func);
+                for arg in args {
+                    w!(self, Default, " ");
+                    self.slot(*arg);
+                }
+                w!(self, Default, ")");
+                w!(self, Default, " -> ");
+                self.block_id(*target);
+                wln!(self, Default, "");
+            }
+        }
+    }
+
+    fn with_color(self, color: Color) -> Self {
+        if color == Color::Yes {
+            Self {
+                color,
+                indentation: 10,
+                ..self
+            }
+        } else {
+            Self { color, ..self }
         }
     }
 }

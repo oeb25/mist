@@ -17,224 +17,324 @@ use crate::hir;
 
 use super::{serialize, BlockId, Body, Instruction, MExpr, Slot, SlotId};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Edge {
-    // #[display(fmt = "")]
-    DirectUsage,
-    // #[display(fmt = "?{_0}")]
-    Condition(NodeIndex),
-}
+pub mod cfg {
+    use la_arena::{Arena, ArenaMap};
+    use petgraph::{algo::dominators::Dominators, visit::IntoNodeIdentifiers, Direction};
+    use tracing::{info, warn};
 
-#[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Node {
-    Slot { id: SlotId },
-    Branch { id: SlotId, success: bool },
-    Construct { expr: MExpr },
-}
+    use crate::mir::Terminator;
 
-// impl std::fmt::Display for Node {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         match self {
-//             Node::Slot { id, slot } => match &slot {
-//                 Slot::Temp => write!(f, "%{}", id.into_raw()),
-//                 Slot::Var(v) => write!(f, "%{}_", id.into_raw()),
-//                 Slot::Literal(l) => write!(f, "${l}"),
-//                 Slot::Result => write!(f, "%result"),
-//             },
-//             Node::Branch { id, slot } => {
-//                 write!(f, "? ")?;
-//                 match &slot {
-//                     Slot::Temp => write!(f, "%{}", id.into_raw()),
-//                     Slot::Var(v) => write!(f, "%{}_", id.into_raw()),
-//                     Slot::Literal(l) => write!(f, "${l}"),
-//                     Slot::Result => write!(f, "%result"),
-//                 }
-//             }
-//             Node::Construct { expr } => write!(f, "{expr:?}"),
-//         }
-//     }
-// }
+    use super::*;
 
-#[derive(Debug, Default)]
-pub struct Dataflow {
-    nodes: HashMap<Node, NodeIndex>,
-    graph: Graph<Node, Edge>,
-}
-
-#[derive(new, Debug)]
-struct DataflowBuilder<'a> {
-    body: &'a Body,
-    #[new(default)]
-    df: Dataflow,
-}
-
-pub fn compute_dataflow(body: &Body) -> Dataflow {
-    let mut builder = DataflowBuilder::new(body);
-
-    if let Some(bid) = body.body_block() {
-        builder.block(&[], bid);
+    #[derive(Debug, Default)]
+    pub struct Cfg {
+        nodes: ArenaMap<BlockId, NodeIndex>,
+        graph: Graph<BlockId, Terminator>,
     }
 
-    builder.df
-}
+    #[derive(new, Debug)]
+    struct CfgBuilder<'a> {
+        body: &'a Body,
+        #[new(default)]
+        cfg: Cfg,
+    }
 
-impl DataflowBuilder<'_> {
-    fn slot_node(&mut self, id: SlotId) -> NodeIndex {
-        let node = Node::Slot { id };
-        self.node(node)
+    impl Cfg {
+        pub fn compute(body: &Body) -> Cfg {
+            CfgBuilder::new(body).finish()
+        }
+        fn bid_to_node(&mut self, bid: BlockId) -> NodeIndex {
+            *self
+                .nodes
+                .entry(bid)
+                .or_insert_with(|| self.graph.add_node(bid))
+        }
+        pub fn pretty(
+            &self,
+            db: &dyn crate::Db,
+            program: hir::Program,
+            cx: &hir::ItemContext,
+            body: &Body,
+        ) -> Graph<String, String> {
+            let fmt_node = |n: &BlockId| {
+                serialize::serialize_block(serialize::Color::No, db, program, cx, body, *n)
+            };
+            self.graph.map(
+                |_idx, n| fmt_node(n),
+                |_idx, e| {
+                    serialize::serialize_terminator(serialize::Color::No, db, program, cx, body, e)
+                },
+            )
+        }
+        fn exit_nodes(&self) -> impl Iterator<Item = NodeIndex> + '_ {
+            self.graph.externals(Direction::Outgoing)
+        }
+        fn exit_nodes_for(&self, entry: BlockId) -> impl Iterator<Item = NodeIndex> + '_ {
+            let start = self.nodes[entry];
+            let mut dfs = petgraph::visit::Dfs::new(&self.graph, start);
+            std::iter::from_fn(move || loop {
+                let n = dfs.next(&self.graph)?;
+                if self
+                    .graph
+                    .neighbors_directed(n, Direction::Outgoing)
+                    .next()
+                    .is_none()
+                {
+                    break Some(n);
+                }
+            })
+        }
+        /// Computes the dominators for each block reachable from `entry`
+        pub fn dominators(&self, entry: BlockId) -> ArenaMap<BlockId, BlockId> {
+            let dominators =
+                petgraph::algo::dominators::simple_fast(&self.graph, self.nodes[entry]);
+
+            let mut result = ArenaMap::with_capacity(self.graph.node_count());
+            for &n in self.graph.node_weights() {
+                let Some(d) = dominators.immediate_dominator(self.nodes[n]) else { continue };
+                result.insert(n, *self.graph.node_weight(d).unwrap());
+            }
+            result
+        }
+        /// Computes the postdominators for each block reachable from `entry`
+        pub fn postdominators(&self, entry: BlockId) -> Postdominators {
+            let mut reverse_graph = self.graph.clone();
+            reverse_graph.reverse();
+            let dominators = petgraph::algo::dominators::simple_fast(
+                &reverse_graph,
+                self.exit_nodes_for(entry).next().unwrap(),
+            );
+
+            let mut relation = ArenaMap::with_capacity(reverse_graph.node_count());
+            for &n in reverse_graph.node_weights() {
+                let Some(d) = dominators.immediate_dominator(self.nodes[n]) else { continue };
+                relation.insert(n, *reverse_graph.node_weight(d).unwrap());
+            }
+            Postdominators { relation }
+        }
+        /// Computes the postdominance frontier for each block reachable from `entry`
+        pub fn postdominance_frontier(&self, entry: BlockId) -> PostdominanceFrontier {
+            let mut reverse_graph = self.graph.clone();
+            reverse_graph.reverse();
+            let f = frontiers(&reverse_graph, self.exit_nodes_for(entry).next().unwrap());
+            let mut relation = ArenaMap::new();
+            for (n, rest) in f.into_iter().sorted() {
+                relation.insert(
+                    *reverse_graph.node_weight(n).unwrap(),
+                    rest.iter()
+                        .map(|&m| *reverse_graph.node_weight(m).unwrap())
+                        .collect(),
+                );
+            }
+            PostdominanceFrontier { relation }
+        }
+        pub fn dot(
+            &self,
+            db: &dyn crate::Db,
+            program: hir::Program,
+            cx: &hir::ItemContext,
+            body: &Body,
+        ) -> String {
+            petgraph::dot::Dot::new(&self.pretty(db, program, cx, body)).to_string()
+        }
+        // pub fn branching_assignments(&self, body: &Body) {
+        //     let mut reverse_graph = self.graph.clone();
+        //     reverse_graph.reverse();
+        //     let reverse_dominators =
+        //         petgraph::algo::dominators::simple_fast(&reverse_graph, self.exit_node);
+
+        //     for nidx in reverse_graph.node_identifiers() {
+        //         if reverse_graph
+        //             .neighbors_directed(nidx, Direction::Incoming)
+        //             .count()
+        //             >= 2
+        //         {
+        //             let resolve = reverse_dominators.immediate_dominator(nidx).unwrap();
+        //             warn!(
+        //                 ":B{} is a branching and is resolved at :B{}",
+        //                 reverse_graph.node_weight(nidx).unwrap().into_raw(),
+        //                 reverse_graph.node_weight(resolve).unwrap().into_raw(),
+        //             );
+        //         }
+        //     }
+
+        //     let f = frontiers(&self.graph, self.entry_node);
+        //     info!("frontiers:");
+        //     for (n, rest) in f.into_iter().sorted() {
+        //         warn!(
+        //             ":B{} = [{}]",
+        //             self.graph.node_weight(n).unwrap().into_raw(),
+        //             rest.iter()
+        //                 .map(|&m| format!("B:{}", self.graph.node_weight(m).unwrap().into_raw()))
+        //                 .format(", ")
+        //         );
+        //     }
+        //     let f = frontiers(&reverse_graph, self.exit_node);
+        //     info!("postdominance frontiers:");
+        //     for (n, rest) in f.into_iter().sorted() {
+        //         warn!(
+        //             ":B{} = [{}]",
+        //             reverse_graph.node_weight(n).unwrap().into_raw(),
+        //             rest.iter()
+        //                 .map(|&m| format!("B:{}", reverse_graph.node_weight(m).unwrap().into_raw()))
+        //                 .format(", ")
+        //         );
+        //     }
+        //     info!("reverse post order:");
+        //     let mut po = petgraph::visit::DfsPostOrder::new(&self.graph, self.entry_node);
+        //     while let Some(n) = po.next(&self.graph) {
+        //         warn!(":B{}", self.graph.node_weight(n).unwrap().into_raw());
+        //     }
+        // }
     }
-    fn node(&mut self, node: Node) -> NodeIndex {
-        *self
-            .df
-            .nodes
-            .entry(node)
-            .or_insert_with_key(|node| self.df.graph.add_node(node.clone()))
-    }
-    fn block(&mut self, edge: &[NodeIndex], block: BlockId) {
-        for inst in &self.body[block].instructions {
-            match &self.body[inst] {
-                Instruction::Assign(target, expr) => {
-                    let t_node = self.slot_node(*target);
-                    let c_node = self.node(Node::Construct { expr: expr.clone() });
-                    if edge.is_empty() {
-                        self.df.graph.add_edge(t_node, c_node, Edge::DirectUsage);
-                    } else {
-                        for &condition_node in edge {
-                            self.df
-                                .graph
-                                .add_edge(t_node, condition_node, Edge::Condition(c_node));
-                            self.df
-                                .graph
-                                .add_edge(condition_node, c_node, Edge::DirectUsage);
+
+    fn frontiers(
+        g: &Graph<BlockId, Terminator>,
+        e: NodeIndex,
+    ) -> HashMap<NodeIndex, Vec<NodeIndex>> {
+        let dominators: Dominators<NodeIndex> = petgraph::algo::dominators::simple_fast(g, e);
+
+        let mut frontiers = HashMap::<NodeIndex, Vec<NodeIndex>>::from_iter(
+            g.node_identifiers().map(|v| (v, vec![])),
+        );
+
+        for node in g.node_identifiers() {
+            let (predecessors, predecessors_len) = {
+                let ret = g.neighbors_directed(node, Direction::Incoming);
+                let count = ret.clone().count();
+                (ret, count)
+            };
+
+            if predecessors_len >= 2 {
+                for p in predecessors {
+                    let mut runner = p;
+
+                    if let Some(dominator) = dominators.immediate_dominator(node) {
+                        while runner != dominator {
+                            frontiers.entry(runner).or_insert(vec![]).push(node);
+                            runner = dominators.immediate_dominator(runner).unwrap();
                         }
                     }
+                }
+                for (_, frontier) in frontiers.iter_mut() {
+                    frontier.sort();
+                    frontier.dedup();
+                }
+            }
+        }
+        frontiers
+    }
 
-                    for slot in expr.all_slot_usages() {
-                        let s_node = self.slot_node(slot);
-                        // if !self.df.graph.contains_edge(t_node, s_node) {
-                        self.df.graph.add_edge(c_node, s_node, Edge::DirectUsage);
-                        // }
+    impl<'a> CfgBuilder<'a> {
+        fn finish(mut self) -> Cfg {
+            for (bid, b) in self.body.blocks.iter() {
+                let nid = self.cfg.bid_to_node(bid);
+                if let Some(term) = b.terminator.clone() {
+                    match &term {
+                        Terminator::Return => {}
+                        Terminator::Goto(next) => {
+                            let next_nid = self.cfg.bid_to_node(*next);
+                            self.cfg.graph.add_edge(nid, next_nid, term);
+                        }
+                        Terminator::Switch(_, s) => {
+                            for t in s.targets.values() {
+                                let t_nid = self.cfg.bid_to_node(*t);
+                                self.cfg.graph.add_edge(nid, t_nid, term.clone());
+                            }
+                            let t_nid = self.cfg.bid_to_node(s.otherwise);
+                            self.cfg.graph.add_edge(nid, t_nid, term.clone());
+                        }
+                        Terminator::Call {
+                            func,
+                            args,
+                            destination,
+                            target,
+                        } => {
+                            if let Some(next) = target {
+                                let next_nid = self.cfg.bid_to_node(*next);
+                                self.cfg.graph.add_edge(nid, next_nid, term);
+                            }
+                        }
                     }
                 }
-                Instruction::If(cond, then_block, else_block) => {
-                    let true_node = Node::Branch {
-                        id: *cond,
-                        success: true,
-                    };
-                    let false_node = Node::Branch {
-                        id: *cond,
-                        success: false,
-                    };
-                    let true_node_idx = self.node(true_node.clone());
-                    let false_node_idx = self.node(false_node.clone());
-                    let cond_slot_node = self.slot_node(*cond);
-                    self.df
-                        .graph
-                        .add_edge(true_node_idx, cond_slot_node, Edge::DirectUsage);
-                    self.df
-                        .graph
-                        .add_edge(false_node_idx, cond_slot_node, Edge::DirectUsage);
-                    self.block(
-                        &edge.iter().copied().chain([true_node_idx]).collect_vec(),
-                        *then_block,
-                    );
-                    self.block(
-                        &edge.iter().copied().chain([false_node_idx]).collect_vec(),
-                        *else_block,
-                    );
-                }
-                Instruction::While(_, _, _) => {}
-                Instruction::Assertion(_, _) => {}
-                Instruction::Call(_, _) => {}
-                Instruction::Return => {}
             }
+            self.cfg
         }
     }
-}
-impl Dataflow {
-    pub fn node(&self, body: &Body, id: SlotId) -> Option<NodeIndex> {
-        let node = Node::Slot { id };
-        self.nodes.get(&node).copied()
-    }
-    pub fn graph(&self) -> &Graph<Node, Edge> {
-        &self.graph
-    }
-    //     pub fn dot(&self) -> String {
-    //         let dot = petgraph::dot::Dot::with_config(&self.graph, &[Config::GraphContentOnly]);
 
-    //         format!(
-    //             "digraph {{
-    //     margin=0.75
-    //     bgcolor=\"#ffffff00\"
-    //     color=white
-    //     fontcolor=white
-    //     node [color=white, fontcolor=white]
-    //     edge [color=white, fontcolor=white]
-    // {dot}}}"
-    //         )
-    //     }
-    pub fn flow_from(&self, body: &Body, s: SlotId) -> Option<(NodeIndex, Graph<Node, Edge>)> {
-        let mut new_g = self.graph.clone();
-        let start_node = self.node(body, s)?;
-        let mut back_edges = vec![];
-        depth_first_search(&new_g, [start_node], |event| -> Control<()> {
-            match event {
-                DfsEvent::Discover(_, t) => Control::Continue,
-                DfsEvent::TreeEdge(_, _) => Control::Continue,
-                DfsEvent::BackEdge(a, b) => {
-                    // back_edges.push((a, b));
-                    Control::Continue
-                }
-                DfsEvent::CrossForwardEdge(_, _) => Control::Continue,
-                DfsEvent::Finish(_, _) => Control::Continue,
-            }
-        });
-        for (a, b) in back_edges {
-            let eid = new_g.find_edge(a, b).unwrap();
-            let e = new_g.remove_edge(eid).unwrap();
-            match e {
-                Edge::DirectUsage => {}
-                Edge::Condition(through) => {
-                    new_g.add_edge(a, through, Edge::DirectUsage);
-                }
-            }
+    #[derive(Debug, Default, Clone)]
+    pub struct Postdominators {
+        relation: ArenaMap<BlockId, BlockId>,
+    }
+
+    impl std::ops::Index<BlockId> for Postdominators {
+        type Output = BlockId;
+
+        fn index(&self, index: BlockId) -> &Self::Output {
+            &self.relation[index]
         }
-        Some((start_node, new_g))
+    }
+
+    #[derive(Debug, Default, Clone)]
+    pub struct PostdominanceFrontier {
+        relation: ArenaMap<BlockId, Vec<BlockId>>,
+    }
+
+    impl std::ops::Index<BlockId> for PostdominanceFrontier {
+        type Output = [BlockId];
+
+        fn index(&self, index: BlockId) -> &Self::Output {
+            &self.relation[index]
+        }
+    }
+
+    /// Pipes the `dot` string generated into PNG into
+    /// [imgcat](https://iterm2.com/documentation-images.html)
+    ///
+    /// `dot -T png | imgcat`
+    pub fn dot_imgcat(dot: String) {
+        use std::{
+            io::Write,
+            process::{Command, Stdio},
+        };
+
+        let dot_cmd = Command::new("dot")
+            .args([
+                "-Gmargin=0.7",
+                "-Gbgcolor=#ffffff00",
+                "-Gcolor=white",
+                "-Gfontcolor=white",
+                "-Gfontname=FiraCode NFM",
+                "-Ncolor=white",
+                "-Nfontcolor=white",
+                "-Nfontname=FiraCode NFM",
+                "-Ecolor=white",
+                "-Efontcolor=white",
+                "-Efontname=FiraCode NFM",
+            ])
+            .args(["-T", "png"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let imgcat = Command::new("imgcat")
+            .stdin(Stdio::from(dot_cmd.stdout.unwrap()))
+            .stdout(Stdio::inherit())
+            .spawn()
+            .unwrap();
+
+        dot_cmd.stdin.unwrap().write_all(dot.as_bytes()).unwrap();
+
+        imgcat.wait_with_output().unwrap();
     }
 }
+
 pub fn pretty_dot<N, E>(g: &Graph<N, E>) -> String
 where
     N: std::fmt::Display,
     E: std::fmt::Display,
 {
     petgraph::dot::Dot::with_config(g, &[]).to_string()
-}
-pub fn pretty_graph(
-    db: &dyn crate::Db,
-    program: hir::Program,
-    cx: &hir::ItemContext,
-    body: &Body,
-    g: &Graph<Node, Edge>,
-) -> Graph<String, String> {
-    let fmt_node = |n: &Node| match n {
-        Node::Slot { id } => serialize::serialize_slot(db, program, cx, body, *id),
-        Node::Branch { id, success } => {
-            let s = serialize::serialize_slot(db, program, cx, body, *id);
-            if *success {
-                format!("? {s}")
-            } else {
-                format!("! {s}")
-            }
-        }
-        Node::Construct { expr } => expr.serialize(db, program, cx, body),
-    };
-    g.map(
-        |_idx, n| fmt_node(n),
-        |_idx, e| match e {
-            Edge::DirectUsage => "".to_string(),
-            Edge::Condition(e) => fmt_node(g.node_weight(*e).unwrap()),
-        },
-    )
 }
 
 impl MExpr {
@@ -247,6 +347,8 @@ impl MExpr {
             MExpr::Slot(s) => vec![*s],
             // TODO
             MExpr::Quantifier(_, _, _, _) => vec![],
+            MExpr::BinaryOp(_, l, r) => vec![*l, *r],
+            MExpr::UnaryOp(_, o) => vec![*o],
         }
     }
 }

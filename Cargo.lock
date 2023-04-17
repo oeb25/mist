@@ -1066,6 +1066,7 @@ dependencies = [
  "la-arena",
  "miette",
  "mist-syntax",
+ "owo-colors",
  "petgraph",
  "salsa-2022",
  "thiserror",
@@ -1116,6 +1117,7 @@ name = "mist-viper-backend"
 version = "0.1.0"
 dependencies = [
  "derive-new",
+ "derive_more",
  "itertools",
  "la-arena",
  "miette",

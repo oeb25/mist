@@ -1,0 +1,7 @@
+function oops(x: Int): Int ensures false
+
+method oops_proof(x: Int) returns (res: Int)
+    ensures res == oops(x)
+{
+    assert false
+}

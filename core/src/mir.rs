@@ -1,6 +1,5 @@
 pub mod analysis;
 mod lower;
-pub mod optimize;
 pub mod serialize;
 
 use std::collections::HashMap;
@@ -9,6 +8,7 @@ use derive_more::Display;
 use derive_new::new;
 use la_arena::{Arena, ArenaMap, Idx};
 use mist_syntax::ast::operators::{BinaryOp, UnaryOp};
+use tracing::debug;
 
 use crate::hir::{AssertionKind, ExprIdx, Field, Literal, Quantifier, Struct, VariableIdx};
 
@@ -18,7 +18,7 @@ pub type BlockId = Idx<Block>;
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct Block {
     instructions: Vec<InstructionId>,
-    dest: Option<SlotId>,
+    terminator: Option<Terminator>,
 }
 
 impl Block {
@@ -26,8 +26,87 @@ impl Block {
         self.instructions.as_ref()
     }
 
-    pub fn dest(&self) -> Option<SlotId> {
-        self.dest
+    pub fn terminator(&self) -> Option<&Terminator> {
+        self.terminator.as_ref()
+    }
+
+    fn set_terminator(&mut self, term: Terminator) -> Option<Terminator> {
+        let old = self.terminator.replace(term);
+        if let Some(old) = &old {
+            debug!("terminator was replaced!");
+        }
+        old
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Terminator {
+    Return,
+    Goto(BlockId),
+    Switch(Operand, SwitchTargets),
+    Call {
+        func: FunctionId,
+        args: Vec<Operand>,
+        destination: SlotId,
+        target: Option<BlockId>,
+    },
+}
+
+impl Terminator {
+    /// If this replaces an existing target, that target is returned
+    pub fn set_target(&mut self, bid: BlockId) -> Option<BlockId> {
+        match self {
+            Terminator::Return => None,
+            Terminator::Goto(t) => Some(std::mem::replace(t, bid)),
+            Terminator::Switch(_, _) => {
+                // TODO
+                None
+            }
+            Terminator::Call { target, .. } => std::mem::replace(target, Some(bid)),
+        }
+    }
+    pub fn targets(&self) -> Vec<BlockId> {
+        match self {
+            Terminator::Return => vec![],
+            Terminator::Goto(b) => vec![*b],
+            Terminator::Switch(_, switch) => switch.targets.values().copied().collect(),
+            Terminator::Call {
+                func,
+                args,
+                destination,
+                target,
+            } => target.iter().copied().collect(),
+        }
+    }
+}
+
+pub type Operand = SlotId;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SwitchTargets {
+    values: Arena<u128>,
+    targets: ArenaMap<Idx<u128>, BlockId>,
+    otherwise: BlockId,
+}
+impl SwitchTargets {
+    fn new<const N: usize>(success: [(u128, BlockId); N], otherwise: BlockId) -> SwitchTargets {
+        let mut values = Arena::default();
+        let mut targets = ArenaMap::default();
+        for (v, bid) in success {
+            targets.insert(values.alloc(v), bid);
+        }
+
+        SwitchTargets {
+            values,
+            targets,
+            otherwise,
+        }
+    }
+    pub fn values(&self) -> (impl Iterator<Item = (u128, BlockId)> + '_, BlockId) {
+        (
+            self.targets.iter().map(|(v, t)| (self.values[v], *t)),
+            self.otherwise,
+        )
     }
 }
 
@@ -35,11 +114,11 @@ pub type InstructionId = Idx<Instruction>;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Instruction {
     Assign(SlotId, MExpr),
-    If(SlotId, BlockId, BlockId),
-    While(SlotId, Vec<BlockId>, BlockId),
+    // If(SlotId, BlockId, BlockId),
+    // While(SlotId, Vec<BlockId>, BlockId),
     Assertion(AssertionKind, SlotId),
-    Call(FunctionId, Vec<SlotId>),
-    Return,
+    // Call(FunctionId, Vec<SlotId>),
+    // Return,
 }
 
 pub type SlotId = Idx<Slot>;
@@ -83,6 +162,8 @@ pub enum MExpr {
     Struct(Struct, Vec<(Field, SlotId)>),
     Slot(SlotId),
     Quantifier(SlotId, Quantifier, Vec<SlotId>, BlockId),
+    BinaryOp(BinaryOp, Operand, Operand),
+    UnaryOp(UnaryOp, Operand),
 }
 impl MExpr {
     fn map_slots(&self, mut map: impl FnMut(SlotId) -> SlotId) -> MExpr {
@@ -98,6 +179,8 @@ impl MExpr {
             MExpr::Quantifier(t, q, params, b) => {
                 MExpr::Quantifier(map(*t), *q, params.iter().copied().map(map).collect(), *b)
             }
+            MExpr::BinaryOp(op, l, r) => MExpr::BinaryOp(*op, map(*l), map(*r)),
+            MExpr::UnaryOp(op, o) => MExpr::UnaryOp(*op, map(*o)),
         }
     }
 
@@ -108,7 +191,9 @@ impl MExpr {
             | MExpr::Field(_, _)
             | MExpr::Struct(_, _)
             | MExpr::Slot(_)
-            | MExpr::Quantifier(_, _, _, _) => false,
+            | MExpr::Quantifier(_, _, _, _)
+            | MExpr::BinaryOp(_, _, _)
+            | MExpr::UnaryOp(_, _) => false,
         }
     }
 }
@@ -122,8 +207,6 @@ pub struct Function {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FunctionData {
     Named(VariableIdx),
-    BinaryOp(BinaryOp),
-    UnaryOp(UnaryOp),
     Index,
     RangeIndex,
     Range(RangeKind),
@@ -179,6 +262,18 @@ impl Body {
 
     pub fn body_block(&self) -> Option<BlockId> {
         self.body_block
+    }
+
+    pub fn requires(&self) -> &[Idx<Block>] {
+        self.requires.as_ref()
+    }
+
+    pub fn ensures(&self) -> &[Idx<Block>] {
+        self.ensures.as_ref()
+    }
+
+    pub fn invariants(&self) -> &[Idx<Block>] {
+        self.invariants.as_ref()
     }
 }
 

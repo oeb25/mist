@@ -15,7 +15,7 @@ use crate::{
 
 use super::{
     Block, BlockId, Body, BodySourceMap, Function, FunctionData, FunctionId, Instruction,
-    InstructionId, MExpr, RangeKind, Slot, SlotId,
+    InstructionId, MExpr, RangeKind, Slot, SlotId, SwitchTargets, Terminator,
 };
 
 pub fn lower_program(
@@ -38,12 +38,33 @@ pub fn lower_item(db: &dyn crate::Db, cx: ItemContext) -> (Body, BodySourceMap) 
         lower.alloc_slot(Slot::from_var(param.name));
     }
 
-    let body_block = cx.body_expr().map(|body| {
-        let return_slot = lower.alloc_slot(Slot::Result);
-        lower.expr_to_block(body, Some(return_slot))
-    });
+    for cond in cx.conditions() {
+        match cond {
+            hir::Condition::Requires(es) => {
+                for e in es {
+                    let slot = lower.alloc_tmp();
+                    let entry_bid = lower.body.blocks.alloc(Default::default());
+                    lower.expr(*e, entry_bid, None, Some(slot));
+                    lower.body.requires.push(entry_bid);
+                }
+            }
+            hir::Condition::Ensures(es) => {
+                for e in es {
+                    let slot = lower.alloc_tmp();
+                    let entry_bid = lower.body.blocks.alloc(Default::default());
+                    lower.expr(*e, entry_bid, None, Some(slot));
+                    lower.body.ensures.push(entry_bid);
+                }
+            }
+        }
+    }
 
-    lower.body.body_block = body_block;
+    if let Some(body) = cx.body_expr() {
+        let return_slot = lower.alloc_slot(Slot::Result);
+        let body_bid = lower.body.blocks.alloc(Default::default());
+        lower.expr(body, body_bid, None, Some(return_slot));
+        lower.body.body_block = Some(body_bid);
+    }
 
     lower.finish()
 }
@@ -53,8 +74,6 @@ struct MirLower<'a> {
     db: &'a dyn crate::Db,
     cx: &'a ItemContext,
 
-    #[new(default)]
-    instructions: Vec<InstructionId>,
     #[new(default)]
     body: Body,
     #[new(default)]
@@ -88,10 +107,11 @@ impl MirLower<'_> {
     fn alloc_instruction(
         &mut self,
         expr: Option<ExprIdx>,
+        bid: BlockId,
         instruction: Instruction,
     ) -> InstructionId {
         let id = self.body.instructions.alloc(instruction);
-        self.instructions.push(id);
+        self.body.blocks[bid].instructions.push(id);
         if let Some(expr) = expr {
             self.source_map
                 .expr_instr_map
@@ -117,69 +137,54 @@ impl MirLower<'_> {
     fn finish(self) -> (Body, BodySourceMap) {
         (self.body, self.source_map)
     }
-    fn blocked(
-        &mut self,
-        expr: Option<ExprIdx>,
-        compute_block: impl FnOnce(&mut Self) -> Option<SlotId>,
-    ) -> BlockId {
-        let prev = mem::take(&mut self.instructions);
-
-        let dest = compute_block(self);
-
-        let instructions = mem::replace(&mut self.instructions, prev);
-
-        self.alloc_block(expr, Block { instructions, dest })
-    }
 }
 impl MirLower<'_> {
-    fn expr_to_block(&mut self, expr: ExprIdx, dest: Option<SlotId>) -> BlockId {
-        self.blocked(Some(expr), |this| match &this.cx.expr(expr).data {
-            ExprData::Block(block) => {
-                for stmt in &block.stmts {
-                    this.stmt(stmt);
-                }
-                if let Some(tail) = block.tail_expr {
-                    let dest = this.expr(tail, dest);
-                    Some(dest)
-                } else {
-                    dest
-                }
-            }
-            _ => Some(this.expr(expr, dest)),
-        })
-    }
+    // fn expr_to_block(&mut self, expr: ExprIdx, dest: Option<SlotId>) -> BlockId {
+    //     let bid = self.body.blocks.alloc(Default::default());
+
+    //     bid
+
+    //     // self.blocked(Some(expr), |this| match &this.cx.expr(expr).data {
+    //     //     ExprData::Block(block) => {
+    //     //         for stmt in &block.stmts {
+    //     //             this.stmt(stmt);
+    //     //         }
+    //     //         if let Some(tail) = block.tail_expr {
+    //     //             let dest = this.expr(tail, dest);
+    //     //             Some(dest)
+    //     //         } else {
+    //     //             dest
+    //     //         }
+    //     //     }
+    //     //     _ => Some(this.expr(expr, dest)),
+    //     // })
+    // }
     fn block(
         &mut self,
         block: &hir::Block,
+        mut bid: BlockId,
+        target: Option<BlockId>,
         dest: Option<SlotId>,
-        post: impl FnOnce(&mut Self),
     ) -> BlockId {
-        self.blocked(None, |this| {
-            for stmt in &block.stmts {
-                this.stmt(stmt);
-            }
-            if let Some(tail) = block.tail_expr {
-                let dest = this.expr(tail, dest);
-                post(this);
-                Some(dest)
-            } else {
-                post(this);
-                dest
-            }
-        })
+        for stmt in &block.stmts {
+            bid = self.stmt(bid, None, stmt);
+        }
+        if let Some(tail) = block.tail_expr {
+            self.expr(tail, bid, target, dest)
+        } else {
+            bid
+        }
     }
-    fn stmt(&mut self, stmt: &Statement) {
+    fn stmt(&mut self, mut bid: BlockId, target: Option<BlockId>, stmt: &Statement) -> BlockId {
         match &stmt.data {
-            StatementData::Expr(expr) => {
-                self.expr(*expr, None);
-            }
+            StatementData::Expr(expr) => self.expr(*expr, bid, target, None),
             StatementData::Let {
                 variable,
                 explicit_ty: _,
                 initializer,
             } => {
                 let dest = self.alloc_slot(Slot::from_var(variable.idx()));
-                self.expr(*initializer, Some(dest));
+                self.expr(*initializer, bid, target, Some(dest))
             }
             StatementData::While {
                 expr,
@@ -187,58 +192,94 @@ impl MirLower<'_> {
                 decreases,
                 body,
             } => {
-                let cond_slot = self.alloc_tmp();
-                self.expr(*expr, Some(cond_slot));
+                let cond_block = self.body.blocks.alloc(Default::default());
+                assert_ne!(bid, cond_block);
+                self.body.blocks[bid].set_terminator(Terminator::Goto(cond_block));
 
-                let invariants = invariants
+                let cond_slot = self.alloc_tmp();
+                bid = self.expr(*expr, cond_block, None, Some(cond_slot));
+
+                let invariants: Vec<_> = invariants
                     .iter()
                     .flatten()
-                    .map(|inv| self.expr_to_block(*inv, None))
+                    .map(|inv| {
+                        let inv_block = self.body.blocks.alloc(Default::default());
+                        let inv_result = self.alloc_tmp();
+                        self.expr(*inv, inv_block, None, Some(inv_result));
+                        inv_block
+                    })
                     .collect();
 
-                let body = self.block(body, None, |this| {
-                    this.expr(*expr, Some(cond_slot));
-                });
+                let body_bid = self.body.blocks.alloc(Default::default());
+                let body_bid_last = self.block(body, body_bid, None, None);
 
-                self.alloc_instruction(None, Instruction::While(cond_slot, invariants, body));
+                let exit_bid = self.body.blocks.alloc(Default::default());
+
+                assert_ne!(body_bid_last, cond_block);
+                self.body.blocks[body_bid_last].set_terminator(Terminator::Goto(cond_block));
+                self.body.blocks[bid].set_terminator(Terminator::Switch(
+                    cond_slot,
+                    SwitchTargets::new([(1, body_bid)], exit_bid),
+                ));
+
+                // TODO: Annotate the invariants somewhere
+                exit_bid
             }
             StatementData::Assertion { kind, exprs } => {
                 for expr in exprs {
-                    let dest = self.expr(*expr, None);
-                    self.alloc_instruction(None, Instruction::Assertion(kind.clone(), dest));
+                    let dest = self.alloc_tmp();
+                    bid = self.expr(*expr, bid, None, Some(dest));
+                    self.alloc_instruction(None, bid, Instruction::Assertion(kind.clone(), dest));
                 }
+                bid
             }
         }
     }
-    fn assign(&mut self, source: Option<ExprIdx>, dest: Option<SlotId>, expr: MExpr) -> SlotId {
+    fn assign(
+        &mut self,
+        bid: BlockId,
+        source: Option<ExprIdx>,
+        dest: Option<SlotId>,
+        expr: MExpr,
+    ) -> SlotId {
         let dest = dest.unwrap_or_else(|| self.alloc_tmp());
-        self.alloc_instruction(source, Instruction::Assign(dest, expr));
+        self.alloc_instruction(source, bid, Instruction::Assign(dest, expr));
         dest
     }
-    fn expr(&mut self, expr: ExprIdx, dest: Option<SlotId>) -> SlotId {
+    fn expr(
+        &mut self,
+        expr: ExprIdx,
+        mut bid: BlockId,
+        target: Option<BlockId>,
+        dest: Option<SlotId>,
+    ) -> BlockId {
         match &self.cx.expr(expr).data {
             ExprData::Literal(l) => {
                 let l_slot = self.alloc_slot(Slot::Literal(l.clone()));
                 if let Some(dest) = dest {
-                    self.assign(Some(expr), Some(dest), MExpr::Slot(l_slot))
+                    self.assign(bid, Some(expr), Some(dest), MExpr::Slot(l_slot));
+                    bid
                 } else {
-                    l_slot
+                    // l_slot
+                    bid
                 }
             }
             ExprData::Ident(var) => {
                 let var_slot = self.var_slot(var.idx());
                 if let Some(dest) = dest {
-                    self.assign(Some(expr), Some(dest), MExpr::Slot(var_slot))
+                    self.assign(bid, Some(expr), Some(dest), MExpr::Slot(var_slot));
+                    bid
                 } else {
-                    var_slot
+                    // var_slot
+                    bid
                 }
             }
             ExprData::Block(block) => {
-                let bid = self.block(block, dest, |_| {});
-                // TODO: This is a bit strange?
-                self.body.blocks[bid]
-                    .dest
-                    .unwrap_or_else(|| self.alloc_tmp())
+                let next_bid = self.body.blocks.alloc(Default::default());
+                assert_ne!(bid, next_bid);
+                self.body.blocks[bid].set_terminator(Terminator::Goto(next_bid));
+                // self.body.blocks[bid].set_terminator(Terminator::Goto(next_bid));
+                self.block(block, next_bid, target, dest)
             }
             ExprData::Field {
                 expr: base,
@@ -246,8 +287,10 @@ impl MirLower<'_> {
                 field,
             } => {
                 if let Some(field) = field {
-                    let base = self.expr(*base, None);
-                    self.assign(Some(expr), dest, MExpr::Field(base, field.clone()))
+                    let tmp = self.alloc_tmp();
+                    let next_bid = self.expr(*base, bid, None, Some(tmp));
+                    self.assign(bid, Some(expr), dest, MExpr::Field(tmp, field.clone()));
+                    next_bid
                 } else {
                     todo!()
                 }
@@ -257,50 +300,69 @@ impl MirLower<'_> {
                 struct_span: _,
                 fields,
             } => {
-                let fields = fields
-                    .iter()
-                    .map(|f| (f.decl.clone(), self.expr(f.value, None)))
-                    .collect();
-                self.assign(Some(expr), dest, MExpr::Struct(*struct_declaration, fields))
+                let mut operands = vec![];
+
+                for f in fields {
+                    let tmp = self.alloc_tmp();
+                    bid = self.expr(f.value, bid, None, Some(tmp));
+                    operands.push((f.decl.clone(), tmp));
+                }
+
+                self.assign(
+                    bid,
+                    Some(expr),
+                    dest,
+                    MExpr::Struct(*struct_declaration, operands),
+                );
+                bid
             }
-            ExprData::Missing => dest.unwrap_or_else(|| self.alloc_tmp()),
-            ExprData::If(it) => {
-                let dest = dest.unwrap_or_else(|| self.alloc_tmp());
-                self.if_expr(it, dest, expr)
-            }
+            ExprData::Missing => bid,
+            ExprData::If(it) => self.if_expr(it, bid, target, dest, expr),
             ExprData::Call {
                 expr: f_expr,
                 args: input_args,
             } => {
-                let (function, mut args) = self.expr_to_function(*f_expr);
+                let (func, mut args) = self.expr_to_function(*f_expr);
 
                 for arg in input_args {
-                    args.push(self.expr(*arg, None));
+                    let tmp = self.alloc_tmp();
+                    bid = self.expr(*arg, bid, None, Some(tmp));
+                    args.push(tmp);
                 }
 
-                self.assign(Some(expr), dest, MExpr::Call(function, args))
+                let destination = dest.unwrap_or_else(|| self.alloc_tmp());
+                let next_bid = target.unwrap_or_else(|| self.body.blocks.alloc(Default::default()));
+                self.body.blocks[bid].set_terminator(Terminator::Call {
+                    func,
+                    args,
+                    destination,
+                    target: Some(next_bid),
+                });
+                next_bid
             }
             ExprData::Unary { op, inner } => {
-                let arg = self.expr(*inner, None);
-                let function = self.alloc_function(Function::new(FunctionData::UnaryOp(*op)));
-
-                self.assign(Some(expr), dest, MExpr::Call(function, vec![arg]))
+                let arg = self.alloc_tmp();
+                bid = self.expr(*inner, bid, None, Some(arg));
+                self.assign(bid, Some(expr), dest, MExpr::UnaryOp(*op, arg));
+                bid
             }
             ExprData::Bin { lhs, op, rhs } => {
                 if let BinaryOp::Assignment = op {
                     // TODO: lhs should really be computed in a lhs fashion
-                    let lhs = self.expr(*lhs, None);
-                    let rhs = self.expr(*rhs, None);
+                    let left = self.alloc_tmp();
+                    let right = self.alloc_tmp();
+                    bid = self.expr(*lhs, bid, None, Some(left));
+                    bid = self.expr(*rhs, bid, None, Some(right));
 
-                    self.assign(Some(expr), Some(lhs), MExpr::Slot(rhs));
-                    // TODO: What should we even assign here?
-                    dest.unwrap_or_else(|| self.alloc_tmp())
+                    self.assign(bid, Some(expr), Some(left), MExpr::Slot(right));
+                    bid
                 } else {
-                    let lhs = self.expr(*lhs, None);
-                    let rhs = self.expr(*rhs, None);
-
-                    let function = self.alloc_function(Function::new(FunctionData::BinaryOp(*op)));
-                    self.assign(Some(expr), dest, MExpr::Call(function, vec![lhs, rhs]))
+                    let left = self.alloc_tmp();
+                    let right = self.alloc_tmp();
+                    bid = self.expr(*lhs, bid, None, Some(left));
+                    bid = self.expr(*rhs, bid, None, Some(right));
+                    self.assign(bid, Some(expr), dest, MExpr::BinaryOp(*op, left, right));
+                    bid
                 }
             }
             ExprData::Ref { is_mut, expr } => todo!(),
@@ -310,17 +372,44 @@ impl MirLower<'_> {
                     hir::TypeData::Primitive(hir::Primitive::Int) => FunctionData::Index,
                     ty => todo!("tried to index with {ty:?}"),
                 };
-                let base = self.expr(*base, None);
-                let index = self.expr(*index, None);
-                let function = self.alloc_function(Function::new(f));
+                let base_s = self.alloc_tmp();
+                bid = self.expr(*base, bid, None, Some(base_s));
+                let index_s = self.alloc_tmp();
+                bid = self.expr(*index, bid, None, Some(index_s));
+                let func = self.alloc_function(Function::new(f));
 
-                self.assign(Some(expr), dest, MExpr::Call(function, vec![base, index]))
+                let destination = dest.unwrap_or_else(|| self.alloc_tmp());
+                let next_bid = target.unwrap_or_else(|| self.body.blocks.alloc(Default::default()));
+                assert_ne!(bid, next_bid);
+                self.body.blocks[bid].set_terminator(Terminator::Call {
+                    func,
+                    args: vec![base_s, index_s],
+                    destination,
+                    target: Some(next_bid),
+                });
+                next_bid
             }
             ExprData::List { elems } => {
-                let elems = elems.iter().map(|e| self.expr(*e, None)).collect();
-                let function = self.alloc_function(Function::new(FunctionData::List));
+                let elems = elems
+                    .iter()
+                    .map(|e| {
+                        let elem = self.alloc_tmp();
+                        bid = self.expr(*e, bid, None, Some(elem));
+                        elem
+                    })
+                    .collect();
+                let func = self.alloc_function(Function::new(FunctionData::List));
 
-                self.assign(Some(expr), dest, MExpr::Call(function, elems))
+                let destination = dest.unwrap_or_else(|| self.alloc_tmp());
+                let next_bid = target.unwrap_or_else(|| self.body.blocks.alloc(Default::default()));
+                assert_ne!(bid, next_bid);
+                self.body.blocks[bid].set_terminator(Terminator::Call {
+                    func,
+                    args: elems,
+                    destination,
+                    target: Some(next_bid),
+                });
+                next_bid
             }
             ExprData::Quantifier {
                 quantifier,
@@ -328,23 +417,23 @@ impl MirLower<'_> {
                 expr: q_expr,
             } => {
                 let q_dest = self.alloc_tmp();
-                let q_body = self.expr_to_block(*q_expr, Some(q_dest));
+                let q_body = self.body.blocks.alloc(Default::default());
+                self.expr(*q_expr, q_body, None, Some(q_dest));
                 let params = params
                     .iter()
                     .map(|param| self.alloc_slot(Slot::from_var(param.name)))
                     .collect();
                 let mexpr = MExpr::Quantifier(q_dest, *quantifier, params, q_body);
 
-                self.assign(Some(expr), dest, mexpr)
+                self.assign(bid, Some(expr), dest, mexpr);
+                bid
             }
             ExprData::Result => {
-                let result_slot = self.alloc_slot(Slot::Result);
-
                 if let Some(dest) = dest {
-                    self.assign(Some(expr), Some(dest), MExpr::Slot(result_slot))
-                } else {
-                    result_slot
+                    let result_slot = self.alloc_slot(Slot::Result);
+                    self.assign(bid, Some(expr), Some(dest), MExpr::Slot(result_slot));
                 }
+                bid
             }
             ExprData::Range { lhs, rhs } => {
                 let kind = match (lhs, rhs) {
@@ -358,21 +447,27 @@ impl MirLower<'_> {
                 let args = [lhs, rhs]
                     .into_iter()
                     .flatten()
-                    .map(|&a| self.expr(a, None))
+                    .map(|&a| {
+                        let s = self.alloc_tmp();
+                        bid = self.expr(a, bid, None, Some(s));
+                        s
+                    })
                     .collect();
 
-                self.assign(Some(expr), dest, MExpr::Call(function, args))
+                self.assign(bid, Some(expr), dest, MExpr::Call(function, args));
+                bid
             }
             ExprData::Return(it) => {
                 match it {
                     Some(inner) => {
                         let result_slot = self.alloc_slot(Slot::Result);
-                        self.expr(*inner, Some(result_slot));
+                        bid = self.expr(*inner, bid, None, Some(result_slot));
                     }
                     None => {}
                 }
-                self.alloc_instruction(Some(expr), Instruction::Return);
-                dest.unwrap_or_else(|| self.alloc_tmp())
+                self.body.blocks[bid].set_terminator(Terminator::Return);
+                let next_bid = target.unwrap_or_else(|| self.body.blocks.alloc(Default::default()));
+                next_bid
             }
         }
     }
@@ -389,18 +484,48 @@ impl MirLower<'_> {
             _ => todo!("trying to call {}", pretty::expr(self.cx, self.db, expr)),
         }
     }
-    fn if_expr(&mut self, it: &IfExpr, dest: SlotId, expr: ExprIdx) -> SlotId {
-        let cond = self.expr(it.condition, None);
-        let then_block = self.block(&it.then_branch, Some(dest), |_| {});
-        let else_block = match it.else_branch.as_deref() {
-            Some(Else::Block(else_block)) => self.block(else_block, Some(dest), |_| {}),
-            Some(Else::If(nested)) => self.blocked(None, |this| {
-                this.if_expr(nested, dest, expr);
-                Some(dest)
-            }),
-            None => self.blocked(None, |_| Some(dest)),
+    fn if_expr(
+        &mut self,
+        it: &IfExpr,
+        mut bid: BlockId,
+        target: Option<BlockId>,
+        dest: Option<SlotId>,
+        _expr_for_source_span: ExprIdx,
+    ) -> BlockId {
+        let cond = self.alloc_tmp();
+        bid = self.expr(it.condition, bid, None, Some(cond));
+        let then_block = self.body.blocks.alloc(Default::default());
+        let else_block = self.body.blocks.alloc(Default::default());
+        let final_block = target.unwrap_or_else(|| self.body.blocks.alloc(Default::default()));
+        let then_block_final = self.block(&it.then_branch, then_block, Some(final_block), dest);
+        let else_block_final = match it.else_branch.as_deref() {
+            Some(Else::Block(it)) => self.block(it, else_block, Some(final_block), dest),
+            Some(Else::If(nested)) => self.if_expr(
+                nested,
+                else_block,
+                Some(final_block),
+                dest,
+                _expr_for_source_span,
+            ),
+            None => else_block,
         };
-        self.alloc_instruction(Some(expr), Instruction::If(cond, then_block, else_block));
-        dest
+        if then_block_final != final_block {
+            assert_ne!(then_block_final, final_block);
+            self.body.blocks[then_block_final].set_terminator(Terminator::Goto(final_block));
+        }
+        if else_block_final != final_block {
+            assert_ne!(else_block_final, final_block);
+            self.body.blocks[else_block_final].set_terminator(Terminator::Goto(final_block));
+        }
+        self.body.blocks[bid].set_terminator(Terminator::Switch(
+            cond,
+            SwitchTargets::new([(1, then_block)], else_block),
+        ));
+        // self.alloc_instruction(
+        //     Some(expr),
+        //     bid,
+        //     Instruction::If(cond, then_block, else_block),
+        // );
+        final_block
     }
 }
