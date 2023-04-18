@@ -174,6 +174,14 @@ impl SourceSpan {
         span.into_iter()
             .fold(init, |a, b| b.map(|b| a.join(b)).unwrap_or(a))
     }
+
+    #[must_use]
+    pub fn overlaps(&self, other: SourceSpan) -> bool {
+        self.contains(other.offset())
+            || self.contains(other.end())
+            || other.contains(self.offset())
+            || other.contains(self.end())
+    }
 }
 
 impl From<SourceSpan> for miette::SourceSpan {

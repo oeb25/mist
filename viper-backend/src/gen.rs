@@ -7,7 +7,7 @@ use mist_core::{hir, mir};
 use mist_syntax::SourceSpan;
 use silvers::{
     expression::{AbstractLocalVar, Exp, LocationAccess, QuantifierExp, ResourceAccess, SeqExp},
-    program::{Function, Program},
+    program::{Function, Method, Program},
     typ::Type,
 };
 
@@ -28,13 +28,14 @@ pub fn viper_file(
 
     let mut lowerer = ViperLowerer::new();
 
-    for item in program.items(db) {
-        let Some(item) = hir::item(db, program, item.clone()) else { continue };
-        let Some((cx, _source_map)) = hir::item_lower(db, program, item) else { continue };
+    for &item_id in program.items(db) {
+        let Some(item) = hir::item(db, program, item_id) else { continue };
+        let Some((cx, _source_map)) = hir::item_lower(db, program, item_id, item) else { continue };
         let (mir, _mir_source_map) = mir::lower_item(db, cx.clone());
         let Some(viper_item) = internal_viper_item(db, cx, &mut lowerer, item, &mir)? else { continue };
         match viper_item {
             ViperItem::Function(f) => functions.push(f),
+            ViperItem::Method(m) => methods.push(m),
         }
     }
 
@@ -78,51 +79,68 @@ fn internal_viper_item(
         },
         hir::Item::TypeInvariant(_) => Ok(None),
         hir::Item::Function(function) => {
+            let is_method = !function.attrs(db).is_pure();
+
+            let mut lower = lowerer.body_lower(db, &cx, mir, is_method);
+
+            let mut pres = vec![];
+            let mut posts = vec![];
+
+            let formal_args = mir
+                .params()
+                .iter()
+                .map(|s| lower.slot_to_decl(*s))
+                .collect();
+
+            for &pre in mir.requires() {
+                pres.push(lower.pure_lower(pre)?);
+            }
+            for &post in mir.ensures() {
+                posts.push(lower.pure_lower(post)?);
+            }
+            for &inv in mir.invariants() {
+                let exp = lower.pure_lower(inv)?;
+                pres.push(exp);
+                posts.push(exp);
+            }
+
+            let ret_ty = mir.result_slot().map(|ret| {
+                let ty = mir.slot_ty(ret);
+                (ret, lower.lower_type(ty))
+            });
+
             if function.attrs(db).is_pure() {
-                let mut lower = lowerer.pure(&cx, mir);
-
-                let formal_args = vec![];
-                // let formal_args = cx
-                //     .params()
-                //     .iter()
-                //     .map(|param| {
-                //         Ok(LocalVarDecl {
-                //             name: cx.var_ident(param.name).to_string(),
-                //             typ: lower.lower_ty(param.ty)?,
-                //         })
-                //     })
-                //     .collect::<Result<_, _>>()?;
-
-                let mut pres = vec![];
-                let mut posts = vec![];
-
-                for &pre in mir.requires() {
-                    pres.push(lower.lower(pre)?);
-                }
-                for &post in mir.ensures() {
-                    posts.push(lower.lower(post)?);
-                }
-                for &inv in mir.invariants() {
-                    let exp = lower.lower(inv)?;
-                    pres.push(exp);
-                    posts.push(exp);
-                }
-
-                let Some(_ret_ty) = function.ret(db) else { return Ok(None) };
-
-                let func = silvers::program::Function {
+                let func = Function {
                     name: function.name(db).to_string(),
                     formal_args,
-                    // typ: lower.lower_ty(ret_ty)?,
-                    typ: Type::internal_type(),
+                    typ: ret_ty.unwrap().1.vty,
                     pres,
                     posts,
-                    body: mir.body_block().map(|body| lower.lower(body)).transpose()?,
+                    body: mir
+                        .body_block()
+                        .map(|body| lower.pure_lower(body))
+                        .transpose()?,
                 };
 
                 Ok(Some(func.into()))
             } else {
-                Ok(None)
+                let formal_returns = ret_ty
+                    .map(|(ret, _ty)| vec![lower.slot_to_decl(ret)])
+                    .unwrap_or_default();
+
+                let method = Method {
+                    name: function.name(db).to_string(),
+                    formal_args,
+                    formal_returns,
+                    pres,
+                    posts,
+                    body: mir
+                        .body_block()
+                        .map(|body| lower.method_lower(body))
+                        .transpose()?,
+                };
+
+                Ok(Some(method.into()))
             }
         }
     }
@@ -131,6 +149,7 @@ fn internal_viper_item(
 #[derive(new, Debug, Clone, From)]
 pub enum ViperItem<E> {
     Function(Function<E>),
+    Method(Method<E>),
 }
 
 #[derive(new, Debug, Clone)]
@@ -142,7 +161,6 @@ pub struct ViperHint {
 #[salsa::accumulator]
 pub struct ViperHints(ViperHint);
 
-// #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 type VExprData = Exp<VExprId>;
 
 pub type VExprId = la_arena::Idx<VExpr>;
@@ -210,8 +228,9 @@ pub trait ViperWrite {
 
 mod write_impl {
     use silvers::{
-        expression::{PredicateAccess, PredicateAccessPredicate},
-        program::{Method, Program},
+        ast::Declaration,
+        expression::{LocalVar, PredicateAccess, PredicateAccessPredicate},
+        program::{AnyLocalVarDecl, LocalVarDecl, Method, Program},
         statement::{Seqn, Stmt},
     };
 
@@ -403,9 +422,37 @@ mod write_impl {
         fn emit(elem: &Self, w: &mut ViperWriter) {
             match elem {
                 Stmt::NewStmt { .. } => w!(w, "// TODO: NewStmt"),
-                Stmt::LocalVarAssign { .. } => w!(w, "// TODO: LocalVarAssign"),
+                Stmt::LocalVarAssign { lhs, rhs } => {
+                    w!(w, lhs, " := ", rhs);
+                }
                 Stmt::FieldAssign { .. } => w!(w, "// TODO: FieldAssign"),
-                Stmt::MethodCall { .. } => w!(w, "// TODO: MethodCall"),
+                Stmt::MethodCall {
+                    method_name,
+                    args,
+                    targets,
+                } => {
+                    if !targets.is_empty() {
+                        let mut first = true;
+                        for t in targets {
+                            if !first {
+                                w!(w, ", ");
+                            }
+                            first = false;
+                            w!(w, t);
+                        }
+                        w!(w, " := ");
+                    }
+                    w!(w, "{method_name}(");
+                    let mut first = true;
+                    for arg in args {
+                        if !first {
+                            w!(w, ", ");
+                        }
+                        first = false;
+                        w!(w, arg);
+                    }
+                    w!(w, ")");
+                }
                 Stmt::Exhale { exp } => w!(w, "exhale ", exp),
                 Stmt::Inhale { exp } => w!(w, "inhale ", exp),
                 Stmt::Assert { exp } => w!(w, "assert ", exp),
@@ -414,9 +461,31 @@ mod write_impl {
                 Stmt::Unfold { acc } => w!(w, "unfold ", acc),
                 Stmt::Package { .. } => w!(w, "// TODO: Package"),
                 Stmt::Apply { .. } => w!(w, "// TODO: Apply"),
-                Stmt::Seqn(_) => w!(w, "// TODO: Seqn"),
-                Stmt::If { .. } => w!(w, "// TODO: If"),
-                Stmt::While { .. } => w!(w, "// TODO: While"),
+                Stmt::Seqn(s) => {
+                    wln!(w, "{{");
+                    w.indent(|w| w!(w, s));
+                    w!(w, "}}");
+                }
+                Stmt::If { cond, thn, els } => {
+                    wln!(w, "if (", cond, ")");
+                    wln!(w, "{{");
+                    w.indent(|w| w!(w, thn));
+                    wln!(w, "}} else {{");
+                    w.indent(|w| w!(w, els));
+                    w!(w, "}}");
+                }
+                Stmt::While { cond, invs, body } => {
+                    wln!(w, "while (", cond, ")");
+                    w.indent(|w| {
+                        for e in invs {
+                            wln!(w, "invariant");
+                            w.indent(|w| wln!(w, e));
+                        }
+                    });
+                    wln!(w, "{{");
+                    w.indent(|w| w!(w, body));
+                    w!(w, "}}");
+                }
                 Stmt::Label(_) => w!(w, "// TODO: Label"),
                 Stmt::Goto { .. } => w!(w, "// TODO: Goto"),
                 Stmt::LocalVarDeclStmt { .. } => w!(w, "// TODO: LocalVarDeclStmt"),
@@ -429,8 +498,25 @@ mod write_impl {
 
     impl<E: ViperWrite> ViperWrite for Seqn<E> {
         fn emit(elem: &Self, w: &mut ViperWriter) {
+            for decl in &elem.scoped_seqn_declarations {
+                w!(w, decl, "; ");
+            }
+            if !elem.scoped_seqn_declarations.is_empty() {
+                wln!(w, "");
+            }
             for stmt in &elem.ss {
                 wln!(w, stmt);
+            }
+        }
+    }
+
+    impl<E: ViperWrite> ViperWrite for Declaration<E> {
+        fn emit(elem: &Self, w: &mut ViperWriter) {
+            match elem {
+                Declaration::LocalVar(v) => w!(w, "var ", v),
+                Declaration::DomainAxiom(_) => w!(w, "// TODO: DomainAxiom"),
+                Declaration::DomainFunc(_) => w!(w, "// TODO: DomainFunc"),
+                Declaration::Label(_) => w!(w, "// TODO: Label"),
             }
         }
     }
@@ -447,6 +533,30 @@ mod write_impl {
         }
     }
 
+    impl ViperWrite for AnyLocalVarDecl {
+        fn emit(elem: &Self, w: &mut ViperWriter) {
+            match elem {
+                AnyLocalVarDecl::UnnamedLocalVarDecl { .. } => todo!(),
+                AnyLocalVarDecl::LocalVarDecl(v) => w!(w, v),
+            }
+        }
+    }
+
+    impl ViperWrite for LocalVar {
+        fn emit(elem: &Self, w: &mut ViperWriter) {
+            let name = &elem.name;
+            w!(w, "{name}");
+        }
+    }
+
+    impl ViperWrite for LocalVarDecl {
+        fn emit(elem: &Self, w: &mut ViperWriter) {
+            let name = &elem.name;
+            let typ = &elem.typ;
+            w!(w, "{name}: {typ}");
+        }
+    }
+
     impl ViperWrite for Type {
         fn emit(elem: &Self, w: &mut ViperWriter) {
             w!(w, "{elem}");
@@ -456,7 +566,16 @@ mod write_impl {
     impl<E: ViperWrite> ViperWrite for Function<E> {
         fn emit(elem: &Self, w: &mut ViperWriter) {
             let name = &elem.name;
-            wln!(w, "function {name}(): ", &elem.typ);
+            w!(w, "function {name}(");
+            let mut first = true;
+            for arg in &elem.formal_args {
+                if !first {
+                    w!(w, ", ");
+                }
+                first = false;
+                w!(w, arg);
+            }
+            wln!(w, "): ", &elem.typ);
             w.indent(|w| {
                 for e in &elem.pres {
                     wln!(w, "requires");
@@ -480,7 +599,29 @@ mod write_impl {
     impl<E: ViperWrite> ViperWrite for Method<E> {
         fn emit(elem: &Self, w: &mut ViperWriter) {
             let name = &elem.name;
-            wln!(w, "method {name}()");
+            w!(w, "method {name}(");
+            let mut first = true;
+            for arg in &elem.formal_args {
+                if !first {
+                    w!(w, ", ");
+                }
+                first = false;
+                w!(w, arg);
+            }
+            w!(w, ")");
+            if !elem.formal_returns.is_empty() {
+                w!(w, " returns (");
+                let mut first = true;
+                for arg in &elem.formal_returns {
+                    if !first {
+                        w!(w, ", ");
+                    }
+                    first = false;
+                    w!(w, arg);
+                }
+                w!(w, ")");
+            }
+            wln!(w, "");
             w.indent(|w| {
                 for e in &elem.pres {
                     wln!(w, "requires");
@@ -505,6 +646,7 @@ mod write_impl {
         fn emit(elem: &Self, w: &mut ViperWriter) {
             match elem {
                 ViperItem::Function(f) => Function::emit(f, w),
+                ViperItem::Method(m) => Method::emit(m, w),
             }
         }
     }

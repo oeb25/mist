@@ -1,3 +1,5 @@
+#![feature(trait_upcasting)]
+
 mod db;
 
 use std::{io::Write, path::PathBuf};
@@ -8,7 +10,7 @@ use itertools::Itertools;
 use miette::{bail, Context, IntoDiagnostic, Result};
 use mist_core::{hir, mir, salsa, util::Position};
 use mist_syntax::SourceSpan;
-use mist_viper_backend::gen::ViperOutput;
+use mist_viper_backend::{gen::ViperOutput, lower::ViperSourceMap};
 use tracing::{error, info, warn};
 use tracing_subscriber::prelude::*;
 use viperserver::verification::Details;
@@ -109,18 +111,25 @@ async fn cli() -> Result<()> {
                 .wrap_err_with(|| format!("failed to read `{}`", file.display()))?;
             let source = hir::SourceProgram::new(&db, src.clone());
             let program = hir::parse_program(&db, source);
-            let (viper_program, viper_body, _viper_source_map) =
-                mist_viper_backend::gen::viper_file(&db, program)?;
-            let viper_src = ViperOutput::generate(&viper_body, &viper_program).buf;
 
             let parse_errors = program.errors(&db);
-            let type_errors = mist_viper_backend::gen::viper_file::accumulated::<
-                mist_core::TypeCheckErrors,
-            >(&db, program);
+            let type_errors =
+                mir::lower_program::accumulated::<mist_core::TypeCheckErrors>(&db, program);
+            let mir_errors = mir::lower_program::accumulated::<mir::MirErrors>(&db, program);
+            let viper_errors =
+                if parse_errors.is_empty() && type_errors.is_empty() && mir_errors.is_empty() {
+                    mist_viper_backend::gen::viper_file::accumulated::<
+                        mist_viper_backend::lower::ViperLowerErrors,
+                    >(&db, program)
+                } else {
+                    vec![]
+                };
 
             let errors = itertools::chain!(
                 parse_errors.iter().cloned().map(miette::Error::new),
                 type_errors.into_iter().map(miette::Error::new),
+                mir_errors.into_iter().map(miette::Error::new),
+                viper_errors.into_iter().map(miette::Error::new),
             )
             .collect_vec();
 
@@ -139,13 +148,17 @@ async fn cli() -> Result<()> {
                 bail!("failed due to {} previous errors", num_errors);
             }
 
+            let (viper_program, viper_body, viper_source_map) =
+                mist_viper_backend::gen::viper_file(&db, program)?;
+            let viper_output = ViperOutput::generate(&viper_body, &viper_program);
+            let viper_src = &viper_output.buf;
+
             let mut viper_file = tempfile::Builder::new()
                 .suffix(".vpr")
                 .tempfile_in("./")
                 .into_diagnostic()?;
             write!(viper_file, "{viper_src}").into_diagnostic()?;
 
-            dbg!(&viper_file);
             viper_file.flush().into_diagnostic()?;
 
             info!("Starting verification...");
@@ -184,9 +197,17 @@ async fn cli() -> Result<()> {
                     }
                     Vs::InvalidArgsReport { .. } => eprintln!("? {status:?}"),
                     Vs::AstConstructionResult { details, .. } => {
-                        let src = viper_src.to_string();
                         let viper_file = viper_file.path().canonicalize().into_diagnostic()?;
-                        let errors = details_to_miette(viper_file.as_path(), &src, details);
+                        let errors = details_to_miette(
+                            &db,
+                            &program,
+                            &file,
+                            viper_file.as_path(),
+                            &src,
+                            details,
+                            &viper_source_map,
+                            &viper_output,
+                        );
                         for err in errors {
                             eprintln!("{err:?}");
                             num_errors += 1;
@@ -198,9 +219,17 @@ async fn cli() -> Result<()> {
                     Vs::ExceptionReport { .. } => eprintln!("? {status:?}"),
                     Vs::ConfigurationConfirmation { .. } => {}
                     Vs::VerificationResult { details, .. } => {
-                        let src = viper_src.to_string();
                         let viper_file = viper_file.path().canonicalize().into_diagnostic()?;
-                        let errors = details_to_miette(viper_file.as_path(), &src, details);
+                        let errors = details_to_miette(
+                            &db,
+                            &program,
+                            &file,
+                            viper_file.as_path(),
+                            &src,
+                            details,
+                            &viper_source_map,
+                            &viper_output,
+                        );
                         for err in errors {
                             eprintln!("{err:?}");
                             num_errors += 1;
@@ -222,19 +251,72 @@ async fn cli() -> Result<()> {
 }
 
 fn details_to_miette<'a>(
-    path: &'a std::path::Path,
+    db: &'a dyn crate::Db,
+    program: &'a hir::Program,
+    src_path: &'a std::path::Path,
+    viper_path: &'a std::path::Path,
     src: &'a str,
     details: &'a Details,
+    viper_source_map: &'a ViperSourceMap,
+    viper_output: &'a ViperOutput,
 ) -> impl Iterator<Item = miette::Error> + 'a {
     details.result.iter().flat_map(|result| {
         result.errors.iter().flat_map(|err| {
             let text = err
                 .text
-                .split_once(path.file_name().unwrap().to_str().unwrap())
+                .split_once(viper_path.file_name().unwrap().to_str().unwrap())
                 .unwrap()
                 .0
                 .trim_end_matches(" (");
             if let Some(pos) = err.position.inner() {
+                let viper_span = viper_position_to_internal(&viper_output.buf, pos)
+                    .unwrap_or_else(|| SourceSpan::new_start_end(0, 0));
+                let source_span = if let Some(back) = viper_output
+                    .expr_map_back
+                    .iter()
+                    .sorted_by_key(|(span, _)| *span)
+                    .find(|(span, _)| span.overlaps(viper_span))
+                {
+                    if let Some(&(item_id, back)) = viper_source_map.inst_expr_back.get(*back.1) {
+                        let item = hir::item(db, *program, item_id).unwrap();
+                        let (cx, source_map) =
+                            hir::item_lower(db, *program, item_id, item).unwrap();
+                        let (_mir, mir_source_map) = mir::lower_item(db, cx);
+                        if let Some(back) = mir_source_map.expr_instr_map_back.get(back) {
+                            Some(source_map.expr_span(*back))
+                        } else {
+                            warn!("no span was registered instruction for {:?}", back);
+                            None
+                        }
+                    } else if let Some(back) = viper_source_map.block_expr_back.get(*back.1) {
+                        todo!("{back:?}")
+                    } else {
+                        warn!("no span was registered for {:?}", back.1);
+                        None
+                    }
+                } else {
+                    eprintln!(
+                        "{}",
+                        viper_output
+                            .expr_map_back
+                            .keys()
+                            .sorted()
+                            .map(|span| {
+                                let start =
+                                    Position::from_byte_offset(&viper_output.buf, span.offset());
+                                let end = Position::from_byte_offset(&viper_output.buf, span.end());
+                                format!("{start}..{end}")
+                            })
+                            .format(", ")
+                    );
+                    warn!(
+                        "unable to backtrace {}..{}. options above",
+                        Position::from_byte_offset(&viper_output.buf, viper_span.offset()),
+                        Position::from_byte_offset(&viper_output.buf, viper_span.end())
+                    );
+                    None
+                };
+
                 #[derive(Debug, thiserror::Error, miette::Diagnostic)]
                 #[error("{error}")]
                 struct AdHoc {
@@ -243,16 +325,29 @@ fn details_to_miette<'a>(
                     span: SourceSpan,
                 }
 
-                Some(
-                    miette::Error::new(AdHoc {
-                        error: text.to_string(),
-                        span: viper_position_to_internal(src, pos).unwrap(),
-                    })
-                    .with_source_code(miette::NamedSource::new(
-                        path.display().to_string(),
-                        src.to_string(),
-                    )),
-                )
+                if let Some(source_span) = source_span {
+                    Some(
+                        miette::Error::new(AdHoc {
+                            error: text.to_string(),
+                            span: source_span,
+                        })
+                        .with_source_code(miette::NamedSource::new(
+                            src_path.display().to_string(),
+                            src.to_string(),
+                        )),
+                    )
+                } else {
+                    Some(
+                        miette::Error::new(AdHoc {
+                            error: text.to_string(),
+                            span: viper_span,
+                        })
+                        .with_source_code(miette::NamedSource::new(
+                            viper_path.display().to_string(),
+                            viper_output.buf.to_string(),
+                        )),
+                    )
+                }
             } else {
                 eprintln!("{err:?}");
                 None

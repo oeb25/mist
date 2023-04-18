@@ -2,15 +2,20 @@ pub mod analysis;
 mod lower;
 pub mod serialize;
 
-use std::collections::HashMap;
-
 use derive_more::Display;
 use derive_new::new;
+use itertools::Either;
 use la_arena::{Arena, ArenaMap, Idx};
-use mist_syntax::ast::operators::{BinaryOp, UnaryOp};
+use miette::Diagnostic;
+use mist_syntax::{
+    ast::operators::{BinaryOp, UnaryOp},
+    SourceSpan,
+};
 use tracing::debug;
 
-use crate::hir::{AssertionKind, ExprIdx, Field, Literal, Quantifier, Struct, VariableIdx};
+use crate::hir::{
+    self, AssertionKind, ExprIdx, Field, Literal, Quantifier, Struct, Type, VariableIdx,
+};
 
 pub use self::lower::{lower_item, lower_program};
 
@@ -43,6 +48,8 @@ impl Block {
 pub enum Terminator {
     Return,
     Goto(BlockId),
+    Quantify(Quantifier, Vec<SlotId>, BlockId),
+    QuantifyEnd(BlockId),
     Switch(Operand, SwitchTargets),
     Call {
         func: FunctionId,
@@ -58,6 +65,8 @@ impl Terminator {
         match self {
             Terminator::Return => None,
             Terminator::Goto(t) => Some(std::mem::replace(t, bid)),
+            Terminator::Quantify(_, _, t) => Some(std::mem::replace(t, bid)),
+            Terminator::QuantifyEnd(t) => Some(std::mem::replace(t, bid)),
             Terminator::Switch(_, _) => {
                 // TODO
                 None
@@ -69,6 +78,8 @@ impl Terminator {
         match self {
             Terminator::Return => vec![],
             Terminator::Goto(b) => vec![*b],
+            Terminator::Quantify(_, _, b) => vec![*b],
+            Terminator::QuantifyEnd(b) => vec![*b],
             Terminator::Switch(_, switch) => switch.targets.values().copied().collect(),
             Terminator::Call { target, .. } => target.iter().copied().collect(),
         }
@@ -103,17 +114,17 @@ impl SwitchTargets {
             self.otherwise,
         )
     }
+
+    pub fn has_values(&self) -> bool {
+        !self.values.is_empty()
+    }
 }
 
 pub type InstructionId = Idx<Instruction>;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Instruction {
     Assign(SlotId, MExpr),
-    // If(SlotId, BlockId, BlockId),
-    // While(SlotId, Vec<BlockId>, BlockId),
     Assertion(AssertionKind, SlotId),
-    // Call(FunctionId, Vec<SlotId>),
-    // Return,
 }
 
 pub type SlotId = Idx<Slot>;
@@ -156,7 +167,6 @@ pub enum MExpr {
     Field(SlotId, Field),
     Struct(Struct, Vec<(Field, SlotId)>),
     Slot(SlotId),
-    Quantifier(SlotId, Quantifier, Vec<SlotId>, BlockId),
     BinaryOp(BinaryOp, Operand, Operand),
     UnaryOp(UnaryOp, Operand),
 }
@@ -172,9 +182,6 @@ impl MExpr {
                 fields.iter().map(|(f, s)| (f.clone(), map(*s))).collect(),
             ),
             MExpr::Slot(s) => MExpr::Slot(map(*s)),
-            MExpr::Quantifier(t, q, params, b) => {
-                MExpr::Quantifier(map(*t), *q, params.iter().copied().map(map).collect(), *b)
-            }
             MExpr::BinaryOp(op, l, r) => MExpr::BinaryOp(*op, map(*l), map(*r)),
             MExpr::UnaryOp(op, o) => MExpr::UnaryOp(*op, map(*o)),
         }
@@ -188,7 +195,6 @@ impl MExpr {
             | MExpr::Field(_, _)
             | MExpr::Struct(_, _)
             | MExpr::Slot(_)
-            | MExpr::Quantifier(_, _, _, _)
             | MExpr::BinaryOp(_, _, _)
             | MExpr::UnaryOp(_, _) => false,
         }
@@ -230,26 +236,45 @@ pub enum RangeKind {
     Full,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+#[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Body {
+    item_id: hir::ItemId,
+
+    #[new(default)]
     blocks: Arena<Block>,
+    #[new(default)]
     instructions: Arena<Instruction>,
+    #[new(default)]
     slots: Arena<Slot>,
+    #[new(default)]
     functions: Arena<Function>,
 
+    #[new(default)]
+    params: Vec<SlotId>,
+
+    #[new(default)]
+    slot_type: ArenaMap<SlotId, Type>,
+
+    #[new(default)]
     requires: Vec<BlockId>,
+    #[new(default)]
     ensures: Vec<BlockId>,
+    #[new(default)]
     invariants: Vec<BlockId>,
 
+    #[new(default)]
     result_slot: Option<SlotId>,
+    #[new(default)]
     body_block: Option<BlockId>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct BodySourceMap {
-    expr_instr_map: ArenaMap<ExprIdx, Vec<InstructionId>>,
-    expr_block_map: ArenaMap<ExprIdx, BlockId>,
-    var_map: HashMap<VariableIdx, SlotId>,
+    pub expr_instr_map: ArenaMap<ExprIdx, Vec<InstructionId>>,
+    pub expr_instr_map_back: ArenaMap<InstructionId, ExprIdx>,
+    pub expr_block_map: ArenaMap<ExprIdx, BlockId>,
+    pub expr_block_map_back: ArenaMap<BlockId, ExprIdx>,
+    pub var_map: ArenaMap<VariableIdx, SlotId>,
 }
 
 impl Body {
@@ -271,6 +296,63 @@ impl Body {
 
     pub fn invariants(&self) -> &[Idx<Block>] {
         self.invariants.as_ref()
+    }
+
+    pub fn assignments_to(&self, x: SlotId) -> impl Iterator<Item = InstructionId> + '_ {
+        self.instructions
+            .iter()
+            .filter_map(move |(id, inst)| match inst {
+                Instruction::Assign(y, _) if x == *y => Some(id),
+                _ => None,
+            })
+    }
+    pub fn reference_to(
+        &self,
+        x: SlotId,
+    ) -> impl Iterator<Item = Either<InstructionId, &Terminator>> + '_ {
+        self.instructions
+            .iter()
+            .filter_map(move |(id, inst)| match inst {
+                Instruction::Assign(_, e) if e.all_slot_usages().into_iter().any(|y| x == y) => {
+                    Some(id)
+                }
+                Instruction::Assertion(_, y) if x == *y => Some(id),
+                _ => None,
+            })
+            .map(Either::Left)
+            .chain(
+                self.blocks
+                    .iter()
+                    .filter_map(move |(_, b)| {
+                        let term = b.terminator()?;
+                        match term {
+                            Terminator::Quantify(_, over, _) => over.contains(&x).then_some(term),
+                            Terminator::Switch(op, _) => (x == *op).then_some(term),
+                            Terminator::Call { args, .. } => args.contains(&x).then_some(term),
+
+                            Terminator::Return
+                            | Terminator::Goto(_)
+                            | Terminator::QuantifyEnd(_) => None,
+                        }
+                    })
+                    .map(Either::Right),
+            )
+    }
+
+    pub fn params(&self) -> &[SlotId] {
+        self.params.as_ref()
+    }
+
+    pub fn slot_ty(&self, slot: SlotId) -> hir::Type {
+        self.slot_type[slot]
+    }
+
+    pub fn slots(&self) -> impl Iterator<Item = SlotId> + '_ {
+        self.slots.iter().map(|(id, _)| id)
+    }
+
+    pub fn item_id(&self) -> hir::ItemId {
+        self.item_id
     }
 }
 
@@ -328,5 +410,40 @@ impl std::ops::Index<&'_ FunctionId> for Body {
 
     fn index(&self, index: &'_ FunctionId) -> &Self::Output {
         &self.functions[*index]
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Diagnostic)]
+pub enum MirError {
+    #[error("not yet implemented: {_0}")]
+    NotYetImplemented(String),
+    #[error("variable used before its slot was allocated")]
+    SlotUseBeforeAlloc {
+        var: VariableIdx,
+        #[label]
+        span: Option<SourceSpan>,
+    },
+    #[error("result seen in function without return slot set")]
+    ResultWithoutReturnSlot {
+        expr: hir::ExprIdx,
+        #[label]
+        span: Option<SourceSpan>,
+    },
+}
+
+#[salsa::accumulator]
+pub struct MirErrors(MirError);
+
+impl MirError {
+    pub fn populate_spans(&mut self, cx: &hir::ItemContext, source_map: &hir::ItemSourceMap) {
+        match self {
+            MirError::NotYetImplemented(_) => {}
+            MirError::SlotUseBeforeAlloc { var, span } => {
+                *span = Some(cx.var_span(*var));
+            }
+            MirError::ResultWithoutReturnSlot { expr, span } => {
+                *span = Some(source_map.expr_span(*expr))
+            }
+        }
     }
 }

@@ -166,6 +166,14 @@ pub mod cfg {
                 if let Some(term) = b.terminator.clone() {
                     match &term {
                         Terminator::Return => {}
+                        Terminator::Quantify(_, _, next) => {
+                            let next_nid = self.cfg.bid_to_node(*next);
+                            self.cfg.graph.add_edge(nid, next_nid, term);
+                        }
+                        Terminator::QuantifyEnd(next) => {
+                            let next_nid = self.cfg.bid_to_node(*next);
+                            self.cfg.graph.add_edge(nid, next_nid, term);
+                        }
                         Terminator::Goto(next) => {
                             let next_nid = self.cfg.bid_to_node(*next);
                             self.cfg.graph.add_edge(nid, next_nid, term);
@@ -275,7 +283,7 @@ impl MExpr {
             MExpr::Struct(_, fields) => fields.iter().map(|f| f.1).collect(),
             MExpr::Slot(s) => vec![*s],
             // TODO
-            MExpr::Quantifier(_, _, _, _) => vec![],
+            // MExpr::Quantifier(_, _, _, _) => vec![],
             MExpr::BinaryOp(_, l, r) => vec![*l, *r],
             MExpr::UnaryOp(_, o) => vec![*o],
         }

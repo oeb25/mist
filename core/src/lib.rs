@@ -16,6 +16,7 @@ pub use typecheck::{
 pub struct Jar(
     crate::hir::SourceProgram,
     crate::hir::Program,
+    crate::hir::ItemId,
     crate::hir::Function,
     crate::hir::Struct,
     crate::hir::TypeInvariant,
@@ -31,6 +32,8 @@ pub struct Jar(
     crate::hir::find_type,
     crate::hir::find_named_type,
     crate::typecheck::TypeCheckErrors,
+    crate::mir::MirErrors,
+    crate::mir::lower_program,
 );
 
 pub trait Db: salsa::DbWithJar<Jar> {}

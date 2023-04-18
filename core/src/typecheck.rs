@@ -17,7 +17,7 @@ use thiserror::Error;
 
 use crate::hir::{
     self, AssertionKind, Block, Condition, Decreases, Else, Expr, ExprData, ExprIdx, Field,
-    FieldParent, Ident, IfExpr, Literal, Param, ParamList, Primitive, Program, Quantifier,
+    FieldParent, Ident, IfExpr, ItemId, Literal, Param, ParamList, Primitive, Program, Quantifier,
     Statement, StatementData, StructExprField, Type, TypeData, Variable, VariableId, VariableIdx,
     VariableRef,
 };
@@ -65,15 +65,24 @@ impl Spanned for &'_ VariableDeclaration {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+#[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ItemContext {
+    item_id: ItemId,
+    #[new(default)]
     function_context: Option<FunctionContext>,
+    #[new(default)]
     declarations: Trace<Variable, VariableDeclaration>,
+    #[new(default)]
     types: ArenaMap<VariableIdx, Type>,
+    #[new(default)]
     expr_arena: Arena<Expr>,
 
+    #[new(default)]
     params: ParamList<VariableIdx>,
+    #[new(default)]
     body_expr: Option<ExprIdx>,
+    #[new(default)]
+    return_ty: Option<Type>,
 }
 
 impl std::ops::Index<ExprIdx> for ItemContext {
@@ -91,6 +100,9 @@ impl std::ops::Index<VariableIdx> for ItemContext {
     }
 }
 impl ItemContext {
+    pub fn item_id(&self) -> ItemId {
+        self.item_id
+    }
     pub fn function_context(&self) -> Option<&FunctionContext> {
         self.function_context.as_ref()
     }
@@ -103,6 +115,9 @@ impl ItemContext {
     pub fn params(&self) -> &ParamList<VariableIdx> {
         &self.params
     }
+    pub fn return_ty(&self) -> Option<Type> {
+        self.return_ty
+    }
     pub fn body_expr(&self) -> Option<ExprIdx> {
         self.body_expr
     }
@@ -111,6 +126,9 @@ impl ItemContext {
     }
     pub fn expr(&self, expr: ExprIdx) -> &Expr {
         &self.expr_arena[expr]
+    }
+    pub fn expr_ty(&self, expr: ExprIdx) -> Type {
+        self.expr_arena[expr].ty
     }
     pub fn var(&self, var: impl Into<VariableIdx>) -> Variable {
         self.declarations.arena[var.into()]
@@ -294,6 +312,7 @@ impl<'a> TypeCheckExpr<'a> {
     pub(crate) fn init(
         db: &'a dyn crate::Db,
         program: Program,
+        id: ItemId,
         function: Option<hir::Function>,
     ) -> Self {
         let mut checker = Self {
@@ -303,7 +322,7 @@ impl<'a> TypeCheckExpr<'a> {
             scope: Default::default(),
             scope_stack: vec![],
             source_map: Default::default(),
-            item: Default::default(),
+            item: ItemContext::new(id),
         };
 
         let is_ghost = if let Some(f) = function {
@@ -316,8 +335,8 @@ impl<'a> TypeCheckExpr<'a> {
             checker = checker.ghosted();
         }
 
-        for item in program.items(db) {
-            let f = match hir::item(db, program, item.clone()) {
+        for &item_id in program.items(db) {
+            let f = match hir::item(db, program, item_id) {
                 Some(hir::Item::Function(f)) => f,
                 _ => continue,
             };
@@ -413,8 +432,8 @@ impl<'a> TypeCheckExpr<'a> {
         );
         self.item.body_expr = Some(idx);
     }
-    pub fn set_body_expr(&mut self, body_expr: ExprIdx) {
-        self.item.body_expr = Some(body_expr);
+    pub fn set_return_ty(&mut self, ty: Type) {
+        self.item.return_ty = Some(ty);
     }
 
     pub fn ghosted(mut self) -> Self {

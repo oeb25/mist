@@ -227,7 +227,14 @@ impl Serializer<'_> {
                 }
                 w!(self, Default, " }}");
             }
-            MExpr::Quantifier(_, _, _, _) => todo!(),
+            // MExpr::Quantifier(_, q, args, body) => {
+            //     w!(self, Default, "{q} (");
+            //     for arg in args {
+            //         self.slot(*arg);
+            //     }
+            //     w!(self, Default, ") ");
+            //     self.block_id(Some(*body));
+            // }
             MExpr::BinaryOp(op, l, r) => {
                 w!(self, Default, "({op} ");
                 self.slot(*l);
@@ -265,6 +272,20 @@ impl Serializer<'_> {
             Terminator::Return => wln!(self, Default, "!return"),
             Terminator::Goto(b) => {
                 w!(self, Yellow, "!goto ");
+                self.block_id(Some(*b));
+                wln!(self, Default, "");
+            }
+            Terminator::Quantify(q, over, b) => {
+                w!(self, Yellow, "!{q} ");
+                for s in over {
+                    self.slot(*s);
+                }
+                w!(self, Default, " :: ");
+                self.block_id(Some(*b));
+                wln!(self, Default, "");
+            }
+            Terminator::QuantifyEnd(b) => {
+                w!(self, Yellow, ":quatifier-end ");
                 self.block_id(Some(*b));
                 wln!(self, Default, "");
             }

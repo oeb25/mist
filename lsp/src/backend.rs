@@ -8,7 +8,6 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::request::{GotoDeclarationParams, GotoDeclarationResponse};
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
-use tracing::debug;
 
 use crate::highlighting::{TokenModifier, TokenType};
 use crate::hover::HoverElement;

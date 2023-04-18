@@ -46,96 +46,60 @@
 //!       potentially perform an assignment, in which case we must introduce
 //!       a `let-in` expression, wrapping the tail of the fold.
 
-use mist_core::mir::analysis::cfg::{self, Cfg};
+use mist_core::{hir, mir};
+use silvers::expression::{Exp, QuantifierExp};
 
-use super::*;
+use crate::gen::{VExpr, VExprId};
 
-#[derive(Debug)]
-pub struct PureLower<'a> {
-    cx: &'a hir::ItemContext,
-    body: &'a mir::Body,
-    viper_body: &'a mut ViperBody,
-    source_map: &'a mut ViperSourceMap,
-    cfg: cfg::Cfg,
-    postdominance_frontier: cfg::PostdominanceFrontier,
-    postdominators: cfg::Postdominators,
-    var_refs: ArenaMap<mir::SlotId, VExprId>,
-    times_referenced: ArenaMap<mir::SlotId, usize>,
-    inlined: ArenaMap<VExprId, VExprId>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, derive_more::From)]
-enum BlockOrInstruction {
-    Block(mir::BlockId),
-    Instruction(mir::InstructionId),
-}
+use super::{BlockOrInstruction, BodyLower, ViperLowerError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LowerResult {
-    UnassignedExpression(VExprId, mir::SlotId),
-    Empty,
+pub(super) enum PureLowerResult {
+    UnassignedExpression(VExprId, mir::SlotId, Option<mir::BlockId>),
+    Empty {
+        stopped_before: Option<mir::BlockId>,
+    },
 }
-impl LowerResult {
+impl PureLowerResult {
     fn wrap_in_assignment(
         self,
-        lower: &mut PureLower<'_>,
+        lower: &mut BodyLower<'_>,
         source: impl Into<BlockOrInstruction>,
-        x: SlotId,
-        exp: Idx<VExpr>,
-    ) -> Result<LowerResult, ViperLowerError> {
+        x: mir::SlotId,
+        exp: VExprId,
+    ) -> Result<PureLowerResult, ViperLowerError> {
         match self {
-            LowerResult::UnassignedExpression(body, target) => {
-                let inline = match &*lower.viper_body[exp] {
-                    _ if lower.times_referenced.get(x) < Some(&2) => true,
-                    Exp::Literal(_) | Exp::AbstractLocalVar(_) => true,
-                    _ => false,
-                };
-                if inline {
-                    let r = lower.slot_to_ref(x);
+            PureLowerResult::UnassignedExpression(body, target, stopped_before) => {
+                if lower.can_inline(x, exp) {
+                    let r = lower.slot_to_ref(source, x);
                     lower.inlined.insert(r, exp);
                     Ok(self)
                 } else {
                     let variable = lower.slot_to_decl(x);
-                    Ok(LowerResult::UnassignedExpression(
+                    Ok(PureLowerResult::UnassignedExpression(
                         lower.alloc(source, VExpr::new(Exp::new_let(variable, exp, body))),
                         target,
+                        stopped_before,
                     ))
                 }
             }
-            LowerResult::Empty => Ok(LowerResult::UnassignedExpression(exp, x)),
+            PureLowerResult::Empty { stopped_before } => Ok(PureLowerResult::UnassignedExpression(
+                exp,
+                x,
+                stopped_before,
+            )),
         }
     }
 }
 
-impl<'a> PureLower<'a> {
-    pub fn new(
-        cx: &'a hir::ItemContext,
-        body: &'a mir::Body,
-        viper_body: &'a mut ViperBody,
-        source_map: &'a mut ViperSourceMap,
-    ) -> Self {
-        let cfg = Cfg::compute(body);
-        Self {
-            cx,
-            body,
-            viper_body,
-            source_map,
-            cfg,
-            postdominance_frontier: Default::default(),
-            postdominators: Default::default(),
-            var_refs: Default::default(),
-            times_referenced: Default::default(),
-            inlined: Default::default(),
-        }
-    }
-
-    pub fn lower(&mut self, entry: mir::BlockId) -> Result<VExprId, ViperLowerError> {
+impl BodyLower<'_> {
+    pub fn pure_lower(&mut self, entry: mir::BlockId) -> Result<VExprId, ViperLowerError> {
         self.postdominance_frontier = self.cfg.postdominance_frontier(entry);
         self.postdominators = self.cfg.postdominators(entry);
-        self.final_block(entry)
+        self.pure_final_block(entry)
     }
 
-    pub fn finish(self) {
+    pub fn pure_finish(self) {
         let mut inlines = vec![];
         for (original_id, _) in self.viper_body.arena.iter() {
             let mut id = original_id;
@@ -153,7 +117,7 @@ impl<'a> PureLower<'a> {
 }
 
 // Perform all inlining when dropping the lowerer
-impl<'a> Drop for PureLower<'a> {
+impl<'a> Drop for BodyLower<'a> {
     fn drop(&mut self) {
         let mut inlines = vec![];
         for (original_id, _) in self.viper_body.arena.iter() {
@@ -171,23 +135,12 @@ impl<'a> Drop for PureLower<'a> {
     }
 }
 
-impl PureLower<'_> {
-    fn alloc(&mut self, source: impl Into<BlockOrInstruction>, vexpr: VExpr) -> VExprId {
-        let id = self.viper_body.arena.alloc(vexpr);
-        match source.into() {
-            BlockOrInstruction::Block(_) => {}
-            BlockOrInstruction::Instruction(inst_id) => {
-                self.source_map.inst_expr.insert(inst_id, id);
-                self.source_map.inst_expr_back.insert(id, inst_id);
-            }
-        }
-        id
-    }
-    fn block(
+impl BodyLower<'_> {
+    pub(super) fn pure_block(
         &mut self,
         block: mir::BlockId,
         d: Option<mir::BlockId>,
-    ) -> Result<LowerResult, ViperLowerError> {
+    ) -> Result<PureLowerResult, ViperLowerError> {
         if Some(block) == d {
             todo!();
         }
@@ -199,25 +152,60 @@ impl PureLower<'_> {
                         "return terminator".to_string(),
                     ))
                 }
+                mir::Terminator::Quantify(q, over, next) => match self.pure_block(*next, None)? {
+                    PureLowerResult::UnassignedExpression(exp, _slot, stopped_before) => {
+                        let variables = over.iter().map(|s| self.slot_to_decl(*s)).collect();
+                        let triggers = vec![];
+
+                        PureLowerResult::UnassignedExpression(
+                            self.alloc(
+                                block,
+                                VExpr::new(Exp::new_quantifier(match q {
+                                    hir::Quantifier::Forall => QuantifierExp::Forall {
+                                        variables,
+                                        triggers,
+                                        exp,
+                                    },
+                                    hir::Quantifier::Exists => QuantifierExp::Exists {
+                                        variables,
+                                        triggers,
+                                        exp,
+                                    },
+                                })),
+                            ),
+                            // TODO
+                            self.body.result_slot().unwrap(),
+                            stopped_before,
+                        )
+                    }
+                    PureLowerResult::Empty { .. } => todo!(),
+                },
+                mir::Terminator::QuantifyEnd(next) => PureLowerResult::Empty {
+                    stopped_before: Some(*next),
+                },
                 &mir::Terminator::Goto(next) => {
                     if let Some(d) = d {
                         if self.postdominance_frontier[next].contains(&d) {
-                            self.block(next, Some(d))?
+                            self.pure_block(next, Some(d))?
                         } else {
-                            LowerResult::Empty
+                            PureLowerResult::Empty {
+                                stopped_before: Some(next),
+                            }
                         }
                     } else {
-                        self.block(next, None)?
+                        self.pure_block(next, None)?
                     }
                 }
                 mir::Terminator::Switch(test, switch) => {
+                    let next = self.postdominators[block];
+
                     let (mut values, otherwise) = switch.values();
-                    let otherwise = self.block(otherwise, Some(block))?;
+                    let otherwise = self.pure_block(otherwise, Some(block))?;
                     let cont = values.try_fold(otherwise, |els, (value, target)| {
-                        match (els, self.block(target, Some(block))?) {
+                        match (els, self.pure_block(target, Some(block))?) {
                             (
-                                LowerResult::UnassignedExpression(els, els_slot),
-                                LowerResult::UnassignedExpression(thn, thn_slot),
+                                PureLowerResult::UnassignedExpression(els, els_slot, _),
+                                PureLowerResult::UnassignedExpression(thn, thn_slot, _),
                             ) => {
                                 if thn_slot != els_slot {
                                     return Err(ViperLowerError::NotYetImplemented(
@@ -225,32 +213,37 @@ impl PureLower<'_> {
                                     ));
                                 }
                                 let cond = match value {
-                                    1 => self.slot_to_ref(*test),
+                                    1 => self.slot_to_ref(block, *test),
                                     _ => todo!(), // Exp::new_bin(BinOp::EqCmp, test, value)
                                 };
-                                Ok(LowerResult::UnassignedExpression(
+                                Ok(PureLowerResult::UnassignedExpression(
                                     self.alloc(block, VExpr::new(Exp::new_cond(cond, thn, els))),
                                     thn_slot,
+                                    Some(next),
                                 ))
                             }
                             (
-                                LowerResult::UnassignedExpression(els, els_slot),
-                                LowerResult::Empty,
-                            ) => Ok(LowerResult::UnassignedExpression(els, els_slot)),
-                            (LowerResult::Empty, _) => Err(ViperLowerError::NotYetImplemented(
-                                "divergent branches".to_string(),
+                                PureLowerResult::UnassignedExpression(els, els_slot, _),
+                                PureLowerResult::Empty { .. },
+                            ) => Ok(PureLowerResult::UnassignedExpression(
+                                els,
+                                els_slot,
+                                Some(next),
                             )),
+                            (PureLowerResult::Empty { .. }, _) => {
+                                Err(ViperLowerError::NotYetImplemented(
+                                    "divergent branches".to_string(),
+                                ))
+                            }
                         }
                     })?;
 
                     let (exp, slot) = match cont {
-                        LowerResult::UnassignedExpression(exp, slot) => (exp, slot),
-                        LowerResult::Empty => todo!(),
+                        PureLowerResult::UnassignedExpression(exp, slot, _) => (exp, slot),
+                        PureLowerResult::Empty { .. } => todo!(),
                     };
 
-                    let next = self.postdominators[block];
-
-                    self.conditional_continue(d, next, block, slot, exp)?
+                    self.conditional_continue(d, next, block, slot, exp, next)?
                 }
                 mir::Terminator::Call {
                     func,
@@ -258,17 +251,26 @@ impl PureLower<'_> {
                     destination,
                     target,
                 } => {
-                    let f = self.function(*func, args)?;
+                    let f = self.function(block, *func, args)?;
                     let f_application = self.alloc(block, VExpr::new(f));
 
                     if let Some(target) = *target {
-                        self.conditional_continue(d, target, block, *destination, f_application)?
+                        self.conditional_continue(
+                            d,
+                            target,
+                            block,
+                            *destination,
+                            f_application,
+                            target,
+                        )?
                     } else {
                         todo!()
                     }
                 }
             },
-            None => LowerResult::Empty,
+            None => PureLowerResult::Empty {
+                stopped_before: None,
+            },
         };
 
         self.body[block]
@@ -292,166 +294,27 @@ impl PureLower<'_> {
         next: mir::BlockId,
         block: mir::BlockId,
         slot: mir::SlotId,
-        exp: Idx<VExpr>,
-    ) -> Result<LowerResult, ViperLowerError> {
+        exp: VExprId,
+        stopped_before: mir::BlockId,
+    ) -> Result<PureLowerResult, ViperLowerError> {
         Ok(if let Some(d) = d {
             if self.postdominance_frontier[next].contains(&d) {
-                self.block(next, Some(d))?
+                self.pure_block(next, Some(d))?
                     .wrap_in_assignment(self, block, slot, exp)?
             } else {
-                LowerResult::UnassignedExpression(exp, slot)
+                PureLowerResult::UnassignedExpression(exp, slot, Some(stopped_before))
             }
         } else {
-            self.block(next, None)?
+            self.pure_block(next, None)?
                 .wrap_in_assignment(self, block, slot, exp)?
         })
     }
 
-    fn slot_to_decl(&self, x: mir::SlotId) -> LocalVarDecl {
-        let var = self.slot_to_var(x);
-        LocalVarDecl {
-            name: var.name,
-            typ: var.typ,
-        }
-    }
-    fn slot_to_var(&self, x: mir::SlotId) -> LocalVar {
-        LocalVar {
-            name: format!("_{}", x.into_raw()),
-            typ: VTy::int(),
-        }
-    }
-    fn slot_to_ref(&mut self, s: mir::SlotId) -> VExprId {
-        *self.times_referenced.entry(s).or_default() += 1;
-        let var = self.slot_to_var(s);
-        *self.var_refs.entry(s).or_insert_with(|| {
-            let exp = match &self.body[s] {
-                mir::Slot::Temp | mir::Slot::Var(_) => {
-                    Exp::AbstractLocalVar(AbstractLocalVar::LocalVar(var))
-                }
-                mir::Slot::Literal(l) => lower_lit(l),
-                mir::Slot::Result => Exp::AbstractLocalVar(AbstractLocalVar::Result {
-                    typ: VTy::internal_type(),
-                }),
-            };
-
-            self.viper_body.arena.alloc(VExpr::new(exp))
-        })
-    }
-
-    fn expr(
-        &mut self,
-        inst: mir::InstructionId,
-        e: &mir::MExpr,
-    ) -> Result<VExprId, ViperLowerError> {
-        let exp = match e {
-            mir::MExpr::Literal(l) => lower_lit(l),
-            mir::MExpr::Call(fid, args) => self.function(*fid, args)?,
-            mir::MExpr::Field(rcr, f) => match &f.parent {
-                hir::FieldParent::Struct(_) => {
-                    return Err(ViperLowerError::NotYetImplemented(format!(
-                        "lower struct field: {f:?}"
-                    )));
-                }
-                hir::FieldParent::List(_) => match f.name.as_str() {
-                    "len" => Exp::Seq(SeqExp::new_length(self.slot_to_ref(*rcr))),
-                    _ => {
-                        return Err(ViperLowerError::NotYetImplemented(format!(
-                            "lower list field: {f:?}"
-                        )));
-                    }
-                },
-            },
-            mir::MExpr::Struct(_, _) => {
-                return Err(ViperLowerError::NotYetImplemented(
-                    "lower struct".to_string(),
-                ));
-            }
-            mir::MExpr::Slot(s) => {
-                let id = self.slot_to_ref(*s);
-                self.source_map.inst_expr.insert(inst, id);
-                self.source_map.inst_expr_back.insert(id, inst);
-                return Ok(id);
-            }
-            mir::MExpr::Quantifier(_q_target, q, params, body) => {
-                let variables = params
-                    .iter()
-                    .map(|param| Ok(self.slot_to_decl(*param)))
-                    .collect::<Result<_, _>>()?;
-                match self.block(*body, None)? {
-                    LowerResult::UnassignedExpression(exp, _target) => {
-                        // TODO: target should be _q_target
-                        let triggers = vec![];
-                        match q {
-                            hir::Quantifier::Forall => Exp::forall(variables, triggers, exp),
-                            hir::Quantifier::Exists => Exp::exists(variables, triggers, exp),
-                        }
-                    }
-                    LowerResult::Empty => todo!(),
-                }
-            }
-            mir::MExpr::BinaryOp(op, l, r) => {
-                let op = lower_binop(op).expect("assignment should have been filtered out by now");
-                let lhs = self.slot_to_ref(*l);
-                let rhs = self.slot_to_ref(*r);
-                Exp::new_bin(op, lhs, rhs)
-            }
-            mir::MExpr::UnaryOp(op, x) => {
-                use mist_syntax::ast::operators::UnaryOp;
-
-                let op = match op {
-                    UnaryOp::Not => UnOp::Not,
-                    UnaryOp::Neg => UnOp::Minus,
-                };
-                let x = self.slot_to_ref(*x);
-                Exp::new_un(op, x)
-            }
-        };
-        Ok(self.alloc(inst, VExpr::new(exp)))
-    }
-
-    fn function(
-        &mut self,
-        fid: mir::FunctionId,
-        args: &[mir::SlotId],
-    ) -> Result<Exp<VExprId>, ViperLowerError> {
-        Ok(match &*self.body[fid] {
-            mir::FunctionData::Named(v) => Exp::new_func_app(
-                self.cx.var_ident(*v).to_string(),
-                args.iter().map(|s| self.slot_to_ref(*s)).collect(),
-            ),
-            mir::FunctionData::Index => {
-                let base = self.slot_to_ref(args[0]);
-                let index = self.slot_to_ref(args[1]);
-                Exp::Seq(SeqExp::new_index(base, index))
-            }
-            mir::FunctionData::RangeIndex => {
-                let base = self.slot_to_ref(args[0]);
-                let index = self.slot_to_ref(args[1]);
-                Exp::new_func_app("range_index".to_string(), vec![base, index])
-            }
-            mir::FunctionData::Range(op) => {
-                let (f, args) = match op {
-                    mir::RangeKind::FromTo => (
-                        "range_from_to",
-                        vec![self.slot_to_ref(args[0]), self.slot_to_ref(args[1])],
-                    ),
-                    mir::RangeKind::From => ("range_from", vec![self.slot_to_ref(args[0])]),
-                    mir::RangeKind::To => ("range_to", vec![self.slot_to_ref(args[0])]),
-                    mir::RangeKind::Full => ("range_full", vec![]),
-                };
-                Exp::new_func_app(f.to_string(), args)
-            }
-            mir::FunctionData::List => Exp::Seq(SeqExp::new_explicit(
-                args.iter().map(|s| self.slot_to_ref(*s)).collect(),
-            )),
-        })
-    }
-
-    fn final_block(&mut self, b: mir::BlockId) -> Result<VExprId, ViperLowerError> {
-        match self.block(b, None)? {
+    fn pure_final_block(&mut self, b: mir::BlockId) -> Result<VExprId, ViperLowerError> {
+        match self.pure_block(b, None)? {
             // TODO: Target should be result
-            LowerResult::UnassignedExpression(exp, _) => Ok(exp),
-            LowerResult::Empty => Err(ViperLowerError::EmptyBody),
+            PureLowerResult::UnassignedExpression(exp, _, _) => Ok(exp),
+            PureLowerResult::Empty { .. } => Err(ViperLowerError::EmptyBody),
         }
     }
 }

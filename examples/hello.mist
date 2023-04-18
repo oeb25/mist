@@ -18,3 +18,12 @@ fn wow() -> int
     } else { y };
     if x > 5 { x } else { -x }
 }
+
+fn reassignment() {
+    let x = 12;
+    if true {
+        x = 10;
+    } else {
+        x = 11;
+    }
+}

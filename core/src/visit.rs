@@ -20,9 +20,9 @@ pub trait Walker<'db>: Sized {
         program: Program,
         visitor: &'v mut V,
     ) -> ControlFlow<V::Item> {
-        for item in program.items(db) {
-            let Some(item) = hir::item(db, program, item.clone()) else { continue };
-            let Some((cx, source_map)) = hir::item_lower(db, program, item) else { continue };
+        for &item_id in program.items(db) {
+            let Some(item) = hir::item(db, program, item_id) else { continue };
+            let Some((cx, source_map)) = hir::item_lower(db, program, item_id, item) else { continue };
             let cx = Arc::new(cx);
             let source_map = Arc::new(source_map);
             let mut walker = Self::init(db, VisitContext { cx, source_map });

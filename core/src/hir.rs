@@ -10,6 +10,7 @@ use mist_syntax::{
     },
     SourceSpan,
 };
+use tracing::debug;
 
 pub use crate::typecheck::{ItemContext, ItemSourceMap};
 use crate::{
@@ -86,21 +87,23 @@ pub fn parse_program(db: &dyn crate::Db, source: SourceProgram) -> Program {
     let items = program
         .items()
         .map(|item| match item {
-            ast::Item::Const(node) => ItemId::Const { ast: node },
-            ast::Item::Fn(node) => ItemId::Fn { ast: node },
-            ast::Item::Struct(node) => ItemId::Struct { ast: node },
-            ast::Item::TypeInvariant(node) => ItemId::TypeInvariant { ast: node },
-            ast::Item::Macro(node) => ItemId::Macro { ast: node },
+            ast::Item::Const(node) => ItemId::new(db, ItemData::Const { ast: node }),
+            ast::Item::Fn(node) => ItemId::new(db, ItemData::Fn { ast: node }),
+            ast::Item::Struct(node) => ItemId::new(db, ItemData::Struct { ast: node }),
+            ast::Item::TypeInvariant(node) => {
+                ItemId::new(db, ItemData::TypeInvariant { ast: node })
+            }
+            ast::Item::Macro(node) => ItemId::new(db, ItemData::Macro { ast: node }),
         })
         .collect();
     Program::new(db, program, items, errors)
 }
 
 #[salsa::tracked]
-pub fn item(db: &dyn crate::Db, program: Program, item: ItemId) -> Option<Item> {
-    match item {
-        ItemId::Const { .. } => None,
-        ItemId::Fn { ast: f } => {
+pub fn item(db: &dyn crate::Db, program: Program, item_id: ItemId) -> Option<Item> {
+    match item_id.data(db) {
+        ItemData::Const { .. } => None,
+        ItemData::Fn { ast: f } => {
             let name = if let Some(name) = f.name() {
                 name
             } else {
@@ -140,23 +143,23 @@ pub fn item(db: &dyn crate::Db, program: Program, item: ItemId) -> Option<Item> 
 
             Some(Item::Function(Function::new(
                 db,
-                f,
+                f.clone(),
                 name.into(),
                 attrs,
                 param_list,
                 ret_ty,
             )))
         }
-        ItemId::Struct { ast: s } => {
+        ItemData::Struct { ast: s } => {
             let name = Ident::from(s.name().unwrap());
-            let data = TypeDeclData::Struct(Struct::new(db, s, name.clone()));
+            let data = TypeDeclData::Struct(Struct::new(db, s.clone(), name.clone()));
             Some(Item::Type(TypeDecl::new(db, name, data)))
         }
-        ItemId::TypeInvariant { ast: i } => {
+        ItemData::TypeInvariant { ast: i } => {
             let name = Ident::from(i.name().unwrap());
-            Some(Item::TypeInvariant(TypeInvariant::new(db, i, name)))
+            Some(Item::TypeInvariant(TypeInvariant::new(db, i.clone(), name)))
         }
-        ItemId::Macro { .. } => None,
+        ItemData::Macro { .. } => None,
     }
 }
 
@@ -164,25 +167,32 @@ pub fn item(db: &dyn crate::Db, program: Program, item: ItemId) -> Option<Item> 
 pub fn item_lower(
     db: &dyn crate::Db,
     program: Program,
+    item_id: ItemId,
     item: Item,
 ) -> Option<(ItemContext, ItemSourceMap)> {
+    let span = tracing::span!(
+        tracing::Level::DEBUG,
+        "hir::item_lower",
+        "{}",
+        item.name(db)
+    );
+    let _enter = span.enter();
+
     match item {
         Item::Type(_) => None,
         Item::TypeInvariant(ty_inv) => {
-            let mut checker = TypeCheckExpr::init(db, program, None);
+            let mut checker = TypeCheckExpr::init(db, program, item_id, None);
             if let Some(ast_body) = ty_inv.node(db).block_expr() {
                 let body = checker.check_block(&ast_body, |f| f);
-                checker.expect_ty(
-                    ty_inv.name(db).span(),
-                    Type::bool(db).ghost(db),
-                    body.return_ty,
-                );
+                let ret = Type::bool(db).ghost(db);
+                checker.expect_ty(ty_inv.name(db).span(), ret, body.return_ty);
+                checker.set_return_ty(ret);
                 checker.set_body_expr_from_block(body, ast_body);
             }
             Some(checker.into())
         }
         Item::Function(function) => {
-            let mut checker = TypeCheckExpr::init(db, program, Some(function));
+            let mut checker = TypeCheckExpr::init(db, program, item_id, Some(function));
             let ast_body = function.syntax(db).body();
             let body = ast_body
                 .as_ref()
@@ -208,6 +218,10 @@ pub fn item_lower(
                     );
                 }
                 checker.set_body_expr_from_block(body, ast_body.unwrap());
+            }
+            if let Some(ret) = function.ret(db) {
+                checker.set_return_ty(ret);
+                debug!("return type set from outside: {ret:?}");
             }
             Some(checker.into())
         }
@@ -240,22 +254,34 @@ pub fn struct_ty(db: &dyn crate::Db, s: Struct, reference_span: SourceSpan) -> T
     Type::new(db, TypeData::Struct(s), Some(reference_span))
 }
 
+#[salsa::interned]
+pub struct ItemId {
+    #[return_ref]
+    pub data: ItemData,
+}
+
+impl ItemId {
+    pub fn name(&self, db: &dyn crate::Db) -> Option<ast::Name> {
+        self.data(db).name()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ItemId {
+pub enum ItemData {
     Const { ast: ast::Const },
     Fn { ast: ast::Fn },
     Struct { ast: ast::Struct },
     TypeInvariant { ast: ast::TypeInvariant },
     Macro { ast: ast::Macro },
 }
-impl ItemId {
+impl ItemData {
     fn name(&self) -> Option<ast::Name> {
         match self {
-            ItemId::Const { ast } => ast.name(),
-            ItemId::Fn { ast } => ast.name(),
-            ItemId::Struct { ast } => ast.name(),
-            ItemId::TypeInvariant { ast } => ast.name(),
-            ItemId::Macro { ast } => ast.name(),
+            ItemData::Const { ast } => ast.name(),
+            ItemData::Fn { ast } => ast.name(),
+            ItemData::Struct { ast } => ast.name(),
+            ItemData::TypeInvariant { ast } => ast.name(),
+            ItemData::Macro { ast } => ast.name(),
         }
     }
 }
@@ -304,18 +330,18 @@ pub struct Function {
 #[salsa::tracked]
 pub fn find_named_type(db: &dyn crate::Db, program: Program, name: Ident) -> Type {
     for item in program.items(db) {
-        let item_name = item.name().map(|n| n.to_string());
+        let item_name = item.name(db).map(|n| n.to_string());
         if item_name.as_deref() == Some(&name) {
-            match item {
-                ItemId::Struct { ast } => {
+            match item.data(db) {
+                ItemData::Struct { ast } => {
                     let item_name = ast.name().unwrap();
                     let s = Struct::new(db, ast.clone(), item_name.into());
                     return struct_ty(db, s, name.span());
                 }
-                ItemId::Const { .. }
-                | ItemId::Fn { .. }
-                | ItemId::TypeInvariant { .. }
-                | ItemId::Macro { .. } => return Type::error(db),
+                ItemData::Const { .. }
+                | ItemData::Fn { .. }
+                | ItemData::TypeInvariant { .. }
+                | ItemData::Macro { .. } => return Type::error(db),
             }
         }
     }
@@ -765,6 +791,13 @@ impl Type {
         match self.data(db) {
             TypeData::Ghost(_) => true,
             // TODO: Should we recurse and check if non of the children are ghost?
+            _ => false,
+        }
+    }
+    pub fn is_void(self, db: &dyn crate::Db) -> bool {
+        match self.data(db) {
+            TypeData::Ghost(inner) => inner.is_void(db),
+            TypeData::Void => true,
             _ => false,
         }
     }
