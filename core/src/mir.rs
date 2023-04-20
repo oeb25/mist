@@ -253,6 +253,8 @@ pub struct Body {
     params: Vec<SlotId>,
 
     #[new(default)]
+    block_invariants: ArenaMap<BlockId, Vec<BlockId>>,
+    #[new(default)]
     slot_type: ArenaMap<SlotId, Type>,
 
     #[new(default)]
@@ -353,6 +355,10 @@ impl Body {
 
     pub fn item_id(&self) -> hir::ItemId {
         self.item_id
+    }
+
+    pub fn block_invariants(&self, block: BlockId) -> &[BlockId] {
+        &self.block_invariants[block]
     }
 }
 

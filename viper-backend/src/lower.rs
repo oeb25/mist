@@ -110,8 +110,8 @@ impl std::ops::Index<VExprId> for ViperBody {
 pub struct ViperSourceMap {
     pub inst_expr: HashMap<(hir::ItemId, mir::InstructionId), VExprId>,
     pub inst_expr_back: ArenaMap<VExprId, (hir::ItemId, mir::InstructionId)>,
-    pub block_expr: ArenaMap<mir::BlockId, VExprId>,
-    pub block_expr_back: ArenaMap<VExprId, mir::BlockId>,
+    pub block_expr: HashMap<(hir::ItemId, mir::BlockId), VExprId>,
+    pub block_expr_back: ArenaMap<VExprId, (hir::ItemId, mir::BlockId)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Diagnostic)]
@@ -185,35 +185,56 @@ impl<'a> BodyLower<'a> {
 
     pub fn lower_type(&mut self, ty: hir::Type) -> ViperType {
         match ty.data(self.db) {
-            hir::TypeData::Error => todo!("lower_type(Error)"),
+            hir::TypeData::Error => {
+                // TODO: Perhaps this should be handeld at a previous stage?
+                VTy::int().into()
+            }
             hir::TypeData::Void => {
                 // TODO: Perhaps this should be handeld at a previous stage?
-                VTy::internal_type().into()
+                // VTy::internal_type().into()
+                VTy::int().into()
             }
             hir::TypeData::Ghost(inner) => {
                 // TODO: Should we do anything special about ghost?
                 self.lower_type(*inner)
             }
-            hir::TypeData::Ref { .. } => todo!("lower_type(Ref)"),
-            hir::TypeData::List(_) => todo!("lower_type(List)"),
+            hir::TypeData::Ref { is_mut, inner } => {
+                // TODO: We should indicate some predicate on the ref
+                ViperType { vty: VTy::ref_() }
+            }
+            hir::TypeData::List(inner) => VTy::Seq {
+                element_type: Box::new(self.lower_type(*inner).vty),
+            }
+            .into(),
             hir::TypeData::Optional(_) => todo!("lower_type(Optional)"),
             hir::TypeData::Primitive(p) => match p {
                 hir::Primitive::Int => VTy::int().into(),
                 hir::Primitive::Bool => VTy::bool().into(),
             },
-            hir::TypeData::Struct(_) => todo!("lower_type(Struct)"),
+            hir::TypeData::Struct(s) => match s.name(self.db).as_str() {
+                "Multiset" => VTy::Multiset {
+                    element_type: Box::new(VTy::int()),
+                }
+                .into(),
+                _ => VTy::ref_().into(),
+            },
             hir::TypeData::Null => todo!("lower_type(Null)"),
             hir::TypeData::Function { .. } => todo!("lower_type(Function)"),
-            hir::TypeData::Range(_) => todo!("lower_type(Range)"),
+            hir::TypeData::Range(inner) => VTy::Domain {
+                domain_name: "Range".to_string(),
+                partial_typ_vars_map: Default::default(),
+            }
+            .into(),
         }
     }
 
     fn can_inline(&self, x: mir::SlotId, exp: VExprId) -> bool {
+        // TODO: This entire thing should be better specified
+        // return false;
+        let n = self.body.reference_to(x).count();
         match &*self.viper_body[exp] {
-            _ if self.body.reference_to(x).count() < 2 && Some(x) != self.body.result_slot() => {
-                true
-            }
-            Exp::Literal(_) => true,
+            _ if n < 2 && Some(x) != self.body.result_slot() => true,
+            // Exp::Literal(_) => true,
             Exp::AbstractLocalVar(_) => {
                 // TODO: We should be able inline these, as long as the
                 // assignmed slot is immutable
@@ -230,8 +251,10 @@ impl BodyLower<'_> {
         let id = self.viper_body.arena.alloc(vexpr);
         match source.into() {
             BlockOrInstruction::Block(block_id) => {
-                self.source_map.block_expr.insert(block_id, id);
-                self.source_map.block_expr_back.insert(id, block_id);
+                self.source_map.block_expr.insert((item_id, block_id), id);
+                self.source_map
+                    .block_expr_back
+                    .insert(id, (item_id, block_id));
             }
             BlockOrInstruction::Instruction(inst_id) => {
                 self.source_map.inst_expr.insert((item_id, inst_id), id);
@@ -289,10 +312,16 @@ impl BodyLower<'_> {
         LocalVarDecl::new(var.name, var.typ)
     }
     fn slot_to_var(&mut self, x: mir::SlotId) -> LocalVar {
-        LocalVar::new(
-            format!("_{}", x.into_raw()),
-            self.lower_type(self.body.slot_ty(x)).vty,
-        )
+        match &self.body[x] {
+            mir::Slot::Var(var) => LocalVar::new(
+                format!("{}_{}", self.cx.var_ident(*var), x.into_raw()),
+                self.lower_type(self.body.slot_ty(x)).vty,
+            ),
+            _ => LocalVar::new(
+                format!("_{}", x.into_raw()),
+                self.lower_type(self.body.slot_ty(x)).vty,
+            ),
+        }
     }
     fn slot_to_ref(&mut self, source: impl Into<BlockOrInstruction>, s: mir::SlotId) -> VExprId {
         *self.times_referenced.entry(s).or_default() += 1;
@@ -307,15 +336,7 @@ impl BodyLower<'_> {
                     if self.is_method {
                         Exp::AbstractLocalVar(AbstractLocalVar::LocalVar(var))
                     } else {
-                        // TODO: We have ownership issues with this
-                        // let typ = if let Some(ret) = self.body.result_slot() {
-                        //     self.lower_type(self.body.slot_ty(ret)).vty
-                        // } else {
-                        //     VTy::internal_type()
-                        // };
-                        let typ = VTy::internal_type();
-
-                        Exp::AbstractLocalVar(AbstractLocalVar::Result { typ })
+                        Exp::AbstractLocalVar(AbstractLocalVar::Result { typ: var.typ })
                     }
                 }
             };
@@ -326,8 +347,10 @@ impl BodyLower<'_> {
             let id = self.viper_body.arena.alloc(VExpr::new(exp));
             match source.into() {
                 BlockOrInstruction::Block(block_id) => {
-                    self.source_map.block_expr.insert(block_id, id);
-                    self.source_map.block_expr_back.insert(id, block_id);
+                    self.source_map.block_expr.insert((item_id, block_id), id);
+                    self.source_map
+                        .block_expr_back
+                        .insert(id, (item_id, block_id));
                 }
                 BlockOrInstruction::Instruction(inst_id) => {
                     self.source_map.inst_expr.insert((item_id, inst_id), id);
@@ -363,10 +386,18 @@ impl BodyLower<'_> {
                     }
                 },
             },
-            mir::MExpr::Struct(_, _) => {
-                return Err(ViperLowerError::NotYetImplemented(
-                    "lower struct".to_string(),
-                ));
+            mir::MExpr::Struct(s, fields) => {
+                Exp::FuncApp {
+                    funcname: format!("init_{}", s.name(self.db)),
+                    args: fields
+                        .iter()
+                        .map(|(_, s)| self.slot_to_ref(inst, *s))
+                        .collect(),
+                }
+
+                // return Err(ViperLowerError::NotYetImplemented(
+                //     "lower struct".to_string(),
+                // ));
             }
             mir::MExpr::Slot(s) => {
                 let item_id = self.body.item_id();

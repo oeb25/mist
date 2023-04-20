@@ -522,7 +522,15 @@ impl<'src> Parser<'src> {
             return;
         }
 
-        let checkpoint = self.builder.checkpoint();
+        self.skip_ws();
+        if let Some(T![?]) = self.current() {
+            self.builder.start_node(OPTIONAL.into());
+            self.bump();
+            self.ty();
+            self.builder.finish_node();
+            return;
+        }
+
         self.skip_ws();
         match self.current() {
             Some(IDENT) => {
@@ -541,13 +549,6 @@ impl<'src> Parser<'src> {
                 None,
                 ParseErrorKind::Context("a type".to_string()),
             ),
-        }
-
-        self.skip_ws();
-        if let Some(T![?]) = self.current() {
-            self.builder.start_node_at(checkpoint, OPTIONAL.into());
-            self.bump();
-            self.builder.finish_node();
         }
     }
 
@@ -777,6 +778,9 @@ impl<'src> Parser<'src> {
                 self.builder.start_node(LITERAL.into());
                 self.bump();
                 self.builder.finish_node();
+            }
+            Some(T!['{']) => {
+                self.block();
             }
             Some(T![return]) => {
                 self.builder.start_node(RETURN_EXPR.into());
@@ -1213,6 +1217,7 @@ fn is_start_of_expr(token: SyntaxKind) -> bool {
             | T![true]
             | T![false]
             | T![result]
+            | T![return]
             | T![&]
             | T![!]
             | T![-]

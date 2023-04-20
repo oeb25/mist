@@ -89,7 +89,7 @@ Primitive =
 | 'bool'
 
 Optional =
-  Type '?'
+  '?' Type
 
 ListType =
   '[' Type ']'

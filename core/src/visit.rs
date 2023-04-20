@@ -4,7 +4,7 @@ use derive_new::new;
 
 use crate::{
     hir::{
-        self, Block, Decreases, Else, ExprData, ExprIdx, Field, Function, Ident, IfExpr, Param,
+        self, Block, Decreases, ExprData, ExprIdx, Field, Function, Ident, IfExpr, Param,
         ParamList, Program, Statement, StatementData, Type, TypeData, TypeDecl, TypeInvariant,
         VariableIdx, VariableRef,
     },
@@ -446,10 +446,9 @@ where
         if_expr: &IfExpr,
     ) -> ControlFlow<V::Item> {
         self.walk_expr(visitor, if_expr.condition)?;
-        self.walk_block(visitor, &if_expr.then_branch)?;
-        match if_expr.else_branch.as_deref() {
-            Some(Else::Block(block)) => self.walk_block(visitor, block),
-            Some(Else::If(if_expr)) => self.walk_if_expr(visitor, if_expr),
+        self.walk_expr(visitor, if_expr.then_branch)?;
+        match if_expr.else_branch {
+            Some(e) => self.walk_expr(visitor, e),
             None => ControlFlow::Continue(()),
         }
     }

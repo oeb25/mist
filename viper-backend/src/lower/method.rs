@@ -7,7 +7,10 @@ use silvers::{
     statement::{Seqn, Stmt},
 };
 
-use crate::gen::{VExpr, VExprId};
+use crate::{
+    gen::{VExpr, VExprId},
+    lower::pure::PureLowerResult,
+};
 
 use super::{BodyLower, ViperLowerError};
 
@@ -50,19 +53,25 @@ impl BodyLower<'_> {
 }
 
 impl BodyLower<'_> {
-    fn should_continue(&self, next: mir::BlockId, d: Option<mir::BlockId>) -> bool {
-        if let Some(d) = d {
-            !self.postdominance_frontier[next].contains(&d)
-        } else {
-            true
+    fn should_continue(&self, next: mir::BlockId, stop_at: Option<mir::BlockId>) -> bool {
+        match stop_at {
+            Some(stop_at) => next != stop_at,
+            None => true,
         }
+
+        // TODO: This was the old approach, but perhaps the above is totalyl correct?
+        // if let Some(d) = stop_at {
+        //     !self.postdominance_frontier[next].contains(&d)
+        // } else {
+        //     true
+        // }
     }
 
     fn block(
         &mut self,
         block: mir::BlockId,
         mut insts: Vec<Stmt<VExprId>>,
-        d: Option<mir::BlockId>,
+        stop_at: Option<mir::BlockId>,
     ) -> Result<Seqn<VExprId>, ViperLowerError> {
         for &inst in self.body[block].instructions() {
             match &self.body[inst] {
@@ -85,11 +94,11 @@ impl BodyLower<'_> {
                         _ => {
                             self.times_referenced.entry(*s).or_default();
                             if self.body.slot_ty(*s).is_void(self.db) {
-                                insts.push(Stmt::Expression(self.expr(inst, x)?));
+                                insts.push(Stmt::Expression(rhs));
                             } else {
                                 insts.push(Stmt::LocalVarAssign {
                                     lhs: self.slot_to_var(*s),
-                                    rhs: self.expr(inst, x)?,
+                                    rhs,
                                 });
                             }
                         }
@@ -112,8 +121,8 @@ impl BodyLower<'_> {
             Some(t) => match t {
                 mir::Terminator::Return => Ok(Seqn::new(insts, vec![])),
                 &mir::Terminator::Goto(b) => {
-                    if self.should_continue(b, d) {
-                        self.block(b, insts, d)
+                    if self.should_continue(b, stop_at) {
+                        self.block(b, insts, stop_at)
                     } else {
                         Ok(Seqn::new(insts, vec![]))
                     }
@@ -139,13 +148,21 @@ impl BodyLower<'_> {
                             1 => self.slot_to_ref(block, *test),
                             _ => todo!(), // Exp::new_bin(BinOp::EqCmp, test, value)
                         };
-                        let invs = vec![];
+                        let invs = self
+                            .body
+                            .block_invariants(block)
+                            .iter()
+                            .map(|bid| match self.pure_block(*bid, None)? {
+                                PureLowerResult::UnassignedExpression(exp, _, _) => Ok(exp),
+                                PureLowerResult::Empty { .. } => todo!(),
+                            })
+                            .collect::<Result<_, _>>()?;
 
                         insts.push(Stmt::While { cond, invs, body });
                     } else {
-                        let otherwise = self.block(otherwise, vec![], Some(block))?;
+                        let otherwise = self.block(otherwise, vec![], Some(next))?;
                         let if_stmt = values.try_fold(otherwise, |els, (value, target)| {
-                            let thn = self.block(target, vec![], Some(block))?;
+                            let thn = self.block(target, vec![], Some(next))?;
 
                             let cond = match value {
                                 1 => self.slot_to_ref(block, *test),
@@ -158,8 +175,8 @@ impl BodyLower<'_> {
                         insts.push(Stmt::Seqn(if_stmt));
                     }
 
-                    if self.should_continue(next, d) {
-                        self.block(next, insts, d)
+                    if self.should_continue(next, stop_at) {
+                        self.block(next, insts, stop_at)
                     } else {
                         Ok(Seqn::new(insts, vec![]))
                     }
@@ -207,8 +224,8 @@ impl BodyLower<'_> {
 
                     match *target {
                         Some(target) => {
-                            if self.should_continue(target, d) {
-                                self.block(target, insts, d)
+                            if self.should_continue(target, stop_at) {
+                                self.block(target, insts, stop_at)
                             } else {
                                 Ok(Seqn::new(insts, vec![]))
                             }

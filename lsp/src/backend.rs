@@ -356,23 +356,42 @@ fn span_to_range(src: &str, span: SourceSpan) -> Range {
 }
 
 fn miette_to_diagnostic(src: &str, report: miette::Report) -> Vec<Diagnostic> {
-    report
+    let diagnostics = report
         .labels()
-        .unwrap_or_else(|| Box::new(vec![].into_iter()))
-        .map(|label| {
-            use mist_core::util::Position as Pos;
+        .map(|labels| {
+            labels
+                .map(|label| {
+                    use mist_core::util::Position as Pos;
 
-            let start = Pos::from_byte_offset(src, label.offset());
-            let end = Pos::from_byte_offset(src, label.offset() + label.len());
-            let start = Position::new(start.line, start.character);
-            let end = Position::new(end.line, end.character);
-            let range = Range::new(start, end);
-            Diagnostic {
-                severity: Some(DiagnosticSeverity::ERROR),
-                message: report.to_string(), // label.label().unwrap_or("here").to_string(),
-                range,
-                ..Default::default()
-            }
+                    let start = Pos::from_byte_offset(src, label.offset());
+                    let end = Pos::from_byte_offset(src, label.offset() + label.len());
+                    let start = Position::new(start.line, start.character);
+                    let end = Position::new(end.line, end.character);
+                    let range = Range::new(start, end);
+                    Diagnostic {
+                        severity: Some(DiagnosticSeverity::ERROR),
+                        message: report.to_string(), // label.label().unwrap_or("here").to_string(),
+                        range,
+                        ..Default::default()
+                    }
+                })
+                .collect_vec()
         })
-        .collect()
+        .unwrap_or_default();
+
+    if diagnostics.is_empty() {
+        let severity = match report.severity() {
+            Some(s) => todo!("{s:?}"),
+            None => Some(DiagnosticSeverity::ERROR),
+        };
+
+        vec![Diagnostic {
+            severity,
+            message: report.to_string(),
+            range: Range::new(Position::new(0, 0), Position::new(0, 0)),
+            ..Default::default()
+        }]
+    } else {
+        diagnostics
+    }
 }

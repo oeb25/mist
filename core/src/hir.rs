@@ -663,27 +663,8 @@ pub struct IfExpr {
     pub is_ghost: bool,
     pub return_ty: Type,
     pub condition: ExprIdx,
-    pub then_branch: Block,
-    pub else_branch: Option<Box<Else>>,
-}
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Else {
-    If(IfExpr),
-    Block(Block),
-}
-impl Else {
-    pub fn first_block(&self) -> &Block {
-        match self {
-            Else::If(it) => &it.then_branch,
-            Else::Block(it) => it,
-        }
-    }
-    pub fn return_ty(&self, _db: &dyn crate::Db) -> Type {
-        match self {
-            Else::If(it) => it.return_ty,
-            Else::Block(it) => it.return_ty,
-        }
-    }
+    pub then_branch: ExprIdx,
+    pub else_branch: Option<ExprIdx>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

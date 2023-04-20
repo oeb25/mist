@@ -6,7 +6,7 @@ use tracing::debug;
 
 use crate::{
     hir::{
-        self, pretty, Else, ExprData, ExprIdx, IfExpr, Program, Statement, StatementData, Type,
+        self, pretty, ExprData, ExprIdx, IfExpr, Program, Statement, StatementData, Type,
         VariableIdx,
     },
     mir::{MirError, MirErrors},
@@ -14,8 +14,8 @@ use crate::{
 };
 
 use super::{
-    Block, BlockId, Body, BodySourceMap, Function, FunctionData, FunctionId, Instruction,
-    InstructionId, MExpr, RangeKind, Slot, SlotId, SwitchTargets, Terminator,
+    BlockId, Body, BodySourceMap, Function, FunctionData, FunctionId, Instruction, InstructionId,
+    MExpr, RangeKind, Slot, SlotId, SwitchTargets, Terminator,
 };
 
 #[salsa::tracked]
@@ -57,18 +57,18 @@ pub fn lower_item(db: &dyn crate::Db, cx: ItemContext) -> (Body, BodySourceMap) 
     for cond in cx.conditions() {
         match cond {
             hir::Condition::Requires(es) => {
-                for e in es {
-                    let slot = lower.alloc_expr(*e);
-                    let entry_bid = lower.body.blocks.alloc(Default::default());
-                    lower.expr(*e, entry_bid, None, Some(slot));
+                for &e in es {
+                    let slot = lower.alloc_expr(e);
+                    let entry_bid = lower.alloc_block(Some(e));
+                    lower.expr(e, entry_bid, None, Some(slot));
                     lower.body.requires.push(entry_bid);
                 }
             }
             hir::Condition::Ensures(es) => {
-                for e in es {
-                    let slot = lower.alloc_expr(*e);
-                    let entry_bid = lower.body.blocks.alloc(Default::default());
-                    lower.expr(*e, entry_bid, None, Some(slot));
+                for &e in es {
+                    let slot = lower.alloc_expr(e);
+                    let entry_bid = lower.alloc_block(Some(e));
+                    lower.expr(e, entry_bid, None, Some(slot));
                     lower.body.ensures.push(entry_bid);
                 }
             }
@@ -77,7 +77,7 @@ pub fn lower_item(db: &dyn crate::Db, cx: ItemContext) -> (Body, BodySourceMap) 
 
     if let Some(body) = cx.body_expr() {
         let return_slot = lower.body.result_slot();
-        let body_bid = lower.body.blocks.alloc(Default::default());
+        let body_bid = lower.alloc_block(Some(body));
         lower.expr(body, body_bid, None, return_slot);
         lower.body.body_block = Some(body_bid);
     }
@@ -158,14 +158,19 @@ impl<'a> MirLower<'a> {
         }
         id
     }
-    #[allow(dead_code)]
-    fn alloc_block(&mut self, expr: Option<ExprIdx>, block: Block) -> BlockId {
-        let id = self.body.blocks.alloc(block);
+    fn alloc_block(&mut self, expr: Option<ExprIdx>) -> BlockId {
+        let id = self.body.blocks.alloc(Default::default());
         if let Some(expr) = expr {
             self.source_map.expr_block_map.insert(expr, id);
             self.source_map.expr_block_map_back.insert(id, expr);
         }
         id
+    }
+    fn hint_block_source(&mut self, source: ExprIdx, bid: BlockId) {
+        if !self.source_map.expr_block_map_back.contains_idx(bid) {
+            self.source_map.expr_block_map.insert(source, bid);
+            self.source_map.expr_block_map_back.insert(bid, source);
+        }
     }
     fn alloc_function(&mut self, function: Function) -> FunctionId {
         self.body.functions.alloc(function)
@@ -237,7 +242,7 @@ impl MirLower<'_> {
                 decreases,
                 body,
             } => {
-                let cond_block = self.body.blocks.alloc(Default::default());
+                let cond_block = self.alloc_block(None);
                 assert_ne!(bid, cond_block);
                 self.body.blocks[bid].set_terminator(Terminator::Goto(cond_block));
 
@@ -248,17 +253,19 @@ impl MirLower<'_> {
                     .iter()
                     .flatten()
                     .map(|inv| {
-                        let inv_block = self.body.blocks.alloc(Default::default());
+                        let inv_block = self.alloc_block(None);
                         let inv_result = self.alloc_expr(*inv);
                         self.expr(*inv, inv_block, None, Some(inv_result));
                         inv_block
                     })
                     .collect();
 
-                let body_bid = self.body.blocks.alloc(Default::default());
+                self.body.block_invariants.insert(bid, invariants);
+
+                let body_bid = self.alloc_block(None);
                 let body_bid_last = self.block(body, body_bid, None, None);
 
-                let exit_bid = self.body.blocks.alloc(Default::default());
+                let exit_bid = self.alloc_block(None);
 
                 assert_ne!(body_bid_last, cond_block);
                 self.body.blocks[body_bid_last].set_terminator(Terminator::Goto(cond_block));
@@ -327,6 +334,8 @@ impl MirLower<'_> {
         target: Option<BlockId>,
         dest: Option<SlotId>,
     ) -> BlockId {
+        self.hint_block_source(expr, bid);
+
         let expr_ty = self.cx.expr_ty(expr);
 
         match &self.cx.expr(expr).data {
@@ -345,7 +354,7 @@ impl MirLower<'_> {
                 bid
             }
             ExprData::Block(block) => {
-                let next_bid = self.body.blocks.alloc(Default::default());
+                let next_bid = self.alloc_block(None);
                 assert_ne!(bid, next_bid);
                 self.body.blocks[bid].set_terminator(Terminator::Goto(next_bid));
                 self.block(block, next_bid, target, dest)
@@ -366,7 +375,11 @@ impl MirLower<'_> {
                     );
                     next_bid
                 } else {
-                    todo!()
+                    MirErrors::push(
+                        self.db,
+                        MirError::NotYetImplemented("missing field".to_string()),
+                    );
+                    bid
                 }
             }
             ExprData::Struct {
@@ -405,7 +418,7 @@ impl MirLower<'_> {
                 }
 
                 let destination = dest.unwrap_or_else(|| self.alloc_expr(expr));
-                let next_bid = target.unwrap_or_else(|| self.body.blocks.alloc(Default::default()));
+                let next_bid = target.unwrap_or_else(|| self.alloc_block(None));
                 self.body.blocks[bid].set_terminator(Terminator::Call {
                     func,
                     args,
@@ -461,7 +474,7 @@ impl MirLower<'_> {
                 let func = self.alloc_function(Function::new(f));
 
                 let destination = dest.unwrap_or_else(|| self.alloc_expr(expr));
-                let next_bid = target.unwrap_or_else(|| self.body.blocks.alloc(Default::default()));
+                let next_bid = target.unwrap_or_else(|| self.alloc_block(None));
                 assert_ne!(bid, next_bid);
                 self.body.blocks[bid].set_terminator(Terminator::Call {
                     func,
@@ -483,7 +496,7 @@ impl MirLower<'_> {
                 let func = self.alloc_function(Function::new(FunctionData::List));
 
                 let destination = dest.unwrap_or_else(|| self.alloc_expr(expr));
-                let next_bid = target.unwrap_or_else(|| self.body.blocks.alloc(Default::default()));
+                let next_bid = target.unwrap_or_else(|| self.alloc_block(None));
                 assert_ne!(bid, next_bid);
                 self.body.blocks[bid].set_terminator(Terminator::Call {
                     func,
@@ -499,14 +512,14 @@ impl MirLower<'_> {
                 expr: q_expr,
             } => {
                 let q_dest = self.alloc_tmp(Type::bool(self.db));
-                let q_body = self.body.blocks.alloc(Default::default());
+                let q_body = self.alloc_block(None);
                 let params = params
                     .iter()
                     .map(|param| self.alloc_var(param.name))
                     .collect();
 
                 let q_end = self.expr(*q_expr, q_body, None, Some(q_dest));
-                let next_bid = target.unwrap_or_else(|| self.body.blocks.alloc(Default::default()));
+                let next_bid = target.unwrap_or_else(|| self.alloc_block(None));
                 assert_ne!(bid, next_bid);
 
                 self.body.blocks[bid].set_terminator(Terminator::Quantify(
@@ -579,7 +592,7 @@ impl MirLower<'_> {
                     None => {}
                 }
                 self.body.blocks[bid].set_terminator(Terminator::Return);
-                target.unwrap_or_else(|| self.body.blocks.alloc(Default::default()))
+                target.unwrap_or_else(|| self.alloc_block(None))
             }
         }
     }
@@ -606,19 +619,12 @@ impl MirLower<'_> {
     ) -> BlockId {
         let cond = self.alloc_expr(it.condition);
         bid = self.expr(it.condition, bid, None, Some(cond));
-        let then_block = self.body.blocks.alloc(Default::default());
-        let else_block = self.body.blocks.alloc(Default::default());
-        let final_block = target.unwrap_or_else(|| self.body.blocks.alloc(Default::default()));
-        let then_block_final = self.block(&it.then_branch, then_block, Some(final_block), dest);
-        let else_block_final = match it.else_branch.as_deref() {
-            Some(Else::Block(it)) => self.block(it, else_block, Some(final_block), dest),
-            Some(Else::If(nested)) => self.if_expr(
-                nested,
-                else_block,
-                Some(final_block),
-                dest,
-                _expr_for_source_span,
-            ),
+        let then_block = self.alloc_block(Some(it.then_branch));
+        let else_block = self.alloc_block(it.else_branch);
+        let final_block = target.unwrap_or_else(|| self.alloc_block(None));
+        let then_block_final = self.expr(it.then_branch, then_block, Some(final_block), dest);
+        let else_block_final = match it.else_branch {
+            Some(else_exp) => self.expr(else_exp, else_block, Some(final_block), dest),
             None => else_block,
         };
         if then_block_final != final_block {
@@ -633,11 +639,6 @@ impl MirLower<'_> {
             cond,
             SwitchTargets::new([(1, then_block)], else_block),
         ));
-        // self.alloc_instruction(
-        //     Some(expr),
-        //     bid,
-        //     Instruction::If(cond, then_block, else_block),
-        // );
         final_block
     }
 }

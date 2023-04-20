@@ -148,6 +148,14 @@ async fn cli() -> Result<()> {
                 bail!("failed due to {} previous errors", num_errors);
             }
 
+            for (item, cx, _, mir, _) in mir::lower_program(&db, program) {
+                info!("{}", item.name(&db));
+                println!("{}", mir.serialize(mir::serialize::Color::Yes, &db, &cx));
+                let cfg = mir::analysis::cfg::Cfg::compute(&mir);
+                let dot = cfg.dot(&db, &cx, &mir);
+                mir::analysis::cfg::dot_imgcat(dot);
+            }
+
             let (viper_program, viper_body, viper_source_map) =
                 mist_viper_backend::gen::viper_file(&db, program)?;
             let viper_output = ViperOutput::generate(&viper_body, &viper_program);
@@ -191,6 +199,11 @@ async fn cli() -> Result<()> {
                 match &status {
                     Vs::CopyrightReport { .. } => {}
                     Vs::WarningsDuringParsing(warnings) => {
+                        if !warnings.is_empty() {
+                            eprintln!("? {status:?}")
+                        }
+                    }
+                    Vs::WarningsDuringTypechecking(warnings) => {
                         if !warnings.is_empty() {
                             eprintln!("? {status:?}")
                         }
@@ -243,6 +256,8 @@ async fn cli() -> Result<()> {
                 bail!("failed due to {} previous errors", num_errors);
             }
 
+            tracing::info!("Successfully verified!");
+
             drop(viper_file);
         }
     }
@@ -288,29 +303,26 @@ fn details_to_miette<'a>(
                             warn!("no span was registered instruction for {:?}", back);
                             None
                         }
-                    } else if let Some(back) = viper_source_map.block_expr_back.get(*back.1) {
-                        todo!("{back:?}")
+                    } else if let Some(&(item_id, back)) =
+                        viper_source_map.block_expr_back.get(*back.1)
+                    {
+                        let item = hir::item(db, *program, item_id).unwrap();
+                        let (cx, source_map) =
+                            hir::item_lower(db, *program, item_id, item).unwrap();
+                        let (_mir, mir_source_map) = mir::lower_item(db, cx);
+                        if let Some(back) = mir_source_map.expr_block_map_back.get(back) {
+                            Some(source_map.expr_span(*back))
+                        } else {
+                            warn!("no span was registered block for {:?}", back);
+                            None
+                        }
                     } else {
                         warn!("no span was registered for {:?}", back.1);
                         None
                     }
                 } else {
-                    eprintln!(
-                        "{}",
-                        viper_output
-                            .expr_map_back
-                            .keys()
-                            .sorted()
-                            .map(|span| {
-                                let start =
-                                    Position::from_byte_offset(&viper_output.buf, span.offset());
-                                let end = Position::from_byte_offset(&viper_output.buf, span.end());
-                                format!("{start}..{end}")
-                            })
-                            .format(", ")
-                    );
                     warn!(
-                        "unable to backtrace {}..{}. options above",
+                        "unable to backtrace {}..{}",
                         Position::from_byte_offset(&viper_output.buf, viper_span.offset()),
                         Position::from_byte_offset(&viper_output.buf, viper_span.end())
                     );
@@ -323,6 +335,8 @@ fn details_to_miette<'a>(
                     error: String,
                     #[label("here")]
                     span: SourceSpan,
+                    #[label("and here")]
+                    span2: Option<SourceSpan>,
                 }
 
                 if let Some(source_span) = source_span {
@@ -330,6 +344,7 @@ fn details_to_miette<'a>(
                         miette::Error::new(AdHoc {
                             error: text.to_string(),
                             span: source_span,
+                            span2: None,
                         })
                         .with_source_code(miette::NamedSource::new(
                             src_path.display().to_string(),
@@ -341,6 +356,7 @@ fn details_to_miette<'a>(
                         miette::Error::new(AdHoc {
                             error: text.to_string(),
                             span: viper_span,
+                            span2: None,
                         })
                         .with_source_code(miette::NamedSource::new(
                             viper_path.display().to_string(),

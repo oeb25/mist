@@ -16,10 +16,9 @@ use mist_syntax::{
 use thiserror::Error;
 
 use crate::hir::{
-    self, AssertionKind, Block, Condition, Decreases, Else, Expr, ExprData, ExprIdx, Field,
-    FieldParent, Ident, IfExpr, ItemId, Literal, Param, ParamList, Primitive, Program, Quantifier,
-    Statement, StatementData, StructExprField, Type, TypeData, Variable, VariableId, VariableIdx,
-    VariableRef,
+    self, AssertionKind, Block, Condition, Decreases, Expr, ExprData, ExprIdx, Field, FieldParent,
+    Ident, IfExpr, ItemId, Literal, Param, ParamList, Primitive, Program, Quantifier, Statement,
+    StatementData, StructExprField, Type, TypeData, Variable, VariableId, VariableIdx, VariableRef,
 };
 
 fn id<T>(t: T) -> T {
@@ -457,7 +456,7 @@ impl<'a> TypeCheckExpr<'a> {
             .pop()
             .expect("tried to pop scope while none was pushed");
     }
-    fn check_if_expr(&mut self, if_expr: ast::IfExpr) -> IfExpr {
+    fn check_if_expr(&mut self, if_expr: ast::IfExpr) -> ExprIdx {
         let condition = self.check(if_expr.span(), if_expr.condition());
 
         let condition_ty = self.expr_ty(condition);
@@ -482,57 +481,66 @@ impl<'a> TypeCheckExpr<'a> {
             );
         }
 
-        let then_branch = if let Some(then_branch) = if_expr.then_branch() {
-            self.check_block(&then_branch, |f| {
+        let (then_branch, then_ty) = if let Some(then_branch) = if_expr.then_branch() {
+            let block = self.check_block(&then_branch, |f| {
                 if is_ghost {
                     f | ScopeFlags::GHOST
                 } else {
                     f
                 }
-            })
+            });
+            let ty = block.return_ty;
+            (
+                self.alloc_expr(Expr::new(ty, ExprData::Block(block)), then_branch.span()),
+                ty,
+            )
         } else {
             todo!()
         };
-        let else_branch =
-            if_expr.else_branch().map(|else_branch| match else_branch {
-                ast::IfExprElse::IfExpr(e) => Else::If(self.check_if_expr(e)),
-                ast::IfExprElse::BlockExpr(b) => Else::Block(self.check_block(&b, |f| {
-                    if is_ghost {
-                        f | ScopeFlags::GHOST
-                    } else {
-                        f
-                    }
-                })),
-            });
+        let (else_branch, else_tail_span) = if_expr
+            .else_branch()
+            .map(|else_branch| match else_branch {
+                ast::IfExprElse::IfExpr(e) => (self.check_if_expr(e), None),
+                ast::IfExprElse::BlockExpr(b) => {
+                    let block =
+                        self.check_block(&b, |f| if is_ghost { f | ScopeFlags::GHOST } else { f });
+                    let tail_span = block
+                        .tail_expr
+                        .map(|e| self.expr_span(e))
+                        .or_else(|| block.stmts.last().map(|s| s.span));
+                    let expr = self
+                        .alloc_expr(Expr::new(block.return_ty, ExprData::Block(block)), b.span());
+                    (expr, tail_span)
+                }
+            })
+            .unzip();
+        // TODO: tail_span should perhaps be a general concept for exprs, to
+        // provide better spans in more cases
+        let else_tail_span = else_tail_span.flatten();
 
-        let ty = if let Some(b) = &else_branch {
-            let first_block = b.first_block();
-            let span = match (first_block.tail_expr, first_block.stmts.last()) {
-                (Some(tail_expr), _) => self.expr_span(tail_expr),
-                (None, Some(last_stmt)) => last_stmt.span,
-                (None, None) => if_expr.span(),
-            };
-            self.unify(
-                span,
-                then_branch.return_ty.with_ghost(self.db, is_ghost),
-                b.return_ty(self.db),
-            )
+        let ty = if let Some(b) = else_branch {
+            let span = else_tail_span.unwrap_or_else(|| if_expr.span());
+            self.unify(span, then_ty.with_ghost(self.db, is_ghost), self.expr_ty(b))
         } else {
             self.expect_ty(
                 if_expr.span(),
                 Type::void(self.db).with_ghost(self.db, is_ghost),
-                then_branch.return_ty,
+                then_ty,
             )
         };
 
-        IfExpr {
+        let result = IfExpr {
             if_span: if_expr.if_token().unwrap().span(),
             is_ghost,
             return_ty: ty,
             condition,
             then_branch,
-            else_branch: else_branch.map(Box::new),
-        }
+            else_branch,
+        };
+        self.alloc_expr(
+            Expr::new(result.return_ty, ExprData::If(result)),
+            if_expr.span(),
+        )
     }
     pub fn expr_ty(&self, expr: ExprIdx) -> Type {
         self.item.expr_arena[expr].ty
@@ -563,10 +571,7 @@ impl<'a> TypeCheckExpr<'a> {
                     ExprData::Literal(Literal::Bool(b)),
                 ),
             },
-            ast::Expr::IfExpr(it) => {
-                let if_expr = self.check_if_expr(it.clone());
-                Expr::new(if_expr.return_ty, ExprData::If(if_expr))
-            }
+            ast::Expr::IfExpr(it) => return self.check_if_expr(it.clone()),
             ast::Expr::WhileExpr(_) => todo!(),
             ast::Expr::PrefixExpr(it) => {
                 let (_op_token, op) = if let Some(op) = it.op_details() {
@@ -888,14 +893,12 @@ impl<'a> TypeCheckExpr<'a> {
                         ExprData::List { elems },
                     )
                 } else {
-                    return self.expr_error(
-                        it.span(),
-                        None,
-                        None,
-                        TypeCheckErrorKind::NotYetImplemented(
-                            "type inference of empty lists".to_string(),
-                        ),
-                    );
+                    // TODO: Do proper type inference, instead of always doing intes
+                    Expr::new(
+                        Type::new(self.db, TypeData::List(Type::int(self.db)), None)
+                            .with_ghost(self.db, false),
+                        ExprData::List { elems },
+                    )
                 }
             }
             ast::Expr::FieldExpr(it) => {

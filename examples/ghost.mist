@@ -72,7 +72,9 @@ fn ghost_math(x: int, y: ghost int) -> int {
 
 fn non_ghost() {}
 
-pure fn pure_fn() {}
+pure fn pure_fn() -> int {
+    12
+}
 
 ghost fn ghost_calling_non_ghost() {
     non_ghost();

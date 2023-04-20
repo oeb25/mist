@@ -1,0 +1,163 @@
+domain Range[R] {
+  function range_from(x: Int): Range[R]
+  function range_to(x: Int): Range[R]
+  function range_from_to(from: Int, to: Int): Range[R]
+}
+
+domain RangeIndex[R, T] {
+  function range_index(x: Seq[T], r: Range[R]): Seq[T]
+  axiom axRangefrom {
+    forall x: Int, s: Seq[T] :: range_index(s, range_from(x)) == s[x..]
+  }
+  axiom axRangeto {
+    forall x: Int, s: Seq[T] :: range_index(s, range_to(x)) == s[x..]
+  }
+  axiom axRangeFromTo {
+    forall from: Int, to: Int, s: Seq[T] :: range_index(s, range_from_to(from, to)) == s[from..to]
+  }
+}
+
+function sorted(xs_0: Seq[Int]): Bool
+{
+  ((|xs_0| <= 1)
+    ? true
+    : ((xs_0[0] <= xs_0[1]) && sorted(range_index(xs_0, range_from(1)))))
+}
+
+function my_union(x_0: Multiset[Int], y_1: Multiset[Int]): Multiset[Int] { x_0 union y_1 }
+
+function to_multiset(xs_0: Seq[Int]): Multiset[Int]
+{
+  ((|xs_0| == 0)
+    ? Multiset()
+    : my_union(Multiset(xs_0[0]), to_multiset(xs_0)))
+}
+
+function same_elements(xs_0: Seq[Int], ys_1: Seq[Int]): Bool
+{
+  (to_multiset(xs_0) == to_multiset(ys_1))
+}
+
+method lemma_total_order(xs_0: Seq[Int], i_1: Int, j_2: Int)
+  requires
+    sorted(xs_0)
+  requires
+    (0 <= i_1)
+  requires
+    (i_1 <= j_2)
+  requires
+    (j_2 < |xs_0|)
+  ensures
+    (xs_0[i_1] <= xs_0[j_2])
+{
+  var _3: Bool; var _4: Seq[Int]; var _5: Bool; var _6: Int; var _7: Int; var _8: Int; var _9: Bool; var _10: Int; var _11: Int; var _12: Bool; var _13: Int; var _14: Int; var _15: Seq[Int]; var _16: Bool; var _17: Int; var _18: Int; var _19: Seq[Int]; var _20: Int; var _21: Seq[Int]; var _22: Int; var v_23: Int; var _24: Int; var _25: Int; var _26: Bool; var _27: Int; var _28: Int; var _29: Int; var _30: Bool; var _31: Int; var _32: Int; var _33: Int; var _34: Bool; var _35: Int; var _36: Int; var _37: Int; var _38: Int; var _39: Int; var _40: Int; var _41: Int; var _42: Int; var _43: Int; var _44: Int; var _45: Seq[Int]; var _46: Seq[Int]; var _47: Range[Int]; var _48: Int; var _49: Int; var _50: Int; var _51: Int; var _52: Int; var _53: Int; var _54: Int; var _55: Int; var _56: Int; var _57: Int; var _58: Int; var _59: Bool; var _60: Int; var _61: Int; var _62: Bool; var _63: Int; var _64: Int; var _65: Int; var _66: Int; var _67: Int; var _68: Int; var _69: Int; var _70: Int; var _71: Seq[Int]; var _72: Seq[Int]; var _73: Range[Int]; var _74: Int; var _75: Int; var _76: Int; var _77: Int; var _78: Int; var _79: Int; var _80: Int; var _81: Int; var _82: Int;
+  v_23 := (i_1 + j_2)
+  assert (v_23 >= 0)
+  {
+    if ((i_1 != 0))
+    {
+      assert ((((i_1 - 1) + j_2) - 1) < v_23)
+      _45 := range_index(xs_0, range_from(1))
+      lemma_total_order(_45, (i_1 - 1), (j_2 - 1))
+    } else {
+      {
+        if ((i_1 != j_2))
+        {
+          assert (((0 + j_2) - 1) < v_23)
+          _71 := range_index(xs_0, range_from(1))
+          lemma_total_order(_71, 0, (j_2 - 1))
+        } else {
+          }
+      }
+    }
+  }
+
+}
+
+method insertion_sort(xs_0: Seq[Int]) returns (_1: Seq[Int])
+  ensures
+    sorted(_1)
+  ensures
+    (|_1| == |xs_0|)
+  ensures
+    same_elements(xs_0, _1)
+{
+  var _2: Bool; var _3: Seq[Int]; var _4: Bool; var _5: Int; var _6: Int; var _7: Seq[Int]; var _8: Seq[Int]; var _9: Bool; var _10: Seq[Int]; var _11: Seq[Int]; var _12: Bool; var _13: Int; var _14: Int; var _15: Seq[Int]; var _16: Int; var _17: Bool; var _18: Int; var _19: Int; var _20: Seq[Int]; var _21: Seq[Int]; var _22: Range[Int]; var _23: Int; var _24: Int; var _25: Seq[Int]; var _26: Int; var _27: Seq[Int]; var _28: Int; var _29: Int; var _30: Seq[Int]; var _31: Seq[Int]; var _32: Seq[Int]; var _33: Range[Int]; var _34: Int; var _35: Int;
+  {
+    if ((|xs_0| == 0))
+    {
+      _1 := Seq()
+    } else {
+      _20 := range_index(xs_0, range_from(1))
+      assert (|_20| < |xs_0|)
+      _26 := xs_0[0]
+      _31 := range_index(xs_0, range_from(1))
+      _30 := insertion_sort(_31)
+      _1 := insert(_26, _30)
+    }
+  }
+
+}
+
+method insert(x_0: Int, xs_1: Seq[Int]) returns (_2: Seq[Int])
+  requires
+    sorted(xs_1)
+  ensures
+    sorted(_2)
+  ensures
+    (|_2| == (|xs_1| + 1))
+  ensures
+    ((|xs_1| == 0)
+      ? (_2[0] == x_0)
+      : ((_2[0] == x_0) || (_2[0] == xs_1[0])))
+  ensures
+    same_elements((Seq(x_0) ++ xs_1), _2)
+{
+  var _3: Bool; var _4: Seq[Int]; var _5: Bool; var _6: Seq[Int]; var _7: Bool; var _8: Int; var _9: Int; var _10: Seq[Int]; var _11: Int; var _12: Int; var _13: Seq[Int]; var _14: Int; var _15: Bool; var _16: Bool; var _17: Int; var _18: Int; var _19: Seq[Int]; var _20: Int; var _21: Int; var _22: Int; var _23: Seq[Int]; var _24: Int; var _25: Int; var _26: Bool; var _27: Bool; var _28: Int; var _29: Int; var _30: Seq[Int]; var _31: Int; var _32: Int; var _33: Int; var _34: Int; var _35: Seq[Int]; var _36: Int; var _37: Int; var _38: Seq[Int]; var _39: Int; var _40: Int; var _41: Bool; var _42: Seq[Int]; var _43: Seq[Int]; var _44: Seq[Int]; var _45: Int; var _46: Seq[Int]; var _47: Bool; var _48: Int; var _49: Int; var _50: Seq[Int]; var _51: Int; var _52: Int; var y_53: Int; var _54: Seq[Int]; var _55: Int; var _56: Int; var _57: Bool; var _58: Int; var _59: Int; var _60: Int; var _61: Seq[Int]; var _62: Int; var _63: Seq[Int]; var _64: Seq[Int]; var _65: Int; var res_66: Seq[Int]; var _67: Int; var _68: Seq[Int]; var _69: Seq[Int]; var _70: Range[Int]; var _71: Int; var _72: Int; var _73: Int; var _74: Seq[Int]; var _75: Int; var _76: Seq[Int]; var _77: Seq[Int]; var _78: Int;
+  {
+    if ((|xs_1| == 0))
+    {
+      _2 := Seq(x_0)
+    } else {
+      y_53 := xs_1[0]
+      {
+        if ((x_0 < y_53))
+        {
+          lemma_insert_smallest(x_0, xs_1)
+          _63 := Seq(x_0)
+          _2 := (_63 ++ xs_1)
+        } else {
+          _68 := range_index(xs_1, range_from(1))
+          res_66 := insert(x_0, _68)
+          lemma_insert_smallest(y_53, res_66)
+          _76 := Seq(y_53)
+          _2 := (_76 ++ res_66)
+        }
+      }
+    }
+  }
+
+}
+
+method lemma_insert_smallest(x_0: Int, xs_1: Seq[Int])
+  requires
+    sorted(xs_1)
+  requires
+    ((|xs_1| > 0)
+      ? (x_0 <= xs_1[0])
+      : true)
+  ensures
+    sorted((Seq(x_0) ++ xs_1))
+{
+  var _2: Bool; var _3: Seq[Int]; var _4: Bool; var _5: Bool; var _6: Int; var _7: Int; var _8: Seq[Int]; var _9: Int; var _10: Int; var _11: Int; var _12: Seq[Int]; var _13: Int; var _14: Int; var _15: Bool; var _16: Bool; var _17: Seq[Int]; var _18: Seq[Int]; var _19: Seq[Int]; var _20: Int; var _21: Bool; var _22: Int; var _23: Int; var _24: Seq[Int]; var _25: Int; var ys_26: Seq[Int]; var _27: Seq[Int]; var _28: Seq[Int]; var _29: Int; var _30: Bool; var _31: Seq[Int]; var _32: Seq[Int]; var _33: Seq[Int]; var _34: Range[Int]; var _35: Int; var _36: Int;
+  {
+    if ((|xs_1| > 0))
+    {
+      _27 := Seq(x_0)
+      _32 := range_index((_27 ++ xs_1), range_from(1))
+      assert (xs_1 == _32)
+    } else {
+      }
+  }
+
+}

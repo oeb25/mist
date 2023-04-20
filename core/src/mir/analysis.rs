@@ -13,6 +13,7 @@ use super::{serialize, BlockId, Body, MExpr, SlotId};
 pub mod cfg {
     use la_arena::ArenaMap;
     use petgraph::{algo::dominators::Dominators, visit::IntoNodeIdentifiers, Direction};
+    use tracing::warn;
 
     use crate::mir::Terminator;
 
@@ -146,7 +147,12 @@ pub mod cfg {
                     if let Some(dominator) = dominators.immediate_dominator(node) {
                         while runner != dominator {
                             frontiers.entry(runner).or_insert(vec![]).push(node);
-                            runner = dominators.immediate_dominator(runner).unwrap();
+                            if let Some(r) = dominators.immediate_dominator(runner) {
+                                runner = r;
+                            } else {
+                                warn!("node has no frontier");
+                                break;
+                            }
                         }
                     }
                 }

@@ -20,7 +20,7 @@ fn in_return_position2() -> bool {
 fn early_return() -> int
     ens result == 1
 {
-    if true { return 1; }
+    if true { return 1; };
     4
 }
 

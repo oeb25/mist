@@ -1,5 +1,4 @@
-fn a() ens 1 + 2
-;
+fn a() ens 1 + 2 == 3 {}
 
 fn main() -> int {
     let x = 12;
@@ -8,7 +7,7 @@ fn main() -> int {
 
 fn wow() -> int
     req true
-    ens false
+    ens result == 1000
 {
     let x = 5000;
     let y = x + x;
