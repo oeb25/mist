@@ -37,7 +37,7 @@
             "group": "build",
             "type": "shell",
             "isBackground": true,
-            "command": "cargo watch -i '*.mist' -s 'cargo build -p mist-lsp && killall mist-lsp && echo killed!'",
+            "command": "cargo watch -i '.mist.*' -i '*.vpr' -i '*.mist' -s 'cargo build -p mist-lsp && killall mist-lsp && echo killed!'",
             "problemMatcher": "$rustc-watch"
         },
         {

@@ -1,0 +1,42 @@
+fn int_sqrt(n: int) -> int
+  req n >= 0
+  ens result * result <= n,
+      n <= (result + 1) * (result + 1)
+{
+  let res = 0;
+  while (res + 1) * (res + 1) < n
+    inv res * res <= n
+  {
+    res = res + 1;
+  }
+
+  res
+}
+
+fn int_sqrt_fast(n: int) -> int
+  req n >= 0
+  ens result * result <= n,
+      n <= (result + 1) * (result + 1)
+{
+  let res = 0;
+  let x = 1;
+  while (x < n)
+    inv x == ((res + 1) * (res + 1)),
+        res * res <= n
+  {
+    x = x + 2 * res + 3;
+    res = res + 1;
+  }
+
+  res
+}
+
+fn square(n: int) -> int
+    req n >= 0
+    ens result == n * n
+{
+    let x = 0;
+    let y = 0;
+
+    x
+}

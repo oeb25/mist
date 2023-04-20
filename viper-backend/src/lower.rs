@@ -8,7 +8,10 @@ use mist_core::{
     hir,
     mir::{self, analysis::cfg, BlockOrInstruction},
 };
-use mist_syntax::ast::operators::{ArithOp, BinaryOp, CmpOp, LogicOp};
+use mist_syntax::{
+    ast::operators::{ArithOp, BinaryOp, CmpOp, LogicOp},
+    SourceSpan,
+};
 use silvers::{
     expression::{AbstractLocalVar, BinOp, Exp, LocalVar, SeqExp, UnOp},
     program::LocalVarDecl,
@@ -128,11 +131,39 @@ impl ViperSourceMap {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Diagnostic)]
 pub enum ViperLowerError {
-    #[error("not yet implemented: {_0}")]
-    NotYetImplemented(String),
+    #[error("not yet implemented: {msg}")]
+    NotYetImplemented {
+        msg: String,
+        item_id: hir::ItemId,
+        block_or_inst: mir::BlockOrInstruction,
+        #[label]
+        span: Option<SourceSpan>,
+    },
     #[error("the body did not contain any actions")]
     EmptyBody,
 }
+
+impl ViperLowerError {
+    pub fn populate_spans(
+        &mut self,
+        f: impl Fn(hir::ItemId, mir::BlockOrInstruction) -> Option<SourceSpan>,
+    ) {
+        match self {
+            ViperLowerError::NotYetImplemented {
+                item_id,
+                block_or_inst,
+                span,
+                ..
+            } => {
+                *span = f(*item_id, *block_or_inst);
+            }
+            ViperLowerError::EmptyBody => {}
+        }
+    }
+}
+
+#[salsa::accumulator]
+pub struct ViperLowerErrors(ViperLowerError);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ViperType {
@@ -144,9 +175,6 @@ impl From<VTy> for ViperType {
         ViperType { vty }
     }
 }
-
-#[salsa::accumulator]
-pub struct ViperLowerErrors(ViperLowerError);
 
 pub struct BodyLower<'a> {
     db: &'a dyn crate::Db,
@@ -379,16 +407,22 @@ impl BodyLower<'_> {
             mir::MExpr::Call(fid, args) => self.function(inst, *fid, args)?,
             mir::MExpr::Field(rcr, f) => match &f.parent {
                 hir::FieldParent::Struct(_) => {
-                    return Err(ViperLowerError::NotYetImplemented(format!(
-                        "lower struct field: {f:?}"
-                    )));
+                    return Err(ViperLowerError::NotYetImplemented {
+                        msg: format!("lower struct field: {f:?}"),
+                        item_id: self.body.item_id(),
+                        block_or_inst: inst.into(),
+                        span: None,
+                    });
                 }
                 hir::FieldParent::List(_) => match f.name.as_str() {
                     "len" => Exp::Seq(SeqExp::new_length(self.slot_to_ref(inst, *rcr))),
                     _ => {
-                        return Err(ViperLowerError::NotYetImplemented(format!(
-                            "lower list field: {f:?}"
-                        )));
+                        return Err(ViperLowerError::NotYetImplemented {
+                            msg: format!("lower list field: {f:?}"),
+                            item_id: self.body.item_id(),
+                            block_or_inst: inst.into(),
+                            span: None,
+                        });
                     }
                 },
             },

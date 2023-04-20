@@ -9,11 +9,13 @@ version = "0.1.0"
 color-eyre = "0.6.2"
 miette = { version = "5.5.0", features = ["fancy"] }
 itertools = "0.10.5"
+tempfile = "3.4.0"
 thiserror = "1.0.38"
 tracing = "0.1.37"
 tracing-test = "0.2.4"
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 mist-syntax = { path = "./syntax" }
+mist-cli = { path = "./cli" }
 mist-core = { path = "./core" }
 mist-viper-backend = { path = "./viper-backend" }
 salsa = { git = "https://github.com/salsa-rs/salsa.git", package = "salsa-2022" }

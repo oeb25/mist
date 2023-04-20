@@ -1,19 +1,15 @@
-#![feature(trait_upcasting)]
-
-mod db;
-
 use std::{io::Write, path::PathBuf};
 
 use clap::Parser;
 use futures_util::StreamExt;
 use itertools::Itertools;
 use miette::{bail, Context, IntoDiagnostic, Result};
-use mist_core::{hir, mir, salsa, util::Position};
-use mist_syntax::SourceSpan;
-use mist_viper_backend::{gen::ViperOutput, lower::ViperSourceMap};
+use mist_core::{hir, mir};
+use mist_viper_backend::gen::ViperOutput;
 use tracing::{error, info, warn};
 use tracing_subscriber::prelude::*;
-use viperserver::{verification::Details, VerificationStatus};
+
+use mist_cli::{accumulated_errors, db::Database, Db, VerificationContext};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -44,10 +40,16 @@ async fn main() -> Result<()> {
 
 #[derive(Debug, Parser)]
 enum Cli {
-    /// Generate the MIR for the given file
-    Mir { file: PathBuf },
-    /// Generate the Viper code for the given file
-    MirViper { file: PathBuf },
+    /// Dump the program at different stages of transformation
+    Dump {
+        #[clap(short, long)]
+        mir: bool,
+        #[clap(short, long)]
+        cfg: bool,
+        #[clap(short, long)]
+        viper: bool,
+        file: PathBuf,
+    },
     /// Verify the provided file using Viper
     Viper {
         #[clap(long, short, env)]
@@ -58,24 +60,13 @@ enum Cli {
 
 async fn cli() -> Result<()> {
     match Cli::parse() {
-        Cli::Mir { file } => {
-            let db = crate::db::Database::default();
-
-            let source = std::fs::read_to_string(&file)
-                .into_diagnostic()
-                .wrap_err_with(|| format!("failed to read `{}`", file.display()))?;
-            let source = hir::SourceProgram::new(&db, source);
-            let program = hir::parse_program(&db, source);
-            for (_, cx, _, mir, _) in mir::lower_program(&db, program) {
-                println!("{}", mir.serialize(mir::serialize::Color::Yes, &db, &cx));
-                let cfg = mir::analysis::cfg::Cfg::compute(&mir);
-
-                let dot = cfg.dot(&db, &cx, &mir);
-                mir::analysis::cfg::dot_imgcat(dot);
-            }
-        }
-        Cli::MirViper { file } => {
-            let db = crate::db::Database::default();
+        Cli::Dump {
+            mir: dump_mir,
+            cfg: dump_cfg,
+            viper: dump_viper,
+            file,
+        } => {
+            let db = Database::default();
 
             let source = std::fs::read_to_string(&file)
                 .into_diagnostic()
@@ -84,19 +75,25 @@ async fn cli() -> Result<()> {
             let program = hir::parse_program(&db, source);
             for (item, cx, _, mir, _) in mir::lower_program(&db, program) {
                 info!("{}", item.name(&db));
-                println!("{}", mir.serialize(mir::serialize::Color::Yes, &db, &cx));
-                let cfg = mir::analysis::cfg::Cfg::compute(&mir);
-                let dot = cfg.dot(&db, &cx, &mir);
-                mir::analysis::cfg::dot_imgcat(dot);
-                match mist_viper_backend::gen::viper_item(&db, cx, item, &mir) {
-                    Ok(Some((viper_item, viper_body, _viper_source_map))) => {
-                        let output = ViperOutput::generate(&viper_body, &viper_item);
-                        println!("{}", output.buf);
+                if dump_mir {
+                    println!("{}", mir.serialize(mir::serialize::Color::Yes, &db, &cx));
+                }
+                if dump_cfg {
+                    let cfg = mir::analysis::cfg::Cfg::compute(&mir);
+                    let dot = cfg.dot(&db, &cx, &mir);
+                    mir::analysis::cfg::dot_imgcat(dot);
+                }
+                if dump_viper {
+                    match mist_viper_backend::gen::viper_item(&db, cx, item, &mir) {
+                        Ok(Some((viper_item, viper_body, _viper_source_map))) => {
+                            let output = ViperOutput::generate(&viper_body, &viper_item);
+                            println!("{}", output.buf);
+                        }
+                        Ok(None) => {
+                            warn!("no viper code generated")
+                        }
+                        Err(err) => error!("{}", err),
                     }
-                    Ok(None) => {
-                        warn!("no viper code generated")
-                    }
-                    Err(err) => error!("{}", err),
                 }
             }
         }
@@ -104,7 +101,7 @@ async fn cli() -> Result<()> {
             viperserver_jar,
             file,
         } => {
-            let db = crate::db::Database::default();
+            let db = Database::default();
 
             let src = std::fs::read_to_string(&file)
                 .into_diagnostic()
@@ -112,30 +109,7 @@ async fn cli() -> Result<()> {
             let source = hir::SourceProgram::new(&db, src.clone());
             let program = hir::parse_program(&db, source);
 
-            let errors = accumulated_errors(&db, program).collect_vec();
-
-            if !errors.is_empty() {
-                let num_errors = errors.len();
-                for err in errors {
-                    eprintln!(
-                        "{:?}",
-                        err.with_source_code(miette::NamedSource::new(
-                            file.display().to_string(),
-                            src.clone()
-                        ))
-                    );
-                }
-
-                bail!("failed due to {} previous errors", num_errors);
-            }
-
-            for (item, cx, _, mir, _) in mir::lower_program(&db, program) {
-                info!("{}", item.name(&db));
-                println!("{}", mir.serialize(mir::serialize::Color::Yes, &db, &cx));
-                let cfg = mir::analysis::cfg::Cfg::compute(&mir);
-                let dot = cfg.dot(&db, &cx, &mir);
-                mir::analysis::cfg::dot_imgcat(dot);
-            }
+            dump_errors(&db, &file, &src, program)?;
 
             let (viper_program, viper_body, viper_source_map) =
                 mist_viper_backend::gen::viper_file(&db, program)?;
@@ -174,7 +148,6 @@ async fn cli() -> Result<()> {
             let res = client.post(req).await.into_diagnostic()?;
 
             let ctx = VerificationContext {
-                db: &db,
                 program,
                 mist_src_path: &file,
                 mist_src: &src,
@@ -185,18 +158,18 @@ async fn cli() -> Result<()> {
 
             let mut stream = client.check_on_verification(&res).await.into_diagnostic()?;
 
-            let mut num_errors = 0;
+            let mut errors = vec![];
 
             while let Some(status) = stream.next().await {
                 let status = status.into_diagnostic()?;
-                num_errors += ctx.handle_status(status);
+                errors.append(&mut ctx.handle_status(&db, status));
             }
 
-            if num_errors > 0 {
-                bail!("failed due to {} previous errors", num_errors);
+            if !errors.is_empty() {
+                bail!("failed due to {} previous errors", errors.len());
             }
 
-            tracing::info!("Successfully verified!");
+            info!("Successfully verified!");
 
             drop(viper_file);
         }
@@ -205,204 +178,31 @@ async fn cli() -> Result<()> {
     Ok(())
 }
 
-fn accumulated_errors(
+fn dump_errors(
     db: &dyn crate::Db,
-    program: hir::Program,
-) -> impl Iterator<Item = miette::Report> + '_ {
-    let parse_errors = program.errors(db);
-    let type_errors = mir::lower_program::accumulated::<mist_core::TypeCheckErrors>(db, program);
-    let mir_errors = mir::lower_program::accumulated::<mir::MirErrors>(db, program);
-    let viper_errors = if parse_errors.is_empty() && type_errors.is_empty() && mir_errors.is_empty()
-    {
-        mist_viper_backend::gen::viper_file::accumulated::<
-            mist_viper_backend::lower::ViperLowerErrors,
-        >(db, program)
-    } else {
-        vec![]
-    };
-
-    itertools::chain!(
-        parse_errors.iter().cloned().map(miette::Error::new),
-        type_errors.into_iter().map(miette::Error::new),
-        mir_errors.into_iter().map(miette::Error::new),
-        viper_errors.into_iter().map(miette::Error::new),
-    )
-}
-
-struct VerificationContext<'a> {
-    db: &'a dyn crate::Db,
-    program: hir::Program,
-    mist_src_path: &'a std::path::Path,
-    mist_src: &'a str,
-    viper_path: &'a std::path::Path,
-    viper_source_map: &'a ViperSourceMap,
-    viper_output: &'a ViperOutput,
-}
-
-impl VerificationContext<'_> {
-    fn handle_status(&self, status: VerificationStatus) -> usize {
-        use viperserver::client::VerificationStatus as Vs;
-
-        let mut num_errors = 0;
-
-        match &status {
-            Vs::CopyrightReport { .. } => {}
-            Vs::WarningsDuringParsing(warnings) => {
-                if !warnings.is_empty() {
-                    eprintln!("? {status:?}")
-                }
-            }
-            Vs::WarningsDuringTypechecking(warnings) => {
-                if !warnings.is_empty() {
-                    eprintln!("? {status:?}")
-                }
-            }
-            Vs::InvalidArgsReport { .. } => eprintln!("? {status:?}"),
-            Vs::AstConstructionResult { details, .. } => {
-                let errors = self.details_to_miette(details);
-                for err in errors {
-                    eprintln!("{err:?}");
-                    num_errors += 1;
-                }
-            }
-            Vs::ProgramOutline { .. } => {}
-            Vs::ProgramDefinitions { .. } => {}
-            Vs::Statistics { .. } => {}
-            Vs::ExceptionReport { .. } => eprintln!("? {status:?}"),
-            Vs::ConfigurationConfirmation { .. } => {}
-            Vs::VerificationResult { details, .. } => {
-                let errors = self.details_to_miette(details);
-                for err in errors {
-                    eprintln!("{err:?}");
-                    num_errors += 1;
-                }
-            }
-            Vs::BackendSubProcessReport { .. } => eprintln!("? {status:?}"),
-        }
-
-        num_errors
-    }
-
-    fn trace_span(&self, viper_span: SourceSpan) -> Option<SourceSpan> {
-        if let Some(back) = self.viper_output.trace_expr(viper_span) {
-            if let Some((item_id, back)) = self.viper_source_map.trace_exp(back) {
-                let item = hir::item(self.db, self.program, item_id).unwrap();
-                let (cx, source_map) =
-                    hir::item_lower(self.db, self.program, item_id, item).unwrap();
-                let (_mir, mir_source_map) = mir::lower_item(self.db, cx);
-                if let Some(back) = mir_source_map.trace_expr(back) {
-                    Some(source_map.expr_span(back))
-                } else {
-                    match back {
-                        mir::BlockOrInstruction::Block(_) => {
-                            warn!("no span was registered block for {back:?}")
-                        }
-                        mir::BlockOrInstruction::Instruction(_) => {
-                            warn!("no span was registered instruction for {back:?}")
-                        }
-                    }
-                    None
-                }
-            } else {
-                warn!("no span was registered for {back:?}");
-                None
-            }
-        } else {
-            warn!(
-                "unable to backtrace {}..{}",
-                Position::from_byte_offset(&self.viper_output.buf, viper_span.offset()),
-                Position::from_byte_offset(&self.viper_output.buf, viper_span.end())
-            );
-            None
-        }
-    }
-
-    fn details_to_miette<'a>(
-        &'a self,
-        details: &'a Details,
-    ) -> impl Iterator<Item = miette::Error> + 'a {
-        details.result.iter().flat_map(|result| {
-            result.errors.iter().flat_map(|err| {
-                let text = err
-                    .text
-                    .split_once(self.viper_path.file_name().unwrap().to_str().unwrap())
-                    .unwrap()
-                    .0
-                    .trim_end_matches(" (");
-                if let Some(pos) = err.position.inner() {
-                    let viper_span = viper_position_to_internal(&self.viper_output.buf, pos)
-                        .unwrap_or_else(|| SourceSpan::new_start_end(0, 0));
-                    let source_span = self.trace_span(viper_span);
-
-                    #[derive(Debug, thiserror::Error, miette::Diagnostic)]
-                    #[error("{error}")]
-                    struct AdHoc {
-                        error: String,
-                        #[label("here")]
-                        span: SourceSpan,
-                        #[label("and here")]
-                        span2: Option<SourceSpan>,
-                    }
-
-                    if let Some(source_span) = source_span {
-                        Some(
-                            miette::Error::new(AdHoc {
-                                error: text.to_string(),
-                                span: source_span,
-                                span2: None,
-                            })
-                            .with_source_code(
-                                miette::NamedSource::new(
-                                    self.mist_src_path.display().to_string(),
-                                    self.mist_src.to_string(),
-                                ),
-                            ),
-                        )
-                    } else {
-                        Some(
-                            miette::Error::new(AdHoc {
-                                error: text.to_string(),
-                                span: viper_span,
-                                span2: None,
-                            })
-                            .with_source_code(
-                                miette::NamedSource::new(
-                                    self.viper_path.display().to_string(),
-                                    self.viper_output.buf.to_string(),
-                                ),
-                            ),
-                        )
-                    }
-                } else {
-                    eprintln!("{err:?}");
-                    None
-                }
-            })
-        })
-    }
-}
-
-fn viper_position_to_internal(
+    path: &std::path::Path,
     src: &str,
-    pos: &viperserver::verification::Position,
-) -> Option<SourceSpan> {
-    fn pos_to_byte_offset(pos: &str) -> Option<Position> {
-        let (a, b) = pos.split_once(':')?;
-        let a: u32 = a.parse().unwrap();
-        let b: u32 = b.parse().unwrap();
+    program: hir::Program,
+) -> Result<()> {
+    let errors = accumulated_errors(db, program).collect_vec();
 
-        Some(Position::new(a - 1, b - 1))
+    if !errors.is_empty() {
+        let num_errors = errors.len();
+        for err in errors {
+            let err = err
+                .inner_diagnostic()
+                .map(|err| {
+                    err.with_source_code(miette::NamedSource::new(
+                        path.display().to_string(),
+                        src.to_string(),
+                    ))
+                })
+                .unwrap_or_else(|| miette::Error::new(err));
+            eprintln!("{err:?}");
+        }
+
+        bail!("failed due to {} previous errors", num_errors);
     }
 
-    Some(SourceSpan::new_start_end(
-        pos_to_byte_offset(&pos.start)?.to_byte_offset(src)?,
-        pos_to_byte_offset(&pos.end)?.to_byte_offset(src)?,
-    ))
+    Ok(())
 }
-
-#[salsa::jar(db=Db)]
-pub struct Jar();
-
-pub trait Db: mist_core::Db + mist_viper_backend::Db + salsa::DbWithJar<Jar> {}
-
-impl<DB> Db for DB where DB: ?Sized + mist_core::Db + mist_viper_backend::Db + salsa::DbWithJar<Jar> {}

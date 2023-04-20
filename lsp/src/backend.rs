@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -8,6 +9,7 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::request::{GotoDeclarationParams, GotoDeclarationResponse};
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
+use tracing::{error, info};
 
 use crate::highlighting::{TokenModifier, TokenType};
 use crate::hover::HoverElement;
@@ -160,15 +162,20 @@ impl Backend {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        self.update_text(params.text_document.uri, params.text_document.text)
-            .await
-            .expect("did_open");
+        self.update_text(
+            params.text_document.uri,
+            params.text_document.text,
+            params.text_document.version,
+        )
+        .await
+        .expect("did_open");
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         self.update_text(
             params.text_document.uri,
             params.content_changes[0].text.clone(),
+            params.text_document.version,
         )
         .await
         .expect("did_change");
@@ -286,34 +293,60 @@ impl Backend {
         Some(mist_core::hir::parse_program(db, source))
     }
 
-    async fn update_text(&self, uri: Url, source: String) -> Result<()> {
+    async fn update_text(&self, uri: Url, source: String, version: i32) -> Result<()> {
         let text = Arc::new(source);
         self.files.insert(uri.clone(), Arc::clone(&text));
 
-        let errors = {
-            let db = self.db();
+        let client = self.client.clone();
+        let viperserver_jar = self.viperserver_jar();
+        tokio::task::spawn_local(async move {
+            // info!("Spawned a new thread!");
+            // tokio::task::spawn_local(async move {
+            info!("this is a task in the new thread");
+            let db = crate::db::Database::default();
 
             let source = mist_core::hir::SourceProgram::new(&db, text.to_string());
             let program = mist_core::hir::parse_program(&db, source);
 
-            let parse_errors = program.errors(&db);
-            let type_errors = crate::highlighting::semantic_tokens::accumulated::<
-                mist_core::TypeCheckErrors,
-            >(&db, source);
-            let viper_errors = mist_viper_backend::gen::viper_file::accumulated::<
-                mist_viper_backend::lower::ViperLowerErrors,
-            >(&db, program);
+            let errors = mist_cli::accumulated_errors(&db, program)
+                .flat_map(|e| miette_to_diagnostic(&text, e.inner_diagnostic().unwrap()))
+                .collect_vec();
 
-            itertools::chain!(
-                parse_errors.iter().cloned().map(miette::Error::new),
-                type_errors.into_iter().map(miette::Error::new),
-                viper_errors.into_iter().map(miette::Error::new),
-            )
-            .flat_map(|e| miette_to_diagnostic(&text, e))
-            .collect()
-        };
+            if errors.is_empty() {
+                client
+                    .publish_diagnostics(uri.clone(), vec![], Some(version))
+                    .await;
 
-        self.client.publish_diagnostics(uri, errors, None).await;
+                let errors = match crate::viper::verify_file(
+                    &db,
+                    program,
+                    &viperserver_jar,
+                    uri.as_str(),
+                    &text,
+                )
+                .await
+                {
+                    Ok(errors) => errors,
+                    Err(err) => vec![err],
+                };
+
+                let errors = errors
+                    .into_iter()
+                    .flat_map(|e| {
+                        error!("verification error: {e:?}");
+
+                        miette_to_diagnostic(&text, e)
+                    })
+                    .collect_vec();
+
+                client
+                    .publish_diagnostics(uri.clone(), errors, Some(version))
+                    .await;
+            } else {
+                client.publish_diagnostics(uri, errors, Some(version)).await;
+            }
+        });
+        // });
 
         Ok(())
     }
@@ -342,6 +375,11 @@ impl Backend {
             target_range,
             target_selection_range: target_range,
         }))
+    }
+
+    fn viperserver_jar(&self) -> PathBuf {
+        // TODO: do not hard code this
+        PathBuf::from("/Users/oeb25/Projects/thesis/vipers/server/viperserver/target/scala-2.13/viperserver.jar")
     }
 }
 

@@ -744,21 +744,44 @@ impl<'src> Parser<'src> {
     }
 
     fn comma_expr(&mut self, loc: Location) {
-        self.builder.start_node(COMMA_EXPR.into());
-        self.expr(loc);
-
         loop {
             self.skip_ws();
-            if let Some(T![,]) = self.current() {
-                self.bump();
-                self.builder.finish_node();
-            } else {
-                self.builder.finish_node();
-                break;
+            match self.current() {
+                Some(t) if is_start_of_expr(t) => {
+                    self.builder.start_node(COMMA_EXPR.into());
+                    self.expr(loc);
+
+                    self.skip_ws();
+                    match self.current() {
+                        Some(T![,]) => {
+                            self.bump();
+                            self.builder.finish_node();
+                        }
+                        _ => {
+                            self.builder.finish_node();
+                            break;
+                        }
+                    }
+                }
+                _ => break,
             }
-            self.builder.start_node(COMMA_EXPR.into());
-            self.expr(loc);
         }
+
+        // self.builder.start_node(COMMA_EXPR.into());
+        // self.expr(loc);
+
+        // loop {
+        //     self.skip_ws();
+        //     if let Some(T![,]) = self.current() {
+        //         self.bump();
+        //         self.builder.finish_node();
+        //     } else {
+        //         self.builder.finish_node();
+        //         break;
+        //     }
+        //     self.builder.start_node(COMMA_EXPR.into());
+        //     self.expr(loc);
+        // }
     }
 
     fn expr(&mut self, loc: Location) {
@@ -913,7 +936,7 @@ impl<'src> Parser<'src> {
                         }
                     }
                 } else {
-                    eprintln!("unknown start of expr {t:?}");
+                    // eprintln!("unknown start of expr {t:?}");
                     self.push_error(
                         None,
                         Some(&format!("unknown start of expr: '{t}'")),
@@ -1218,6 +1241,8 @@ fn is_start_of_expr(token: SyntaxKind) -> bool {
             | T![false]
             | T![result]
             | T![return]
+            | T![forall]
+            | T![exists]
             | T![&]
             | T![!]
             | T![-]

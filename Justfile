@@ -48,5 +48,5 @@ lsp-build:
 
 lsp-watch:
     cd vscode-client && npm run update
-    cargo watch -i '*.mist' -s 'cargo build -p mist-lsp && killall mist-lsp && echo killed!'
-    # cargo watch -i '*.mist' -s "cargo build --release -p mist-lsp && killall mist-lsp && echo killed!"
+    cargo watch -i '.mist.*' -i '*.vpr' -i '*.mist' -s 'cargo build -p mist-lsp && killall mist-lsp && echo killed!'
+    # cargo watch -i '.mist.*' -i '*.vpr' -i '*.mist' -s "cargo build --release -p mist-lsp && killall mist-lsp && echo killed!"

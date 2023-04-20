@@ -148,9 +148,12 @@ impl BodyLower<'_> {
         let start = match self.body[block].terminator() {
             Some(t) => match t {
                 mir::Terminator::Return => {
-                    return Err(ViperLowerError::NotYetImplemented(
-                        "return terminator".to_string(),
-                    ))
+                    return Err(ViperLowerError::NotYetImplemented {
+                        msg: "return terminator".to_string(),
+                        item_id: self.body.item_id(),
+                        block_or_inst: block.into(),
+                        span: None,
+                    })
                 }
                 mir::Terminator::Quantify(q, over, next) => match self.pure_block(*next, None)? {
                     PureLowerResult::UnassignedExpression(exp, _slot, stopped_before) => {
@@ -197,7 +200,14 @@ impl BodyLower<'_> {
                     }
                 }
                 mir::Terminator::Switch(test, switch) => {
-                    let next = self.postdominators[block];
+                    let Some(next) = self.postdominators.get(block) else {
+                        return Err(ViperLowerError::NotYetImplemented {
+                            msg: "block did not have a postdominator".to_string(),
+                            item_id: self.body.item_id(),
+                            block_or_inst: block.into(),
+                            span: None,
+                        })
+                    };
 
                     let (mut values, otherwise) = switch.values();
                     let otherwise = self.pure_block(otherwise, Some(block))?;
@@ -208,9 +218,12 @@ impl BodyLower<'_> {
                                 PureLowerResult::UnassignedExpression(thn, thn_slot, _),
                             ) => {
                                 if thn_slot != els_slot {
-                                    return Err(ViperLowerError::NotYetImplemented(
-                                        "divergent branches".to_string(),
-                                    ));
+                                    return Err(ViperLowerError::NotYetImplemented {
+                                        msg: "divergent branches".to_string(),
+                                        item_id: self.body.item_id(),
+                                        block_or_inst: block.into(),
+                                        span: None,
+                                    });
                                 }
                                 let cond = match value {
                                     1 => self.slot_to_ref(block, *test),
@@ -231,9 +244,12 @@ impl BodyLower<'_> {
                                 Some(next),
                             )),
                             (PureLowerResult::Empty { .. }, _) => {
-                                Err(ViperLowerError::NotYetImplemented(
-                                    "divergent branches".to_string(),
-                                ))
+                                Err(ViperLowerError::NotYetImplemented {
+                                    msg: "divergent branches".to_string(),
+                                    item_id: self.body.item_id(),
+                                    block_or_inst: block.into(),
+                                    span: None,
+                                })
                             }
                         }
                     })?;

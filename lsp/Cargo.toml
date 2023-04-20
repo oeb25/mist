@@ -9,6 +9,7 @@ edition = "2021"
 tower-lsp = "0.19.0"
 itertools = { workspace = true }
 mist-syntax = { workspace = true }
+mist-cli = { workspace = true }
 mist-core = { workspace = true }
 mist-viper-backend = { workspace = true }
 miette = { workspace = true }
@@ -19,3 +20,5 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 dashmap = "5.4.0"
 derive-new = "0.5.9"
+tempfile.workspace = true
+futures-util = "0.3.28"

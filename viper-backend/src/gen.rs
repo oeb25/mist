@@ -12,7 +12,7 @@ use silvers::{
     typ::Type,
 };
 
-use crate::lower::{ViperBody, ViperLowerError, ViperLowerer, ViperSourceMap};
+use crate::lower::{ViperBody, ViperLowerError, ViperLowerErrors, ViperLowerer, ViperSourceMap};
 
 #[salsa::tracked]
 pub fn viper_file(
@@ -33,10 +33,14 @@ pub fn viper_file(
         let Some(item) = hir::item(db, program, item_id) else { continue };
         let Some((cx, _source_map)) = hir::item_lower(db, program, item_id, item) else { continue };
         let (mir, _mir_source_map) = mir::lower_item(db, cx.clone());
-        let Some(viper_item) = internal_viper_item(db, cx, &mut lowerer, item, &mir)? else { continue };
-        match viper_item {
-            ViperItem::Function(f) => functions.push(f),
-            ViperItem::Method(m) => methods.push(m),
+        match internal_viper_item(db, cx, &mut lowerer, item, &mir) {
+            Ok(Some(ViperItem::Function(f))) => functions.push(f),
+            Ok(Some(ViperItem::Method(m))) => methods.push(m),
+            Ok(None) => {}
+            Err(err) => {
+                ViperLowerErrors::push(db, err.clone());
+                return Err(err);
+            }
         }
     }
 

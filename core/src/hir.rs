@@ -10,7 +10,6 @@ use mist_syntax::{
     },
     SourceSpan,
 };
-use tracing::debug;
 
 pub use crate::typecheck::{ItemContext, ItemSourceMap};
 use crate::{
@@ -221,7 +220,6 @@ pub fn item_lower(
             }
             if let Some(ret) = function.ret(db) {
                 checker.set_return_ty(ret);
-                debug!("return type set from outside: {ret:?}");
             }
             Some(checker.into())
         }

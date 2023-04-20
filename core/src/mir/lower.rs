@@ -311,9 +311,18 @@ impl MirLower<'_> {
             ExprData::Literal(_) => todo!(),
             ExprData::Ident(x) => (bid, self.var_slot(x.idx())),
             ExprData::Block(_) => todo!(),
-            ExprData::Field { .. } => todo!(),
+            ExprData::Field {
+                expr,
+                field_name,
+                field,
+            } => {
+                let (next_bid, slot) = self.lhs_expr(*expr, bid, None);
+                bid = next_bid;
+                // TODO: we should do projection onto the parent
+                (bid, slot)
+            }
             ExprData::Struct { .. } => todo!(),
-            ExprData::Missing => todo!(),
+            ExprData::Missing => (bid, self.alloc_tmp(Type::error(self.db))),
             ExprData::If(_) => todo!(),
             ExprData::Call { .. } => todo!(),
             ExprData::Unary { .. } => todo!(),

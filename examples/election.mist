@@ -91,7 +91,7 @@ fn search_winner(votes: [int], ghost has_winner: bool, ghost winner: int) -> int
       lemma_split_vote_count(votes, w, winner, low, high);
       if high == votes.len {
         ret = true;
-        return w;
+        // return w;
       } else {
         w = votes[high];
         low = high;

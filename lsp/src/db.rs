@@ -1,7 +1,7 @@
 use mist_core::salsa;
 
 #[derive(Default)]
-#[salsa::db(crate::Jar, mist_core::Jar, mist_viper_backend::Jar)]
+#[salsa::db(crate::Jar, mist_core::Jar, mist_viper_backend::Jar, mist_cli::Jar)]
 pub(crate) struct Database {
     storage: salsa::Storage<Self>,
 }

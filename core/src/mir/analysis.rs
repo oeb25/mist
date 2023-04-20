@@ -210,6 +210,12 @@ pub mod cfg {
         relation: ArenaMap<BlockId, BlockId>,
     }
 
+    impl Postdominators {
+        pub fn get(&self, index: BlockId) -> Option<BlockId> {
+            self.relation.get(index).copied()
+        }
+    }
+
     impl std::ops::Index<BlockId> for Postdominators {
         type Output = BlockId;
 
