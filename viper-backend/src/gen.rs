@@ -2,6 +2,7 @@ use std::{collections::HashMap, fmt::Write};
 
 use derive_more::From;
 use derive_new::new;
+use itertools::Itertools;
 use la_arena::ArenaMap;
 use mist_core::{hir, mir};
 use mist_syntax::SourceSpan;
@@ -186,6 +187,16 @@ pub struct ViperOutput {
     pub buf: String,
     pub expr_map: ArenaMap<VExprId, SourceSpan>,
     pub expr_map_back: HashMap<SourceSpan, VExprId>,
+}
+
+impl ViperOutput {
+    pub fn trace_expr(&self, span: SourceSpan) -> Option<VExprId> {
+        self.expr_map_back
+            .iter()
+            .sorted_by_key(|(s, _)| *s)
+            .find(|(s, _)| s.overlaps(span))
+            .map(|(_, exp)| *exp)
+    }
 }
 
 impl ViperOutput {

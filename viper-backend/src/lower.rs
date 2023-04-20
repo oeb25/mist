@@ -6,7 +6,7 @@ use la_arena::{Arena, ArenaMap};
 use miette::Diagnostic;
 use mist_core::{
     hir,
-    mir::{self, analysis::cfg},
+    mir::{self, analysis::cfg, BlockOrInstruction},
 };
 use mist_syntax::ast::operators::{ArithOp, BinaryOp, CmpOp, LogicOp};
 use silvers::{
@@ -114,6 +114,18 @@ pub struct ViperSourceMap {
     pub block_expr_back: ArenaMap<VExprId, (hir::ItemId, mir::BlockId)>,
 }
 
+impl ViperSourceMap {
+    pub fn trace_exp(&self, exp: VExprId) -> Option<(hir::ItemId, mir::BlockOrInstruction)> {
+        if let Some(&(item_id, instr)) = self.inst_expr_back.get(exp) {
+            return Some((item_id, instr.into()));
+        }
+        if let Some(&(item_id, block)) = self.block_expr_back.get(exp) {
+            return Some((item_id, block.into()));
+        }
+        None
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Diagnostic)]
 pub enum ViperLowerError {
     #[error("not yet implemented: {_0}")]
@@ -135,12 +147,6 @@ impl From<VTy> for ViperType {
 
 #[salsa::accumulator]
 pub struct ViperLowerErrors(ViperLowerError);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, derive_more::From)]
-enum BlockOrInstruction {
-    Block(mir::BlockId),
-    Instruction(mir::InstructionId),
-}
 
 pub struct BodyLower<'a> {
     db: &'a dyn crate::Db,

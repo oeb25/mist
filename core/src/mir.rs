@@ -273,10 +273,25 @@ pub struct Body {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct BodySourceMap {
     pub expr_instr_map: ArenaMap<ExprIdx, Vec<InstructionId>>,
-    pub expr_instr_map_back: ArenaMap<InstructionId, ExprIdx>,
+    expr_instr_map_back: ArenaMap<InstructionId, ExprIdx>,
     pub expr_block_map: ArenaMap<ExprIdx, BlockId>,
-    pub expr_block_map_back: ArenaMap<BlockId, ExprIdx>,
+    expr_block_map_back: ArenaMap<BlockId, ExprIdx>,
     pub var_map: ArenaMap<VariableIdx, SlotId>,
+}
+
+impl BodySourceMap {
+    pub fn trace_expr(&self, instr_or_block: impl Into<BlockOrInstruction>) -> Option<ExprIdx> {
+        match instr_or_block.into() {
+            BlockOrInstruction::Block(b) => self.expr_block_map_back.get(b).copied(),
+            BlockOrInstruction::Instruction(b) => self.expr_instr_map_back.get(b).copied(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, derive_more::From)]
+pub enum BlockOrInstruction {
+    Block(BlockId),
+    Instruction(InstructionId),
 }
 
 impl Body {
