@@ -186,8 +186,8 @@ pub struct VExpr {
 
 #[doc(hidden)]
 #[derive(new)]
-pub struct ViperWriter<'a> {
-    body: &'a ViperBody,
+pub struct ViperWriter<Cx> {
+    cx: Cx,
     #[new(default)]
     start_of_line: bool,
     #[new(default)]
@@ -214,18 +214,18 @@ impl ViperOutput {
 }
 
 impl ViperOutput {
-    pub fn generate<E: ViperWrite>(body: &ViperBody, x: &E) -> ViperOutput {
-        let mut writer = ViperWriter::new(body);
+    pub fn generate<Cx, E: ViperWrite<Cx>>(cx: Cx, x: &E) -> ViperOutput {
+        let mut writer = ViperWriter::new(cx);
         writer.emit(x);
         writer.finish()
     }
 }
 
-impl ViperWriter<'_> {
+impl<Cx> ViperWriter<Cx> {
     pub(crate) fn finish(self) -> ViperOutput {
         self.output
     }
-    pub(crate) fn emit<E: ViperWrite>(&mut self, elem: &E) {
+    pub(crate) fn emit<E: ViperWrite<Cx>>(&mut self, elem: &E) {
         let start = self.output.buf.len();
 
         E::emit(elem, self);
@@ -244,9 +244,9 @@ impl ViperWriter<'_> {
 }
 
 #[doc(hidden)]
-pub trait ViperWrite {
-    fn emit(elem: &Self, w: &mut ViperWriter);
-    fn register(elem: &Self, w: &mut ViperWriter, span: SourceSpan) {
+pub trait ViperWrite<Cx> {
+    fn emit(elem: &Self, w: &mut ViperWriter<Cx>);
+    fn register(elem: &Self, w: &mut ViperWriter<Cx>, span: SourceSpan) {
         let _ = (elem, w, span);
     }
 }
@@ -260,6 +260,17 @@ mod write_impl {
     };
 
     use super::*;
+
+    impl ViperWrite<&'_ ViperBody> for VExprId {
+        fn emit(&vexpr: &Self, w: &mut ViperWriter<&'_ ViperBody>) {
+            Exp::emit(&w.cx[vexpr].data, w)
+        }
+
+        fn register(&vexpr: &Self, writer: &mut ViperWriter<&'_ ViperBody>, span: SourceSpan) {
+            writer.output.expr_map.insert(vexpr, span);
+            writer.output.expr_map_back.insert(span, vexpr);
+        }
+    }
 
     macro_rules! indentation_pre {
         ($w:expr) => {
@@ -316,9 +327,9 @@ mod write_impl {
         }};
     }
 
-    impl ViperWrite for VExprId {
-        fn emit(&vexpr: &Self, w: &mut ViperWriter) {
-            match &w.body[vexpr].data {
+    impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for Exp<E> {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
+            match elem {
                 Exp::Bin { op, left, right } => w!(w, "(", left, " {op} ", right, ")"),
                 Exp::Un { op, exp } => w!(w, "{op}", exp),
                 Exp::MagicWand(m) => w!(w, "(", &m.left, " --* ", &m.right, ")"),
@@ -436,15 +447,10 @@ mod write_impl {
                 Exp::Map(_) => w!(w, "// TODO: Map"),
             }
         }
-
-        fn register(&vexpr: &Self, writer: &mut ViperWriter, span: SourceSpan) {
-            writer.output.expr_map.insert(vexpr, span);
-            writer.output.expr_map_back.insert(span, vexpr);
-        }
     }
 
-    impl<E: ViperWrite> ViperWrite for Stmt<E> {
-        fn emit(elem: &Self, w: &mut ViperWriter) {
+    impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for Stmt<E> {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
             match elem {
                 Stmt::NewStmt { .. } => w!(w, "// TODO: NewStmt"),
                 Stmt::LocalVarAssign { lhs, rhs } => {
@@ -521,8 +527,8 @@ mod write_impl {
         }
     }
 
-    impl<E: ViperWrite> ViperWrite for Seqn<E> {
-        fn emit(elem: &Self, w: &mut ViperWriter) {
+    impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for Seqn<E> {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
             for decl in &elem.scoped_seqn_declarations {
                 w!(w, decl, "; ");
             }
@@ -535,8 +541,8 @@ mod write_impl {
         }
     }
 
-    impl<E: ViperWrite> ViperWrite for Declaration<E> {
-        fn emit(elem: &Self, w: &mut ViperWriter) {
+    impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for Declaration<E> {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
             match elem {
                 Declaration::LocalVar(v) => w!(w, "var ", v),
                 Declaration::DomainAxiom(_) => w!(w, "// TODO: DomainAxiom"),
@@ -546,20 +552,20 @@ mod write_impl {
         }
     }
 
-    impl<E: ViperWrite> ViperWrite for PredicateAccessPredicate<E> {
-        fn emit(_elem: &Self, w: &mut ViperWriter) {
+    impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for PredicateAccessPredicate<E> {
+        fn emit(_elem: &Self, w: &mut ViperWriter<Cx>) {
             w!(w, "// TODO: PredicateAccessPredicate");
         }
     }
 
-    impl<E: ViperWrite> ViperWrite for PredicateAccess<E> {
-        fn emit(_elem: &Self, w: &mut ViperWriter) {
+    impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for PredicateAccess<E> {
+        fn emit(_elem: &Self, w: &mut ViperWriter<Cx>) {
             w!(w, "// TODO: PredicateAccess");
         }
     }
 
-    impl ViperWrite for AnyLocalVarDecl {
-        fn emit(elem: &Self, w: &mut ViperWriter) {
+    impl<Cx> ViperWrite<Cx> for AnyLocalVarDecl {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
             match elem {
                 AnyLocalVarDecl::UnnamedLocalVarDecl { .. } => todo!(),
                 AnyLocalVarDecl::LocalVarDecl(v) => w!(w, v),
@@ -567,29 +573,29 @@ mod write_impl {
         }
     }
 
-    impl ViperWrite for LocalVar {
-        fn emit(elem: &Self, w: &mut ViperWriter) {
+    impl<Cx> ViperWrite<Cx> for LocalVar {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
             let name = &elem.name;
             w!(w, "{name}");
         }
     }
 
-    impl ViperWrite for LocalVarDecl {
-        fn emit(elem: &Self, w: &mut ViperWriter) {
+    impl<Cx> ViperWrite<Cx> for LocalVarDecl {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
             let name = &elem.name;
             let typ = &elem.typ;
             w!(w, "{name}: {typ}");
         }
     }
 
-    impl ViperWrite for Type {
-        fn emit(elem: &Self, w: &mut ViperWriter) {
+    impl<Cx> ViperWrite<Cx> for Type {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
             w!(w, "{elem}");
         }
     }
 
-    impl<E: ViperWrite> ViperWrite for Function<E> {
-        fn emit(elem: &Self, w: &mut ViperWriter) {
+    impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for Function<E> {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
             let name = &elem.name;
             w!(w, "function {name}(");
             let mut first = true;
@@ -621,8 +627,8 @@ mod write_impl {
         }
     }
 
-    impl<E: ViperWrite> ViperWrite for Method<E> {
-        fn emit(elem: &Self, w: &mut ViperWriter) {
+    impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for Method<E> {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
             let name = &elem.name;
             w!(w, "method {name}(");
             let mut first = true;
@@ -667,8 +673,8 @@ mod write_impl {
         }
     }
 
-    impl<E: ViperWrite> ViperWrite for ViperItem<E> {
-        fn emit(elem: &Self, w: &mut ViperWriter) {
+    impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for ViperItem<E> {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
             match elem {
                 ViperItem::Function(f) => Function::emit(f, w),
                 ViperItem::Method(m) => Method::emit(m, w),
@@ -676,8 +682,8 @@ mod write_impl {
         }
     }
 
-    impl<E: ViperWrite> ViperWrite for Program<E> {
-        fn emit(elem: &Self, w: &mut ViperWriter) {
+    impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for Program<E> {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
             for f in &elem.functions {
                 wln!(w, f);
             }
