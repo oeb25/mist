@@ -5,7 +5,7 @@ use derive_new::new;
 use itertools::Itertools;
 use la_arena::ArenaMap;
 use mist_core::{hir, mir};
-use mist_syntax::SourceSpan;
+use mist_syntax::{ast::Spanned, SourceSpan};
 use silvers::{
     expression::{AbstractLocalVar, Exp, LocationAccess, QuantifierExp, ResourceAccess, SeqExp},
     program::{Function, Method, Program},
@@ -115,16 +115,26 @@ fn internal_viper_item(
             });
 
             if function.attrs(db).is_pure() {
+                let body = mir
+                    .body_block()
+                    .map(|body| lower.pure_lower(body))
+                    .transpose()?;
+
                 let func = Function {
                     name: function.name(db).to_string(),
                     formal_args,
-                    typ: ret_ty.unwrap().1.vty,
+                    typ: ret_ty
+                        .ok_or_else(|| ViperLowerError::NotYetImplemented {
+                            msg: "function had no return type".to_owned(),
+                            item_id: cx.item_id(),
+                            block_or_inst: None,
+                            span: Some(function.name(db).span()),
+                        })?
+                        .1
+                        .vty,
                     pres,
                     posts,
-                    body: mir
-                        .body_block()
-                        .map(|body| lower.pure_lower(body))
-                        .transpose()?,
+                    body,
                 };
 
                 Ok(Some(func.into()))

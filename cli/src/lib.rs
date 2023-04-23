@@ -74,7 +74,18 @@ pub fn accumulated_errors(
         match &mut err {
             MistError::Parse(_) => {}
             MistError::TypeCheck(_) => {}
-            MistError::Mir(_) => {}
+            MistError::Mir(err) => err.populate_spans(
+                |item_id, expr| {
+                    let item = hir::item(db, program, item_id).unwrap();
+                    let (_cx, source_map) = hir::item_lower(db, program, item_id, item).unwrap();
+                    Some(source_map.expr_span(expr))
+                },
+                |item_id, var| {
+                    let item = hir::item(db, program, item_id).unwrap();
+                    let (cx, _source_map) = hir::item_lower(db, program, item_id, item).unwrap();
+                    Some(cx.var_span(var))
+                },
+            ),
             MistError::ViperLower(err) => {
                 err.populate_spans(|item_id, block_or_instr| {
                     let item = hir::item(db, program, item_id).unwrap();

@@ -182,6 +182,7 @@ impl<'a> MirLower<'a> {
             MirErrors::push(
                 self.db,
                 MirError::SlotUseBeforeAlloc {
+                    item_id: self.cx.item_id(),
                     var,
                     span: Some(self.cx.var_span(var)),
                 },
@@ -274,7 +275,6 @@ impl MirLower<'_> {
                     SwitchTargets::new([(1, body_bid)], exit_bid),
                 ));
 
-                // TODO: Annotate the invariants somewhere
                 exit_bid
             }
             StatementData::Assertion { kind, exprs } => {
@@ -312,13 +312,22 @@ impl MirLower<'_> {
             ExprData::Ident(x) => (bid, self.var_slot(x.idx())),
             ExprData::Block(_) => todo!(),
             ExprData::Field {
-                expr,
+                expr: base,
                 field_name,
                 field,
             } => {
-                let (next_bid, slot) = self.lhs_expr(*expr, bid, None);
+                let (next_bid, slot) = self.lhs_expr(*base, bid, None);
                 bid = next_bid;
                 // TODO: we should do projection onto the parent
+                MirErrors::push(
+                    self.db,
+                    MirError::NotYetImplemented {
+                        msg: "lhs_expr of field access".to_string(),
+                        item_id: self.cx.item_id(),
+                        expr,
+                        span: None,
+                    },
+                );
                 (bid, slot)
             }
             ExprData::Struct { .. } => todo!(),
@@ -386,7 +395,12 @@ impl MirLower<'_> {
                 } else {
                     MirErrors::push(
                         self.db,
-                        MirError::NotYetImplemented("missing field".to_string()),
+                        MirError::NotYetImplemented {
+                            item_id: self.cx.item_id(),
+                            msg: "missing field".to_string(),
+                            expr,
+                            span: None,
+                        },
                     );
                     bid
                 }
@@ -469,7 +483,18 @@ impl MirLower<'_> {
                     bid
                 }
             }
-            ExprData::Ref { .. } => todo!(),
+            ExprData::Ref { .. } => {
+                MirErrors::push(
+                    self.db,
+                    MirError::NotYetImplemented {
+                        item_id: self.cx.item_id(),
+                        msg: "lower ref".to_string(),
+                        expr,
+                        span: None,
+                    },
+                );
+                bid
+            }
             &ExprData::Index { base, index } => {
                 let f = match &self.cx.expr(index).ty.strip_ghost(self.db).data(self.db) {
                     hir::TypeData::Range(_) => FunctionData::RangeIndex,
@@ -547,7 +572,11 @@ impl MirLower<'_> {
                     } else {
                         MirErrors::push(
                             self.db,
-                            MirError::ResultWithoutReturnSlot { expr, span: None },
+                            MirError::ResultWithoutReturnSlot {
+                                item_id: self.cx.item_id(),
+                                expr,
+                                span: None,
+                            },
                         );
                         todo!();
                         // self.alloc_slot(Slot::Result, expr_ty)
@@ -591,7 +620,11 @@ impl MirLower<'_> {
                         } else {
                             MirErrors::push(
                                 self.db,
-                                MirError::ResultWithoutReturnSlot { expr, span: None },
+                                MirError::ResultWithoutReturnSlot {
+                                    item_id: self.cx.item_id(),
+                                    expr,
+                                    span: None,
+                                },
                             );
                             todo!()
                             // self.alloc_slot(Slot::Result, expr_ty)

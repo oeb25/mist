@@ -13,9 +13,7 @@ use mist_syntax::{
 };
 use tracing::debug;
 
-use crate::hir::{
-    self, AssertionKind, ExprIdx, Field, Literal, Quantifier, Struct, Type, VariableIdx,
-};
+use crate::hir::{self, AssertionKind, Field, Literal, Quantifier, Struct, Type, VariableIdx};
 
 pub use self::lower::{lower_item, lower_program};
 
@@ -272,15 +270,18 @@ pub struct Body {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct BodySourceMap {
-    pub expr_instr_map: ArenaMap<ExprIdx, Vec<InstructionId>>,
-    expr_instr_map_back: ArenaMap<InstructionId, ExprIdx>,
-    pub expr_block_map: ArenaMap<ExprIdx, BlockId>,
-    expr_block_map_back: ArenaMap<BlockId, ExprIdx>,
+    pub expr_instr_map: ArenaMap<hir::ExprIdx, Vec<InstructionId>>,
+    expr_instr_map_back: ArenaMap<InstructionId, hir::ExprIdx>,
+    pub expr_block_map: ArenaMap<hir::ExprIdx, BlockId>,
+    expr_block_map_back: ArenaMap<BlockId, hir::ExprIdx>,
     pub var_map: ArenaMap<VariableIdx, SlotId>,
 }
 
 impl BodySourceMap {
-    pub fn trace_expr(&self, instr_or_block: impl Into<BlockOrInstruction>) -> Option<ExprIdx> {
+    pub fn trace_expr(
+        &self,
+        instr_or_block: impl Into<BlockOrInstruction>,
+    ) -> Option<hir::ExprIdx> {
         match instr_or_block.into() {
             BlockOrInstruction::Block(b) => self.expr_block_map_back.get(b).copied(),
             BlockOrInstruction::Instruction(b) => self.expr_instr_map_back.get(b).copied(),
@@ -436,16 +437,24 @@ impl std::ops::Index<&'_ FunctionId> for Body {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Diagnostic)]
 pub enum MirError {
-    #[error("not yet implemented: {_0}")]
-    NotYetImplemented(String),
+    #[error("not yet implemented: {msg}")]
+    NotYetImplemented {
+        msg: String,
+        item_id: hir::ItemId,
+        expr: hir::ExprIdx,
+        #[label]
+        span: Option<SourceSpan>,
+    },
     #[error("variable used before its slot was allocated")]
     SlotUseBeforeAlloc {
+        item_id: hir::ItemId,
         var: VariableIdx,
         #[label]
         span: Option<SourceSpan>,
     },
     #[error("result seen in function without return slot set")]
     ResultWithoutReturnSlot {
+        item_id: hir::ItemId,
         expr: hir::ExprIdx,
         #[label]
         span: Option<SourceSpan>,
@@ -456,15 +465,24 @@ pub enum MirError {
 pub struct MirErrors(MirError);
 
 impl MirError {
-    pub fn populate_spans(&mut self, cx: &hir::ItemContext, source_map: &hir::ItemSourceMap) {
+    pub fn populate_spans(
+        &mut self,
+        expr_f: impl Fn(hir::ItemId, hir::ExprIdx) -> Option<SourceSpan>,
+        var_f: impl Fn(hir::ItemId, hir::VariableIdx) -> Option<SourceSpan>,
+    ) {
         match self {
-            MirError::NotYetImplemented(_) => {}
-            MirError::SlotUseBeforeAlloc { var, span } => {
-                *span = Some(cx.var_span(*var));
-            }
-            MirError::ResultWithoutReturnSlot { expr, span } => {
-                *span = Some(source_map.expr_span(*expr))
-            }
+            MirError::NotYetImplemented {
+                msg: _,
+                item_id,
+                expr,
+                span,
+            } => *span = expr_f(*item_id, *expr),
+            MirError::SlotUseBeforeAlloc { item_id, var, span } => *span = var_f(*item_id, *var),
+            MirError::ResultWithoutReturnSlot {
+                item_id,
+                expr,
+                span,
+            } => *span = expr_f(*item_id, *expr),
         }
     }
 }

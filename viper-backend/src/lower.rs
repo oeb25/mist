@@ -135,7 +135,7 @@ pub enum ViperLowerError {
     NotYetImplemented {
         msg: String,
         item_id: hir::ItemId,
-        block_or_inst: mir::BlockOrInstruction,
+        block_or_inst: Option<mir::BlockOrInstruction>,
         #[label]
         span: Option<SourceSpan>,
     },
@@ -151,12 +151,13 @@ impl ViperLowerError {
         match self {
             ViperLowerError::NotYetImplemented {
                 item_id,
-                block_or_inst,
+                block_or_inst: Some(block_or_inst),
                 span,
                 ..
             } => {
                 *span = f(*item_id, *block_or_inst);
             }
+            ViperLowerError::NotYetImplemented { .. } => {}
             ViperLowerError::EmptyBody => {}
         }
     }
@@ -168,11 +169,17 @@ pub struct ViperLowerErrors(ViperLowerError);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ViperType {
     pub vty: VTy,
+    optional: bool,
+    is_mut: bool,
 }
 
 impl From<VTy> for ViperType {
     fn from(vty: VTy) -> Self {
-        ViperType { vty }
+        ViperType {
+            vty,
+            is_mut: false,
+            optional: false,
+        }
     }
 }
 
@@ -232,15 +239,25 @@ impl<'a> BodyLower<'a> {
                 // TODO: Should we do anything special about ghost?
                 self.lower_type(*inner)
             }
-            hir::TypeData::Ref { is_mut, inner } => {
+            &hir::TypeData::Ref { is_mut, inner } => {
                 // TODO: We should indicate some predicate on the ref
-                ViperType { vty: VTy::ref_() }
+                ViperType {
+                    vty: VTy::ref_(),
+                    is_mut,
+                    optional: false,
+                }
             }
             hir::TypeData::List(inner) => VTy::Seq {
                 element_type: Box::new(self.lower_type(*inner).vty),
             }
             .into(),
-            hir::TypeData::Optional(_) => todo!("lower_type(Optional)"),
+            hir::TypeData::Optional(inner) => {
+                let vty = self.lower_type(*inner);
+                ViperType {
+                    optional: true,
+                    ..vty
+                }
+            }
             hir::TypeData::Primitive(p) => match p {
                 hir::Primitive::Int => VTy::int().into(),
                 hir::Primitive::Bool => VTy::bool().into(),
@@ -410,7 +427,7 @@ impl BodyLower<'_> {
                     return Err(ViperLowerError::NotYetImplemented {
                         msg: format!("lower struct field: {f:?}"),
                         item_id: self.body.item_id(),
-                        block_or_inst: inst.into(),
+                        block_or_inst: Some(inst.into()),
                         span: None,
                     });
                 }
@@ -420,7 +437,7 @@ impl BodyLower<'_> {
                         return Err(ViperLowerError::NotYetImplemented {
                             msg: format!("lower list field: {f:?}"),
                             item_id: self.body.item_id(),
-                            block_or_inst: inst.into(),
+                            block_or_inst: Some(inst.into()),
                             span: None,
                         });
                     }

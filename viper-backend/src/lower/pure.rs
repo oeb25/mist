@@ -151,7 +151,7 @@ impl BodyLower<'_> {
                     return Err(ViperLowerError::NotYetImplemented {
                         msg: "return terminator".to_string(),
                         item_id: self.body.item_id(),
-                        block_or_inst: block.into(),
+                        block_or_inst: Some(block.into()),
                         span: None,
                     })
                 }
@@ -204,7 +204,7 @@ impl BodyLower<'_> {
                         return Err(ViperLowerError::NotYetImplemented {
                             msg: "block did not have a postdominator".to_string(),
                             item_id: self.body.item_id(),
-                            block_or_inst: block.into(),
+                            block_or_inst: Some(block.into()),
                             span: None,
                         })
                     };
@@ -221,7 +221,7 @@ impl BodyLower<'_> {
                                     return Err(ViperLowerError::NotYetImplemented {
                                         msg: "divergent branches".to_string(),
                                         item_id: self.body.item_id(),
-                                        block_or_inst: block.into(),
+                                        block_or_inst: Some(block.into()),
                                         span: None,
                                     });
                                 }
@@ -247,7 +247,7 @@ impl BodyLower<'_> {
                                 Err(ViperLowerError::NotYetImplemented {
                                     msg: "divergent branches".to_string(),
                                     item_id: self.body.item_id(),
-                                    block_or_inst: block.into(),
+                                    block_or_inst: Some(block.into()),
                                     span: None,
                                 })
                             }

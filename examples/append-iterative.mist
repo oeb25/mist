@@ -1,0 +1,36 @@
+struct List {
+    next: ?List,
+    val: int,
+}
+
+invariant List {
+    true
+}
+
+pure fn elems(start: &List) -> [int] {
+    if start.next == null {
+        []
+    } else {
+        [start.val] + elems(&start.next)
+    }
+}
+
+fn append_iterative(l1: &mut List, l2: List)
+    ens elems(l1) == elems(l1) + elems(&l2)
+{
+    if l1.next == null {
+        l1.next = l2;
+    } else {
+        let tmp = &mut l1.next;
+        let index: ghost int = 1;
+
+        while tmp.next != null
+            inv index >= 0
+        {
+            let prev = tmp;
+            tmp = tmp.next;
+            index = index + 1;
+        }
+        tmp.next = l2;
+    }
+}

@@ -872,7 +872,7 @@ pub mod pretty {
             &TypeData::Ghost(inner) => format!("ghost {}", pp_ty(pp, db, inner)),
             &TypeData::Range(inner) => format!("range {}", pp_ty(pp, db, inner)),
             &TypeData::List(inner) => format!("[{}]", pp_ty(pp, db, inner)),
-            &TypeData::Optional(inner) => format!("{}?", pp_ty(pp, db, inner)),
+            &TypeData::Optional(inner) => format!("?{}", pp_ty(pp, db, inner)),
             TypeData::Primitive(t) => format!("{t:?}").to_lowercase(),
             TypeData::Struct(s) => s.name(db).to_string(),
             TypeData::Null => "null".to_string(),
