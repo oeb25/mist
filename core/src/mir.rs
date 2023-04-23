@@ -84,7 +84,20 @@ impl Terminator {
     }
 }
 
-pub type Operand = SlotId;
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Operand {
+    Copy(SlotId),
+    Move(SlotId),
+    Literal(Literal),
+}
+impl Operand {
+    fn slot(&self) -> Option<SlotId> {
+        match self {
+            Operand::Copy(s) | Operand::Move(s) => Some(*s),
+            Operand::Literal(_) => None,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SwitchTargets {
@@ -131,7 +144,6 @@ pub enum Slot {
     #[default]
     Temp,
     Var(VariableIdx),
-    Literal(Literal),
     Result,
 }
 impl Slot {
@@ -143,58 +155,39 @@ impl Slot {
     pub fn is_result(&self) -> bool {
         matches!(self, Self::Result)
     }
+}
 
-    #[must_use]
-    pub fn is_literal(&self) -> bool {
-        matches!(self, Self::Literal(..))
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Place {
+    pub slot: SlotId,
+    pub projection: Vec<Projection>,
+}
 
-    pub fn as_literal(&self) -> Option<&Literal> {
-        if let Self::Literal(v) = self {
-            Some(v)
-        } else {
-            None
-        }
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Projection {
+    Field(Field, hir::Type),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MExpr {
-    Literal(Literal),
-    Call(FunctionId, Vec<SlotId>),
-    Field(SlotId, Field),
-    Struct(Struct, Vec<(Field, SlotId)>),
-    Slot(SlotId),
+    Field(Operand, Field),
+    Struct(Struct, Vec<(Field, Operand)>),
+    Use(Operand),
     BinaryOp(BinaryOp, Operand, Operand),
     UnaryOp(UnaryOp, Operand),
 }
 impl MExpr {
     #[allow(dead_code)]
-    fn map_slots(&self, mut map: impl FnMut(SlotId) -> SlotId) -> MExpr {
+    fn map_slots(&self, mut map: impl FnMut(&Operand) -> Operand) -> MExpr {
         match self {
-            MExpr::Literal(_) => self.clone(),
-            MExpr::Call(f, args) => MExpr::Call(*f, args.iter().copied().map(&mut map).collect()),
-            MExpr::Field(s, f) => MExpr::Field(map(*s), f.clone()),
+            MExpr::Field(o, f) => MExpr::Field(map(o), f.clone()),
             MExpr::Struct(st, fields) => MExpr::Struct(
                 *st,
-                fields.iter().map(|(f, s)| (f.clone(), map(*s))).collect(),
+                fields.iter().map(|(f, o)| (f.clone(), map(o))).collect(),
             ),
-            MExpr::Slot(s) => MExpr::Slot(map(*s)),
-            MExpr::BinaryOp(op, l, r) => MExpr::BinaryOp(*op, map(*l), map(*r)),
-            MExpr::UnaryOp(op, o) => MExpr::UnaryOp(*op, map(*o)),
-        }
-    }
-
-    #[allow(dead_code)]
-    fn contains_side_effects(&self) -> bool {
-        match self {
-            MExpr::Call(_, _) => true,
-            MExpr::Literal(_)
-            | MExpr::Field(_, _)
-            | MExpr::Struct(_, _)
-            | MExpr::Slot(_)
-            | MExpr::BinaryOp(_, _, _)
-            | MExpr::UnaryOp(_, _) => false,
+            MExpr::Use(o) => MExpr::Use(map(o)),
+            MExpr::BinaryOp(op, l, r) => MExpr::BinaryOp(*op, map(l), map(r)),
+            MExpr::UnaryOp(op, o) => MExpr::UnaryOp(*op, map(o)),
         }
     }
 }
@@ -345,8 +338,10 @@ impl Body {
                         let term = b.terminator()?;
                         match term {
                             Terminator::Quantify(_, over, _) => over.contains(&x).then_some(term),
-                            Terminator::Switch(op, _) => (x == *op).then_some(term),
-                            Terminator::Call { args, .. } => args.contains(&x).then_some(term),
+                            Terminator::Switch(op, _) => (Some(x) == op.slot()).then_some(term),
+                            Terminator::Call { args, .. } => {
+                                args.iter().any(|arg| Some(x) == arg.slot()).then_some(term)
+                            }
 
                             Terminator::Return
                             | Terminator::Goto(_)

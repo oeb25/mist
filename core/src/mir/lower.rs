@@ -9,7 +9,7 @@ use crate::{
         self, pretty, ExprData, ExprIdx, IfExpr, Program, Statement, StatementData, Type,
         VariableIdx,
     },
-    mir::{MirError, MirErrors},
+    mir::{MirError, MirErrors, Operand},
     typecheck::ItemContext,
 };
 
@@ -114,7 +114,7 @@ impl<'a> MirLower<'a> {
     }
     fn alloc_slot(&mut self, slot: Slot, ty: Type) -> SlotId {
         let id = match &slot {
-            Slot::Temp | Slot::Literal(_) => self.body.slots.alloc(slot),
+            Slot::Temp => self.body.slots.alloc(slot),
             Slot::Var(var) => {
                 let var = *var;
                 let id = self.body.slots.alloc(slot);
@@ -271,7 +271,7 @@ impl MirLower<'_> {
                 assert_ne!(body_bid_last, cond_block);
                 self.body.blocks[body_bid_last].set_terminator(Terminator::Goto(cond_block));
                 self.body.blocks[bid].set_terminator(Terminator::Switch(
-                    cond_slot,
+                    Operand::Copy(cond_slot),
                     SwitchTargets::new([(1, body_bid)], exit_bid),
                 ));
 
@@ -358,16 +358,20 @@ impl MirLower<'_> {
 
         match &self.cx.expr(expr).data {
             ExprData::Literal(l) => {
-                let l_slot = self.alloc_slot(Slot::Literal(l.clone()), expr_ty);
                 if let Some(dest) = dest {
-                    self.assign(bid, Some(expr), dest, MExpr::Slot(l_slot));
+                    self.assign(
+                        bid,
+                        Some(expr),
+                        dest,
+                        MExpr::Use(Operand::Literal(l.clone())),
+                    );
                 }
                 bid
             }
             ExprData::Ident(var) => {
                 let var_slot = self.var_slot(var.idx());
                 if let Some(dest) = dest {
-                    self.assign(bid, Some(expr), dest, MExpr::Slot(var_slot));
+                    self.assign(bid, Some(expr), dest, MExpr::Use(Operand::Move(var_slot)));
                 }
                 bid
             }
@@ -389,7 +393,7 @@ impl MirLower<'_> {
                         bid,
                         Some(expr),
                         SlotOrType::slot_or(dest, || expr_ty),
-                        MExpr::Field(tmp, field.clone()),
+                        MExpr::Field(Operand::Move(tmp), field.clone()),
                     );
                     next_bid
                 } else {
@@ -415,7 +419,7 @@ impl MirLower<'_> {
                 for f in fields {
                     let tmp = self.alloc_expr(f.value);
                     bid = self.expr(f.value, bid, None, Some(tmp));
-                    operands.push((f.decl.clone(), tmp));
+                    operands.push((f.decl.clone(), Operand::Move(tmp)));
                 }
 
                 self.assign(
@@ -437,7 +441,7 @@ impl MirLower<'_> {
                 for &arg in input_args {
                     let tmp = self.alloc_tmp(self.cx.expr_ty(arg));
                     bid = self.expr(arg, bid, None, Some(tmp));
-                    args.push(tmp);
+                    args.push(Operand::Move(tmp));
                 }
 
                 let destination = dest.unwrap_or_else(|| self.alloc_expr(expr));
@@ -457,7 +461,7 @@ impl MirLower<'_> {
                     bid,
                     Some(expr),
                     SlotOrType::slot_or(dest, || expr_ty),
-                    MExpr::UnaryOp(*op, arg),
+                    MExpr::UnaryOp(*op, Operand::Move(arg)),
                 );
                 bid
             }
@@ -467,7 +471,7 @@ impl MirLower<'_> {
                     let right = self.alloc_expr(rhs);
                     bid = self.expr(rhs, bid, None, Some(right));
 
-                    self.assign(bid, Some(expr), left, MExpr::Slot(right));
+                    self.assign(bid, Some(expr), left, MExpr::Use(Operand::Move(right)));
                     bid
                 } else {
                     let left = self.alloc_expr(lhs);
@@ -478,7 +482,7 @@ impl MirLower<'_> {
                         bid,
                         Some(expr),
                         SlotOrType::slot_or(dest, || expr_ty),
-                        MExpr::BinaryOp(op, left, right),
+                        MExpr::BinaryOp(op, Operand::Move(left), Operand::Move(right)),
                     );
                     bid
                 }
@@ -512,7 +516,7 @@ impl MirLower<'_> {
                 assert_ne!(bid, next_bid);
                 self.body.blocks[bid].set_terminator(Terminator::Call {
                     func,
-                    args: vec![base_s, index_s],
+                    args: vec![Operand::Move(base_s), Operand::Move(index_s)],
                     destination,
                     target: Some(next_bid),
                 });
@@ -524,7 +528,7 @@ impl MirLower<'_> {
                     .map(|&e| {
                         let elem = self.alloc_expr(e);
                         bid = self.expr(e, bid, None, Some(elem));
-                        elem
+                        Operand::Move(elem)
                     })
                     .collect();
                 let func = self.alloc_function(Function::new(FunctionData::List));
@@ -581,7 +585,12 @@ impl MirLower<'_> {
                         todo!();
                         // self.alloc_slot(Slot::Result, expr_ty)
                     };
-                    self.assign(bid, Some(expr), dest, MExpr::Slot(result_slot));
+                    self.assign(
+                        bid,
+                        Some(expr),
+                        dest,
+                        MExpr::Use(Operand::Move(result_slot)),
+                    );
                 }
                 bid
             }
@@ -592,7 +601,7 @@ impl MirLower<'_> {
                     (Some(_), None) => RangeKind::From,
                     (Some(_), Some(_)) => RangeKind::FromTo,
                 };
-                let function = self.alloc_function(Function::new(FunctionData::Range(kind)));
+                let func = self.alloc_function(Function::new(FunctionData::Range(kind)));
 
                 let args = [lhs, rhs]
                     .into_iter()
@@ -600,17 +609,20 @@ impl MirLower<'_> {
                     .map(|&a| {
                         let s = self.alloc_expr(a);
                         bid = self.expr(a, bid, None, Some(s));
-                        s
+                        Operand::Move(s)
                     })
                     .collect();
 
-                self.assign(
-                    bid,
-                    Some(expr),
-                    SlotOrType::slot_or(dest, || expr_ty),
-                    MExpr::Call(function, args),
-                );
-                bid
+                let destination = dest.unwrap_or_else(|| self.alloc_expr(expr));
+                let next_bid = target.unwrap_or_else(|| self.alloc_block(None));
+                assert_ne!(bid, next_bid);
+                self.body.blocks[bid].set_terminator(Terminator::Call {
+                    func,
+                    args,
+                    destination,
+                    target: Some(next_bid),
+                });
+                next_bid
             }
             ExprData::Return(it) => {
                 match it {
@@ -638,7 +650,7 @@ impl MirLower<'_> {
             }
         }
     }
-    fn expr_to_function(&mut self, expr: ExprIdx) -> (FunctionId, Vec<SlotId>) {
+    fn expr_to_function(&mut self, expr: ExprIdx) -> (FunctionId, Vec<Operand>) {
         match &self.cx.expr(expr).data {
             ExprData::Ident(var) => {
                 let id = self.alloc_function(Function::new(FunctionData::Named(var.idx())));
@@ -678,7 +690,7 @@ impl MirLower<'_> {
             self.body.blocks[else_block_final].set_terminator(Terminator::Goto(final_block));
         }
         self.body.blocks[bid].set_terminator(Terminator::Switch(
-            cond,
+            Operand::Move(cond),
             SwitchTargets::new([(1, then_block)], else_block),
         ));
         final_block

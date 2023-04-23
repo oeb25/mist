@@ -145,7 +145,7 @@ impl BodyLower<'_> {
                         let body = self.block(target, vec![], Some(block))?;
 
                         let cond = match value {
-                            1 => self.slot_to_ref(block, *test),
+                            1 => self.operand_to_ref(block, test),
                             _ => todo!(), // Exp::new_bin(BinOp::EqCmp, test, value)
                         };
                         let invs = self
@@ -165,7 +165,7 @@ impl BodyLower<'_> {
                             let thn = self.block(target, vec![], Some(next))?;
 
                             let cond = match value {
-                                1 => self.slot_to_ref(block, *test),
+                                1 => self.operand_to_ref(block, test),
                                 _ => todo!(), // Exp::new_bin(BinOp::EqCmp, test, value)
                             };
 

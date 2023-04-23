@@ -6,7 +6,8 @@ use owo_colors::{colors::*, OwoColorize};
 use crate::{mir::Terminator, typecheck::ItemContext};
 
 use super::{
-    BlockId, Body, FunctionData, FunctionId, Instruction, InstructionId, MExpr, Slot, SlotId,
+    BlockId, Body, FunctionData, FunctionId, Instruction, InstructionId, MExpr, Operand, Slot,
+    SlotId,
 };
 
 #[derive(new)]
@@ -192,26 +193,23 @@ impl Serializer<'_> {
         match &self.body.slots[s] {
             Slot::Temp => w!(self, Cyan, "%{}", s.into_raw()),
             Slot::Var(v) => w!(self, Cyan, "%{}_{}", s.into_raw(), self.cx.var_ident(*v)),
-            Slot::Literal(l) => w!(self, Magenta, "${l}"),
             Slot::Result => w!(self, Magenta, "%result"),
+        }
+    }
+
+    fn operand(&mut self, o: &Operand) {
+        match o {
+            Operand::Copy(s) => self.slot(*s),
+            Operand::Move(s) => self.slot(*s),
+            Operand::Literal(l) => w!(self, Magenta, "${l}"),
         }
     }
 
     fn expr(&mut self, e: &MExpr) {
         match e {
-            MExpr::Literal(l) => w!(self, Default, "{l}"),
-            MExpr::Call(f, args) => {
-                w!(self, Default, "(");
-                self.function(*f);
-                for arg in args {
-                    w!(self, Default, " ");
-                    self.slot(*arg);
-                }
-                w!(self, Default, ")");
-            }
-            MExpr::Slot(s) => self.slot(*s),
+            MExpr::Use(s) => self.operand(s),
             MExpr::Field(base, f) => {
-                self.slot(*base);
+                self.operand(base);
                 w!(self, Default, ".{}", f.name);
             }
             MExpr::Struct(s, fields) => {
@@ -223,28 +221,28 @@ impl Serializer<'_> {
                     }
                     first = false;
                     w!(self, Default, " {}: ", field.name);
-                    self.slot(*slot);
+                    self.operand(slot);
                 }
                 w!(self, Default, " }}");
             }
             // MExpr::Quantifier(_, q, args, body) => {
             //     w!(self, Default, "{q} (");
             //     for arg in args {
-            //         self.slot(*arg);
+            //         self.operand(arg);
             //     }
             //     w!(self, Default, ") ");
             //     self.block_id(Some(*body));
             // }
             MExpr::BinaryOp(op, l, r) => {
                 w!(self, Default, "({op} ");
-                self.slot(*l);
+                self.operand(l);
                 w!(self, Default, " ");
-                self.slot(*r);
+                self.operand(r);
                 w!(self, Default, ")");
             }
             MExpr::UnaryOp(op, x) => {
                 w!(self, Default, "({op} ");
-                self.slot(*x);
+                self.operand(x);
                 w!(self, Default, ")");
             }
         }
@@ -291,7 +289,7 @@ impl Serializer<'_> {
             }
             Terminator::Switch(cond, switch) => {
                 w!(self, Yellow, "!switch ");
-                self.slot(*cond);
+                self.operand(cond);
                 w!(self, Default, " {{");
                 for (idx, value) in switch.values.iter() {
                     w!(self, Default, " {value} -> ");
@@ -316,7 +314,7 @@ impl Serializer<'_> {
                 self.function(*func);
                 for arg in args {
                     w!(self, Default, " ");
-                    self.slot(*arg);
+                    self.operand(arg);
                 }
                 w!(self, Default, ")");
                 w!(self, Default, " -> ");

@@ -8,7 +8,7 @@ pub use petgraph;
 
 use crate::hir;
 
-use super::{serialize, BlockId, Body, MExpr, SlotId};
+use super::{serialize, BlockId, Body, MExpr, Operand, SlotId};
 
 pub mod cfg {
     use la_arena::ArenaMap;
@@ -287,17 +287,18 @@ where
 }
 
 impl MExpr {
-    pub fn all_slot_usages(&self) -> impl IntoIterator<Item = SlotId> {
+    pub fn all_slot_usages(&self) -> impl IntoIterator<Item = SlotId> + '_ {
+        self.all_operands().into_iter().filter_map(|op| op.slot())
+    }
+    pub fn all_operands(&self) -> impl IntoIterator<Item = &Operand> {
         match self {
-            MExpr::Literal(_) => vec![],
-            MExpr::Call(_, args) => args.clone(),
-            MExpr::Field(e, _) => vec![*e],
-            MExpr::Struct(_, fields) => fields.iter().map(|f| f.1).collect(),
-            MExpr::Slot(s) => vec![*s],
+            MExpr::Field(e, _) => vec![e],
+            MExpr::Struct(_, fields) => fields.iter().map(|f| &f.1).collect(),
+            MExpr::Use(s) => vec![s],
             // TODO
             // MExpr::Quantifier(_, _, _, _) => vec![],
-            MExpr::BinaryOp(_, l, r) => vec![*l, *r],
-            MExpr::UnaryOp(_, o) => vec![*o],
+            MExpr::BinaryOp(_, l, r) => vec![l, r],
+            MExpr::UnaryOp(_, o) => vec![o],
         }
     }
 }

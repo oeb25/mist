@@ -320,21 +320,23 @@ impl BodyLower<'_> {
         &mut self,
         source: impl Into<BlockOrInstruction> + Copy,
         fid: mir::FunctionId,
-        args: &[mir::SlotId],
+        args: &[mir::Operand],
     ) -> Result<Exp<VExprId>, ViperLowerError> {
         Ok(match &*self.body[fid] {
             mir::FunctionData::Named(v) => Exp::new_func_app(
                 self.cx.var_ident(*v).to_string(),
-                args.iter().map(|s| self.slot_to_ref(source, *s)).collect(),
+                args.iter()
+                    .map(|s| self.operand_to_ref(source, s))
+                    .collect(),
             ),
             mir::FunctionData::Index => {
-                let base = self.slot_to_ref(source, args[0]);
-                let index = self.slot_to_ref(source, args[1]);
+                let base = self.operand_to_ref(source, &args[0]);
+                let index = self.operand_to_ref(source, &args[1]);
                 Exp::Seq(SeqExp::new_index(base, index))
             }
             mir::FunctionData::RangeIndex => {
-                let base = self.slot_to_ref(source, args[0]);
-                let index = self.slot_to_ref(source, args[1]);
+                let base = self.operand_to_ref(source, &args[0]);
+                let index = self.operand_to_ref(source, &args[1]);
                 Exp::new_func_app("range_index".to_string(), vec![base, index])
             }
             mir::FunctionData::Range(op) => {
@@ -342,18 +344,22 @@ impl BodyLower<'_> {
                     mir::RangeKind::FromTo => (
                         "range_from_to",
                         vec![
-                            self.slot_to_ref(source, args[0]),
-                            self.slot_to_ref(source, args[1]),
+                            self.operand_to_ref(source, &args[0]),
+                            self.operand_to_ref(source, &args[1]),
                         ],
                     ),
-                    mir::RangeKind::From => ("range_from", vec![self.slot_to_ref(source, args[0])]),
-                    mir::RangeKind::To => ("range_to", vec![self.slot_to_ref(source, args[0])]),
+                    mir::RangeKind::From => {
+                        ("range_from", vec![self.operand_to_ref(source, &args[0])])
+                    }
+                    mir::RangeKind::To => ("range_to", vec![self.operand_to_ref(source, &args[0])]),
                     mir::RangeKind::Full => ("range_full", vec![]),
                 };
                 Exp::new_func_app(f.to_string(), args)
             }
             mir::FunctionData::List => Exp::Seq(SeqExp::new_explicit(
-                args.iter().map(|s| self.slot_to_ref(source, *s)).collect(),
+                args.iter()
+                    .map(|s| self.operand_to_ref(source, s))
+                    .collect(),
             )),
         })
     }
@@ -382,7 +388,6 @@ impl BodyLower<'_> {
                 mir::Slot::Temp | mir::Slot::Var(_) => {
                     Exp::AbstractLocalVar(AbstractLocalVar::LocalVar(var))
                 }
-                mir::Slot::Literal(l) => lower_lit(l),
                 mir::Slot::Result => {
                     if self.is_method {
                         Exp::AbstractLocalVar(AbstractLocalVar::LocalVar(var))
@@ -413,6 +418,39 @@ impl BodyLower<'_> {
             id
         })
     }
+    fn operand_to_ref(
+        &mut self,
+        source: impl Into<BlockOrInstruction>,
+        o: &mir::Operand,
+    ) -> VExprId {
+        match o {
+            mir::Operand::Copy(s) => self.slot_to_ref(source, *s),
+            mir::Operand::Move(s) => self.slot_to_ref(source, *s),
+            mir::Operand::Literal(l) => {
+                let exp = lower_lit(l);
+
+                let item_id = self.body.item_id();
+                // TODO: This does not work since we are in a FnMut
+                // self.alloc(source, VExpr::new(exp))
+                let id = self.viper_body.arena.alloc(VExpr::new(exp));
+                match source.into() {
+                    BlockOrInstruction::Block(block_id) => {
+                        self.source_map.block_expr.insert((item_id, block_id), id);
+                        self.source_map
+                            .block_expr_back
+                            .insert(id, (item_id, block_id));
+                    }
+                    BlockOrInstruction::Instruction(inst_id) => {
+                        self.source_map.inst_expr.insert((item_id, inst_id), id);
+                        self.source_map
+                            .inst_expr_back
+                            .insert(id, (item_id, inst_id));
+                    }
+                }
+                id
+            }
+        }
+    }
 
     fn expr(
         &mut self,
@@ -420,8 +458,6 @@ impl BodyLower<'_> {
         e: &mir::MExpr,
     ) -> Result<VExprId, ViperLowerError> {
         let exp = match e {
-            mir::MExpr::Literal(l) => lower_lit(l),
-            mir::MExpr::Call(fid, args) => self.function(inst, *fid, args)?,
             mir::MExpr::Field(rcr, f) => match &f.parent {
                 hir::FieldParent::Struct(_) => {
                     return Err(ViperLowerError::NotYetImplemented {
@@ -432,7 +468,7 @@ impl BodyLower<'_> {
                     });
                 }
                 hir::FieldParent::List(_) => match f.name.as_str() {
-                    "len" => Exp::Seq(SeqExp::new_length(self.slot_to_ref(inst, *rcr))),
+                    "len" => Exp::Seq(SeqExp::new_length(self.operand_to_ref(inst, rcr))),
                     _ => {
                         return Err(ViperLowerError::NotYetImplemented {
                             msg: format!("lower list field: {f:?}"),
@@ -448,7 +484,7 @@ impl BodyLower<'_> {
                     funcname: format!("init_{}", s.name(self.db)),
                     args: fields
                         .iter()
-                        .map(|(_, s)| self.slot_to_ref(inst, *s))
+                        .map(|(_, s)| self.operand_to_ref(inst, s))
                         .collect(),
                 }
 
@@ -456,17 +492,17 @@ impl BodyLower<'_> {
                 //     "lower struct".to_string(),
                 // ));
             }
-            mir::MExpr::Slot(s) => {
+            mir::MExpr::Use(s) => {
                 let item_id = self.body.item_id();
-                let id = self.slot_to_ref(inst, *s);
+                let id = self.operand_to_ref(inst, s);
                 self.source_map.inst_expr.insert((item_id, inst), id);
                 self.source_map.inst_expr_back.insert(id, (item_id, inst));
                 return Ok(id);
             }
             mir::MExpr::BinaryOp(op, l, r) => {
                 let op = lower_binop(op).expect("assignment should have been filtered out by now");
-                let lhs = self.slot_to_ref(inst, *l);
-                let rhs = self.slot_to_ref(inst, *r);
+                let lhs = self.operand_to_ref(inst, l);
+                let rhs = self.operand_to_ref(inst, r);
                 Exp::new_bin(op, lhs, rhs)
             }
             mir::MExpr::UnaryOp(op, x) => {
@@ -476,7 +512,7 @@ impl BodyLower<'_> {
                     UnaryOp::Not => UnOp::Not,
                     UnaryOp::Neg => UnOp::Minus,
                 };
-                let x = self.slot_to_ref(inst, *x);
+                let x = self.operand_to_ref(inst, x);
                 Exp::new_un(op, x)
             }
         };

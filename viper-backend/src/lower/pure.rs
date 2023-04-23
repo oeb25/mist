@@ -226,7 +226,7 @@ impl BodyLower<'_> {
                                     });
                                 }
                                 let cond = match value {
-                                    1 => self.slot_to_ref(block, *test),
+                                    1 => self.operand_to_ref(block, test),
                                     _ => todo!(), // Exp::new_bin(BinOp::EqCmp, test, value)
                                 };
                                 Ok(PureLowerResult::UnassignedExpression(
