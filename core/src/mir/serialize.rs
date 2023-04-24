@@ -179,9 +179,9 @@ impl Serializer<'_> {
             //     }
             //     self.block(*body);
             // }
-            Instruction::Assertion(kind, slot) => {
+            Instruction::Assertion(kind, expr) => {
                 w!(self, Default, "{kind} ");
-                self.slot(*slot);
+                self.expr(expr);
                 wln!(self, Default, "");
             }
             // Instruction::Call(_, _) => todo!(),

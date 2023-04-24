@@ -105,7 +105,7 @@ impl BodyLower<'_> {
                     }
                 }
                 mir::Instruction::Assertion(kind, e) => {
-                    let exp = self.slot_to_ref(inst, *e);
+                    let exp = self.expr(inst, e)?;
                     let stmt = match kind {
                         hir::AssertionKind::Assert => Stmt::Assert { exp },
                         hir::AssertionKind::Assume => Stmt::Assume { exp },

@@ -698,7 +698,7 @@ pub enum StatementData {
     },
 }
 
-#[derive(Debug, Display, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AssertionKind {
     #[display(fmt = "assert")]
     Assert,

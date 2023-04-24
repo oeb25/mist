@@ -135,7 +135,7 @@ pub type InstructionId = Idx<Instruction>;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Instruction {
     Assign(SlotId, MExpr),
-    Assertion(AssertionKind, SlotId),
+    Assertion(AssertionKind, MExpr),
 }
 
 pub type SlotId = Idx<Slot>;
@@ -324,10 +324,11 @@ impl Body {
         self.instructions
             .iter()
             .filter_map(move |(id, inst)| match inst {
-                Instruction::Assign(_, e) if e.all_slot_usages().into_iter().any(|y| x == y) => {
+                Instruction::Assign(_, e) | Instruction::Assertion(_, e)
+                    if e.all_slot_usages().into_iter().any(|y| x == y) =>
+                {
                     Some(id)
                 }
-                Instruction::Assertion(_, y) if x == *y => Some(id),
                 _ => None,
             })
             .map(Either::Left)
