@@ -3,11 +3,14 @@ use std::fmt::Write;
 use derive_new::new;
 use owo_colors::{colors::*, OwoColorize};
 
-use crate::{mir::Terminator, typecheck::ItemContext};
+use crate::{
+    mir::{Projection, Terminator},
+    typecheck::ItemContext,
+};
 
 use super::{
-    BlockId, Body, FunctionData, FunctionId, Instruction, InstructionId, MExpr, Operand, Slot,
-    SlotId,
+    BlockId, Body, FunctionData, FunctionId, Instruction, InstructionId, MExpr, Operand, Place,
+    Slot, SlotId,
 };
 
 #[derive(new)]
@@ -151,41 +154,16 @@ impl Serializer<'_> {
     fn inst(&mut self, inst: InstructionId) {
         match &self.body.instructions[inst] {
             Instruction::Assign(s, e) => {
-                self.slot(*s);
+                self.place(s);
                 w!(self, Default, " := ");
                 self.expr(e);
                 wln!(self, Default, "");
             }
-            // &Instruction::If(cond, then_block, else_block) => {
-            //     w!(self, Default, "if ");
-            //     self.slot(cond);
-            //     w!(self, Default, " ");
-            //     self.block(then_block);
-            //     w!(self, Default, "else ");
-            //     self.block(else_block);
-            // }
-            // Instruction::While(cond, invs, body) => {
-            //     w!(self, Default, "while ");
-            //     self.slot(*cond);
-            //     wln!(self, Default, "");
-            //     for inv in invs {
-            //         w!(self, Default, "  inv ");
-            //         // w!(self, Default, "  inv(");
-            //         // self.slot(self.body.blocks[*inv].dest.unwrap());
-            //         // w!(self, Default, ") ");
-            //         self.indentation += 1;
-            //         self.block(*inv);
-            //         self.indentation -= 1;
-            //     }
-            //     self.block(*body);
-            // }
             Instruction::Assertion(kind, expr) => {
                 w!(self, Default, "{kind} ");
                 self.expr(expr);
                 wln!(self, Default, "");
             }
-            // Instruction::Call(_, _) => todo!(),
-            // Instruction::Return => todo!(),
         }
     }
 
@@ -197,10 +175,26 @@ impl Serializer<'_> {
         }
     }
 
+    fn place(&mut self, s: &Place) {
+        if self.body[s.projection].is_empty() {
+            self.slot(s.slot);
+        } else {
+            self.slot(s.slot);
+            for p in &self.body[s.projection] {
+                match p {
+                    Projection::Field(f, _) => {
+                        let name = &f.name;
+                        w!(self, Default, ".{name}");
+                    }
+                }
+            }
+        }
+    }
+
     fn operand(&mut self, o: &Operand) {
         match o {
-            Operand::Copy(s) => self.slot(*s),
-            Operand::Move(s) => self.slot(*s),
+            Operand::Copy(s) => self.place(s),
+            Operand::Move(s) => self.place(s),
             Operand::Literal(l) => w!(self, Magenta, "${l}"),
         }
     }
@@ -208,10 +202,6 @@ impl Serializer<'_> {
     fn expr(&mut self, e: &MExpr) {
         match e {
             MExpr::Use(s) => self.operand(s),
-            MExpr::Field(base, f) => {
-                self.operand(base);
-                w!(self, Default, ".{}", f.name);
-            }
             MExpr::Struct(s, fields) => {
                 w!(self, Default, "{} {{", s.name(self.db));
                 let mut first = true;
@@ -307,7 +297,7 @@ impl Serializer<'_> {
             } => {
                 w!(self, Yellow, "!call ");
 
-                self.slot(*destination);
+                self.place(destination);
                 w!(self, Default, " := ");
 
                 w!(self, Default, "(");

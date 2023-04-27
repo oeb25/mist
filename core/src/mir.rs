@@ -52,7 +52,7 @@ pub enum Terminator {
     Call {
         func: FunctionId,
         args: Vec<Operand>,
-        destination: SlotId,
+        destination: Place,
         target: Option<BlockId>,
     },
 }
@@ -86,16 +86,19 @@ impl Terminator {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Operand {
-    Copy(SlotId),
-    Move(SlotId),
+    Copy(Place),
+    Move(Place),
     Literal(Literal),
 }
 impl Operand {
-    fn slot(&self) -> Option<SlotId> {
+    fn place(&self) -> Option<Place> {
         match self {
             Operand::Copy(s) | Operand::Move(s) => Some(*s),
             Operand::Literal(_) => None,
         }
+    }
+    fn slot(&self) -> Option<SlotId> {
+        self.place().map(|s| s.slot)
     }
 }
 
@@ -134,7 +137,7 @@ impl SwitchTargets {
 pub type InstructionId = Idx<Instruction>;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Instruction {
-    Assign(SlotId, MExpr),
+    Assign(Place, MExpr),
     Assertion(AssertionKind, MExpr),
 }
 
@@ -157,12 +160,23 @@ impl Slot {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub type PlaceId = Idx<Place>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Place {
     pub slot: SlotId,
-    pub projection: Vec<Projection>,
+    pub projection: ProjectionList,
 }
 
+impl From<SlotId> for Place {
+    fn from(slot: SlotId) -> Self {
+        Place {
+            slot,
+            projection: ProjectionList::from_raw(0.into()),
+        }
+    }
+}
+
+pub type ProjectionList = Idx<Vec<Projection>>;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Projection {
     Field(Field, hir::Type),
@@ -170,7 +184,6 @@ pub enum Projection {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MExpr {
-    Field(Operand, Field),
     Struct(Struct, Vec<(Field, Operand)>),
     Use(Operand),
     BinaryOp(BinaryOp, Operand, Operand),
@@ -180,7 +193,6 @@ impl MExpr {
     #[allow(dead_code)]
     fn map_slots(&self, mut map: impl FnMut(&Operand) -> Operand) -> MExpr {
         match self {
-            MExpr::Field(o, f) => MExpr::Field(map(o), f.clone()),
             MExpr::Struct(st, fields) => MExpr::Struct(
                 *st,
                 fields.iter().map(|(f, o)| (f.clone(), map(o))).collect(),
@@ -237,6 +249,8 @@ pub struct Body {
     instructions: Arena<Instruction>,
     #[new(default)]
     slots: Arena<Slot>,
+    #[new(value = "{ let mut arena = Arena::new(); arena.alloc(vec![]); arena }")]
+    projections: Arena<Vec<Projection>>,
     #[new(default)]
     functions: Arena<Function>,
 
@@ -313,7 +327,7 @@ impl Body {
         self.instructions
             .iter()
             .filter_map(move |(id, inst)| match inst {
-                Instruction::Assign(y, _) if x == *y => Some(id),
+                Instruction::Assign(y, _) if x == y.slot => Some(id),
                 _ => None,
             })
     }
@@ -359,6 +373,16 @@ impl Body {
 
     pub fn slot_ty(&self, slot: SlotId) -> hir::Type {
         self.slot_type[slot]
+    }
+
+    pub fn place_ty(&self, place: Place) -> hir::Type {
+        if self[place.projection].is_empty() {
+            self.slot_ty(place.slot)
+        } else {
+            match self[place.projection].last().unwrap() {
+                Projection::Field(_, ty) => *ty,
+            }
+        }
     }
 
     pub fn slots(&self) -> impl Iterator<Item = SlotId> + '_ {
@@ -414,6 +438,20 @@ impl std::ops::Index<&'_ SlotId> for Body {
 
     fn index(&self, index: &'_ SlotId) -> &Self::Output {
         &self.slots[*index]
+    }
+}
+impl std::ops::Index<ProjectionList> for Body {
+    type Output = [Projection];
+
+    fn index(&self, index: ProjectionList) -> &Self::Output {
+        &self.projections[index]
+    }
+}
+impl std::ops::Index<&'_ ProjectionList> for Body {
+    type Output = [Projection];
+
+    fn index(&self, index: &'_ ProjectionList) -> &Self::Output {
+        &self.projections[*index]
     }
 }
 impl std::ops::Index<FunctionId> for Body {

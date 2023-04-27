@@ -55,7 +55,7 @@ use super::{BlockOrInstruction, BodyLower, ViperLowerError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PureLowerResult {
-    UnassignedExpression(VExprId, mir::SlotId, Option<mir::BlockId>),
+    UnassignedExpression(VExprId, mir::Place, Option<mir::BlockId>),
     Empty {
         stopped_before: Option<mir::BlockId>,
     },
@@ -64,20 +64,20 @@ impl PureLowerResult {
     fn wrap_in_assignment(
         self,
         lower: &mut BodyLower<'_>,
-        source: impl Into<BlockOrInstruction>,
-        x: mir::SlotId,
+        source: impl Into<BlockOrInstruction> + Copy,
+        x: mir::Place,
         exp: VExprId,
     ) -> Result<PureLowerResult, ViperLowerError> {
         match self {
             PureLowerResult::UnassignedExpression(body, target, stopped_before) => {
                 if lower.can_inline(x, exp) {
-                    let r = lower.slot_to_ref(source, x);
+                    let r = lower.place_to_ref(source, x);
                     lower.inlined.insert(r, exp);
                     Ok(self)
                 } else {
-                    let variable = lower.slot_to_decl(x);
+                    let variable = lower.place_for_assignment(x);
                     Ok(PureLowerResult::UnassignedExpression(
-                        lower.alloc(source, VExpr::new(Exp::new_let(variable, exp, body))),
+                        lower.alloc(source, VExpr::new(Exp::new_let(variable.into(), exp, body))),
                         target,
                         stopped_before,
                     ))
@@ -177,7 +177,7 @@ impl BodyLower<'_> {
                                 })),
                             ),
                             // TODO
-                            self.body.result_slot().unwrap(),
+                            self.body.result_slot().unwrap().into(),
                             stopped_before,
                         )
                     }
@@ -309,20 +309,20 @@ impl BodyLower<'_> {
         d: Option<mir::BlockId>,
         next: mir::BlockId,
         block: mir::BlockId,
-        slot: mir::SlotId,
+        place: mir::Place,
         exp: VExprId,
         stopped_before: mir::BlockId,
     ) -> Result<PureLowerResult, ViperLowerError> {
         Ok(if let Some(d) = d {
             if self.postdominance_frontier[next].contains(&d) {
                 self.pure_block(next, Some(d))?
-                    .wrap_in_assignment(self, block, slot, exp)?
+                    .wrap_in_assignment(self, block, place, exp)?
             } else {
-                PureLowerResult::UnassignedExpression(exp, slot, Some(stopped_before))
+                PureLowerResult::UnassignedExpression(exp, place, Some(stopped_before))
             }
         } else {
             self.pure_block(next, None)?
-                .wrap_in_assignment(self, block, slot, exp)?
+                .wrap_in_assignment(self, block, place, exp)?
         })
     }
 

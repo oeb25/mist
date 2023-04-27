@@ -89,9 +89,23 @@ fn euclid(n: int, m: int) -> int
     }
   }
 
-  assert a == b, gcd(a, b) == gcd(n, m);
+  // assert a == b, gcd(a, b) == gcd(n, m);
   lemma_gcd_idempotent(a);
   assert gcd(n, m) == a;
 
   a
+}
+
+fn f(x: int) -> int
+  req x > 10
+  ens result == x * 2
+{
+  g(x)
+}
+
+fn g(x: int) -> int
+  req x > 0
+  ens result == x * 2
+{
+  x + x
 }

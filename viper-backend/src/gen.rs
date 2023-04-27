@@ -8,7 +8,7 @@ use mist_core::{hir, mir};
 use mist_syntax::{ast::Spanned, SourceSpan};
 use silvers::{
     expression::{AbstractLocalVar, Exp, LocationAccess, QuantifierExp, ResourceAccess, SeqExp},
-    program::{Function, Method, Program},
+    program::{Domain, ExtensionMember, Field, Function, Method, Predicate, Program},
     typ::Type,
 };
 
@@ -19,13 +19,12 @@ pub fn viper_file(
     db: &dyn crate::Db,
     program: hir::Program,
 ) -> Result<(Program<VExprId>, ViperBody, ViperSourceMap), ViperLowerError> {
-    #[allow(unused)]
+    let mut domains = vec![];
     let mut fields = vec![];
-    #[allow(unused)]
     let mut predicates = vec![];
-    #[allow(unused)]
     let mut methods = vec![];
     let mut functions = vec![];
+    let mut extensions = vec![];
 
     let mut lowerer = ViperLowerer::new();
 
@@ -33,10 +32,19 @@ pub fn viper_file(
         let Some(item) = hir::item(db, program, item_id) else { continue };
         let Some((cx, _source_map)) = hir::item_lower(db, program, item_id, item) else { continue };
         let (mir, _mir_source_map) = mir::lower_item(db, cx.clone());
-        match internal_viper_item(db, cx, &mut lowerer, item, &mir) {
-            Ok(Some(ViperItem::Function(f))) => functions.push(f),
-            Ok(Some(ViperItem::Method(m))) => methods.push(m),
-            Ok(None) => {}
+        match internal_viper_item(db, program, cx, &mut lowerer, item, &mir) {
+            Ok(items) => {
+                for item in items {
+                    match item {
+                        ViperItem::Domain(it) => domains.push(it),
+                        ViperItem::Field(it) => fields.push(it),
+                        ViperItem::Function(it) => functions.push(it),
+                        ViperItem::Predicate(it) => predicates.push(it),
+                        ViperItem::Method(it) => methods.push(it),
+                        ViperItem::ExtensionMember(it) => extensions.push(it),
+                    }
+                }
+            }
             Err(err) => {
                 ViperLowerErrors::push(db, err.clone());
                 return Err(err);
@@ -45,12 +53,12 @@ pub fn viper_file(
     }
 
     let program = Program {
-        domains: vec![],
+        domains,
         fields,
         functions,
         predicates,
         methods,
-        extensions: vec![],
+        extensions,
     };
     let (viper_body, viper_source_map) = lowerer.finish();
 
@@ -59,30 +67,32 @@ pub fn viper_file(
 
 pub fn viper_item(
     db: &dyn crate::Db,
+    program: hir::Program,
     cx: hir::ItemContext,
     item: hir::Item,
     mir: &mir::Body,
-) -> Result<Option<(ViperItem<VExprId>, ViperBody, ViperSourceMap)>, ViperLowerError> {
+) -> Result<(Vec<ViperItem<VExprId>>, ViperBody, ViperSourceMap), ViperLowerError> {
     let mut lowerer = ViperLowerer::new();
-    if let Some(viper_item) = internal_viper_item(db, cx, &mut lowerer, item, mir)? {
-        let (viper_body, viper_source_map) = lowerer.finish();
-        Ok(Some((viper_item, viper_body, viper_source_map)))
-    } else {
-        Ok(None)
-    }
+    let items = internal_viper_item(db, program, cx, &mut lowerer, item, mir)?;
+    let (viper_body, viper_source_map) = lowerer.finish();
+    Ok((items, viper_body, viper_source_map))
 }
 fn internal_viper_item(
     db: &dyn crate::Db,
+    program: hir::Program,
     cx: hir::ItemContext,
     lowerer: &mut ViperLowerer,
     item: hir::Item,
     mir: &mir::Body,
-) -> Result<Option<ViperItem<VExprId>>, ViperLowerError> {
+) -> Result<Vec<ViperItem<VExprId>>, ViperLowerError> {
     match item {
         hir::Item::Type(ty_decl) => match ty_decl.data(db) {
-            hir::TypeDeclData::Struct(_) => Ok(None),
+            hir::TypeDeclData::Struct(s) => {
+                let mut lower = lowerer.body_lower(db, &cx, mir, false);
+                lower.struct_lower(program, s, [])
+            }
         },
-        hir::Item::TypeInvariant(_) => Ok(None),
+        hir::Item::TypeInvariant(_) => Ok(vec![]),
         hir::Item::Function(function) => {
             let is_method = !function.attrs(db).is_pure();
 
@@ -137,7 +147,7 @@ fn internal_viper_item(
                     body,
                 };
 
-                Ok(Some(func.into()))
+                Ok(vec![func.into()])
             } else {
                 let formal_returns = ret_ty
                     .map(|(ret, _ty)| vec![lower.slot_to_decl(ret)])
@@ -155,7 +165,7 @@ fn internal_viper_item(
                         .transpose()?,
                 };
 
-                Ok(Some(method.into()))
+                Ok(vec![method.into()])
             }
         }
     }
@@ -163,8 +173,12 @@ fn internal_viper_item(
 
 #[derive(new, Debug, Clone, From)]
 pub enum ViperItem<E> {
+    Domain(Domain<E>),
+    Field(Field),
     Function(Function<E>),
+    Predicate(Predicate<E>),
     Method(Method<E>),
+    ExtensionMember(ExtensionMember),
 }
 
 #[derive(new, Debug, Clone)]
@@ -254,7 +268,10 @@ pub trait ViperWrite<Cx> {
 mod write_impl {
     use silvers::{
         ast::Declaration,
-        expression::{LocalVar, PredicateAccess, PredicateAccessPredicate},
+        expression::{
+            FieldAccess, FieldAccessPredicate, LocalVar, PermExp, PredicateAccess,
+            PredicateAccessPredicate,
+        },
         program::{AnyLocalVarDecl, LocalVarDecl, Method, Program},
         statement::{Seqn, Stmt},
     };
@@ -334,8 +351,13 @@ mod write_impl {
                 Exp::Un { op, exp } => w!(w, "{op}", exp),
                 Exp::MagicWand(m) => w!(w, "(", &m.left, " --* ", &m.right, ")"),
                 Exp::Literal(l) => w!(w, "{l}"),
-                Exp::AccessPredicate(_) => w!(w, "// TODO: AccessPredicate"),
-                Exp::Perm(_) => w!(w, "// TODO: Perm"),
+                Exp::AccessPredicate(acc) => match acc {
+                    silvers::expression::AccessPredicate::Field(f) => w!(w, "acc(", f, ")"),
+                    silvers::expression::AccessPredicate::Predicate(_) => {
+                        w!(w, " // TODO: AccessPredicate::Predicate")
+                    }
+                },
+                Exp::Perm(perm) => w!(w, perm),
                 Exp::FuncApp { funcname, args } => {
                     w!(w, "{funcname}(");
                     let mut first = true;
@@ -352,10 +374,7 @@ mod write_impl {
                 Exp::BackendFuncApp { .. } => w!(w, "// TODO: BackendFuncApp"),
                 Exp::LocationAccess(r) => match r {
                     ResourceAccess::Location(l) => match l {
-                        LocationAccess::Field(f) => {
-                            let name = &f.field;
-                            w!(w, &f.rcr, ".{name}")
-                        }
+                        LocationAccess::Field(f) => w!(w, f),
                         LocationAccess::Predicate(_) => w!(w, "// TODO: Predicate"),
                     },
                 },
@@ -445,6 +464,19 @@ mod write_impl {
                 Exp::Set(_) => w!(w, "// TODO: Set"),
                 Exp::Multiset(_) => w!(w, "// TODO: Multiset"),
                 Exp::Map(_) => w!(w, "// TODO: Map"),
+            }
+        }
+    }
+
+    impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for PermExp<E> {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
+            match elem {
+                PermExp::Wildcard => w!(w, "*"),
+                PermExp::Full => w!(w, "write"),
+                PermExp::No => w!(w, " // TODO: PermExp::No"),
+                PermExp::Epsilon => w!(w, " // TODO: PermExp::Epsilon"),
+                PermExp::Bin { op, left, right } => w!(w, " // TODO: PermExp::Bin"),
+                PermExp::Current { res } => w!(w, " // TODO: PermExp::Current"),
             }
         }
     }
@@ -564,6 +596,19 @@ mod write_impl {
         }
     }
 
+    impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for FieldAccessPredicate<E> {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
+            w!(w, &elem.loc, ", ", &elem.perm)
+        }
+    }
+
+    impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for FieldAccess<E> {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
+            let name = &elem.field;
+            w!(w, &elem.rcr, ".{name}")
+        }
+    }
+
     impl<Cx> ViperWrite<Cx> for AnyLocalVarDecl {
         fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
             match elem {
@@ -594,6 +639,17 @@ mod write_impl {
         }
     }
 
+    impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for Domain<E> {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {}
+    }
+
+    impl<Cx> ViperWrite<Cx> for Field {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
+            let name = &elem.name;
+            wln!(w, "field {name}: ", &elem.typ);
+        }
+    }
+
     impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for Function<E> {
         fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
             let name = &elem.name;
@@ -619,6 +675,29 @@ mod write_impl {
             });
             if let Some(b) = &elem.body {
                 wln!(w, "{{");
+                w.indent(|w| {
+                    wln!(w, b);
+                });
+                wln!(w, "}}");
+            }
+        }
+    }
+
+    impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for Predicate<E> {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
+            let name = &elem.name;
+            w!(w, "predicate {name}(");
+            let mut first = true;
+            for arg in &elem.formal_args {
+                if !first {
+                    w!(w, ", ");
+                }
+                first = false;
+                w!(w, arg);
+            }
+            w!(w, ")");
+            if let Some(b) = &elem.body {
+                wln!(w, " {{");
                 w.indent(|w| {
                     wln!(w, b);
                 });
@@ -673,22 +752,42 @@ mod write_impl {
         }
     }
 
+    impl<Cx> ViperWrite<Cx> for ExtensionMember {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {}
+    }
+
     impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for ViperItem<E> {
         fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
             match elem {
-                ViperItem::Function(f) => Function::emit(f, w),
-                ViperItem::Method(m) => Method::emit(m, w),
+                ViperItem::Domain(it) => Domain::emit(it, w),
+                ViperItem::Field(it) => Field::emit(it, w),
+                ViperItem::Function(it) => Function::emit(it, w),
+                ViperItem::Predicate(it) => Predicate::emit(it, w),
+                ViperItem::Method(it) => Method::emit(it, w),
+                ViperItem::ExtensionMember(it) => ExtensionMember::emit(it, w),
             }
         }
     }
 
     impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for Program<E> {
         fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
-            for f in &elem.functions {
-                wln!(w, f);
+            for it in &elem.domains {
+                wln!(w, it);
             }
-            for m in &elem.methods {
-                wln!(w, m);
+            for it in &elem.fields {
+                wln!(w, it);
+            }
+            for it in &elem.functions {
+                wln!(w, it);
+            }
+            for it in &elem.predicates {
+                wln!(w, it);
+            }
+            for it in &elem.methods {
+                wln!(w, it);
+            }
+            for it in &elem.extensions {
+                wln!(w, it);
             }
         }
     }

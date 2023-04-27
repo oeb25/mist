@@ -1,79 +1,83 @@
-use std::{io::Write, path::Path};
+use std::path::{Path, PathBuf};
 
 use futures_util::StreamExt;
-use miette::IntoDiagnostic;
+use miette::{Context, IntoDiagnostic};
 use mist_cli::VerificationContext;
 use mist_core::hir;
 use mist_viper_backend::gen::ViperOutput;
 use tracing::info;
 
-pub async fn verify_file(
-    db: &dyn crate::Db,
-    program: hir::Program,
-    viperserver_jar: &Path,
-    mist_src_path: impl AsRef<Path>,
-    mist_src: &str,
-) -> miette::Result<Vec<miette::Report>> {
-    let mist_src_path = mist_src_path.as_ref();
-    let (viper_program, viper_body, viper_source_map) =
-        mist_viper_backend::gen::viper_file(db, program)?;
-    let viper_output = ViperOutput::generate(&viper_body, &viper_program);
-    let viper_src = &viper_output.buf;
+pub struct VerifyFile<'a> {
+    pub db: &'a dyn crate::Db,
+    pub program: hir::Program,
+    pub viperserver_jar: &'a Path,
+    pub viperserver: &'a viperserver::ViperServer,
+    pub working_dir: &'a Path,
+    pub mist_src_path: PathBuf,
+    pub mist_src: &'a str,
+}
 
-    let temp_mist_dir = tempfile::Builder::new()
-        .prefix(".mist.")
-        .tempdir_in("./")
-        .into_diagnostic()?;
-    let mut viper_file = tempfile::Builder::new()
-        .suffix(".vpr")
-        .tempfile_in(temp_mist_dir.path())
-        .into_diagnostic()?;
-    write!(viper_file, "{viper_src}").into_diagnostic()?;
+impl VerifyFile<'_> {
+    pub async fn run(&self) -> miette::Result<Vec<miette::Report>> {
+        let (viper_program, viper_body, viper_source_map) =
+            mist_viper_backend::gen::viper_file(self.db, self.program)?;
+        let viper_output = ViperOutput::generate(&viper_body, &viper_program);
+        let viper_src = &viper_output.buf;
 
-    viper_file.flush().into_diagnostic()?;
+        std::fs::create_dir_all(self.working_dir)
+            .into_diagnostic()
+            .with_context(|| format!("creating working dir: {}", self.working_dir.display()))?;
+        let viper_file = self
+            .working_dir
+            .join(self.mist_src_path.file_name().unwrap())
+            .with_extension("vpr");
+        tokio::fs::write(&viper_file, viper_src)
+            .await
+            .into_diagnostic()?;
 
-    info!("Starting verification...");
+        info!("Starting verification...");
 
-    let server = viperserver::server::ViperServer::builder()
-        .spawn_http(viperserver_jar)
-        .await
-        .into_diagnostic()?;
+        let server = viperserver::server::ViperServer::builder()
+            .spawn_http(self.viperserver_jar)
+            .await
+            .into_diagnostic()?;
 
-    let client = viperserver::client::Client::new(server)
-        .await
-        .into_diagnostic()?;
+        let client = viperserver::client::Client::new(server)
+            .await
+            .into_diagnostic()?;
 
-    let req = viperserver::client::VerificationRequest::silicon()
-        .detect_z3()
-        .into_diagnostic()?
-        .verify_file(&viper_file)
-        .into_diagnostic()?;
+        let req = viperserver::client::VerificationRequest::silicon()
+            .detect_z3()
+            .into_diagnostic()?
+            .verify_file(&viper_file)
+            .into_diagnostic()?;
 
-    let res = client.post(req).await.into_diagnostic()?;
+        let res = client.post(req).await.into_diagnostic()?;
 
-    let ctx = VerificationContext {
-        program,
-        mist_src_path,
-        mist_src,
-        viper_path: viper_file.path(),
-        viper_source_map: &viper_source_map,
-        viper_output: &viper_output,
-    };
+        let ctx = VerificationContext {
+            program: self.program,
+            mist_src_path: &self.mist_src_path,
+            mist_src: self.mist_src,
+            viper_path: &viper_file,
+            viper_source_map: &viper_source_map,
+            viper_output: &viper_output,
+        };
 
-    let mut stream = client.check_on_verification(&res).await.into_diagnostic()?;
+        let mut stream = client.check_on_verification(&res).await.into_diagnostic()?;
 
-    let mut errors = vec![];
+        let mut errors = vec![];
 
-    while let Some(status) = stream.next().await {
-        let status = status.into_diagnostic()?;
-        errors.append(&mut ctx.handle_status(db, status));
+        while let Some(status) = stream.next().await {
+            let status = status.into_diagnostic()?;
+            errors.append(&mut ctx.handle_status(self.db, status));
+        }
+
+        // if errors.is_empty() {
+        //     bail!("failed due to {} previous errors", num_errors);
+        // }
+
+        drop(viper_file);
+
+        Ok(errors)
     }
-
-    // if errors.is_empty() {
-    //     bail!("failed due to {} previous errors", num_errors);
-    // }
-
-    drop(viper_file);
-
-    Ok(errors)
 }

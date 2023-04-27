@@ -13,8 +13,8 @@ use mist_syntax::{
     SourceSpan,
 };
 use silvers::{
-    expression::{AbstractLocalVar, BinOp, Exp, LocalVar, SeqExp, UnOp},
-    program::LocalVarDecl,
+    expression::{AbstractLocalVar, BinOp, Exp, FieldAccess, LocalVar, SeqExp, UnOp},
+    program::{Field, LocalVarDecl},
     typ::Type as VTy,
 };
 use tracing::error;
@@ -23,6 +23,7 @@ use crate::gen::{VExpr, VExprId};
 
 pub mod method;
 pub mod pure;
+pub mod structs;
 
 fn lower_binop(op: &BinaryOp) -> Option<BinOp> {
     use BinOp::*;
@@ -171,6 +172,9 @@ pub struct ViperType {
     pub vty: VTy,
     optional: bool,
     is_mut: bool,
+    inner: Option<Box<ViperType>>,
+    is_ref: bool,
+    strukt: Option<hir::Struct>,
 }
 
 impl From<VTy> for ViperType {
@@ -178,7 +182,10 @@ impl From<VTy> for ViperType {
         ViperType {
             vty,
             is_mut: false,
+            is_ref: false,
             optional: false,
+            inner: None,
+            strukt: None,
         }
     }
 }
@@ -194,7 +201,6 @@ pub struct BodyLower<'a> {
     postdominance_frontier: cfg::PostdominanceFrontier,
     postdominators: cfg::Postdominators,
     var_refs: ArenaMap<mir::SlotId, VExprId>,
-    times_referenced: ArenaMap<mir::SlotId, usize>,
     inlined: ArenaMap<VExprId, VExprId>,
 }
 
@@ -219,7 +225,6 @@ impl<'a> BodyLower<'a> {
             postdominance_frontier: Default::default(),
             postdominators: Default::default(),
             var_refs: Default::default(),
-            times_referenced: Default::default(),
             inlined: Default::default(),
         }
     }
@@ -244,7 +249,10 @@ impl<'a> BodyLower<'a> {
                 ViperType {
                     vty: VTy::ref_(),
                     is_mut,
+                    is_ref: true,
                     optional: false,
+                    inner: Some(Box::new(self.lower_type(inner))),
+                    strukt: None,
                 }
             }
             hir::TypeData::List(inner) => VTy::Seq {
@@ -267,7 +275,14 @@ impl<'a> BodyLower<'a> {
                     element_type: Box::new(VTy::int()),
                 }
                 .into(),
-                _ => VTy::ref_().into(),
+                _ => ViperType {
+                    vty: VTy::ref_(),
+                    optional: false,
+                    is_mut: false,
+                    is_ref: false,
+                    inner: None,
+                    strukt: Some(*s),
+                },
             },
             hir::TypeData::Null => todo!("lower_type(Null)"),
             hir::TypeData::Function { .. } => todo!("lower_type(Function)"),
@@ -279,12 +294,12 @@ impl<'a> BodyLower<'a> {
         }
     }
 
-    fn can_inline(&self, x: mir::SlotId, exp: VExprId) -> bool {
+    fn can_inline(&self, x: mir::Place, exp: VExprId) -> bool {
         // TODO: This entire thing should be better specified
         // return false;
-        let n = self.body.reference_to(x).count();
+        let n = self.body.reference_to(x.slot).count();
         match &*self.viper_body[exp] {
-            _ if n < 2 && Some(x) != self.body.result_slot() => true,
+            _ if n < 2 && Some(x.slot) != self.body.result_slot() => true,
             // Exp::Literal(_) => true,
             Exp::AbstractLocalVar(_) => {
                 // TODO: We should be able inline these, as long as the
@@ -380,11 +395,16 @@ impl BodyLower<'_> {
             ),
         }
     }
-    fn slot_to_ref(&mut self, source: impl Into<BlockOrInstruction>, s: mir::SlotId) -> VExprId {
-        *self.times_referenced.entry(s).or_default() += 1;
-        let var = self.slot_to_var(s);
-        *self.var_refs.entry(s).or_insert_with(|| {
-            let exp = match &self.body[s] {
+    fn place_to_ref(
+        &mut self,
+        source: impl Into<BlockOrInstruction> + Copy,
+        p: mir::Place,
+    ) -> VExprId {
+        let var = self.slot_to_var(p.slot);
+        if let Some(exp) = self.var_refs.get(p.slot).copied() {
+            exp
+        } else {
+            let exp = match &self.body[p.slot] {
                 mir::Slot::Temp | mir::Slot::Var(_) => {
                     Exp::AbstractLocalVar(AbstractLocalVar::LocalVar(var))
                 }
@@ -397,58 +417,45 @@ impl BodyLower<'_> {
                 }
             };
 
-            let item_id = self.body.item_id();
-            // TODO: This does not work since we are in a FnMut
-            // self.alloc(source, VExpr::new(exp))
-            let id = self.viper_body.arena.alloc(VExpr::new(exp));
-            match source.into() {
-                BlockOrInstruction::Block(block_id) => {
-                    self.source_map.block_expr.insert((item_id, block_id), id);
-                    self.source_map
-                        .block_expr_back
-                        .insert(id, (item_id, block_id));
-                }
-                BlockOrInstruction::Instruction(inst_id) => {
-                    self.source_map.inst_expr.insert((item_id, inst_id), id);
-                    self.source_map
-                        .inst_expr_back
-                        .insert(id, (item_id, inst_id));
-                }
-            }
-            id
-        })
+            let id = self.alloc(source, VExpr::new(exp));
+            self.var_refs.insert(p.slot, id);
+
+            self.body[p.projection]
+                .iter()
+                .fold(id, |base, proj| match proj {
+                    mir::Projection::Field(f, ty) => {
+                        let exp =
+                            Exp::LocationAccess(silvers::expression::ResourceAccess::Location(
+                                silvers::expression::LocationAccess::Field(FieldAccess::new(
+                                    base,
+                                    Field::new(
+                                        f.name.to_string(),
+                                        // TODO: Should we look at the contraints?
+                                        self.lower_type(*ty).vty,
+                                    ),
+                                )),
+                            ));
+                        self.alloc(source, VExpr::new(exp))
+                    }
+                })
+        }
     }
     fn operand_to_ref(
         &mut self,
-        source: impl Into<BlockOrInstruction>,
+        source: impl Into<BlockOrInstruction> + Copy,
         o: &mir::Operand,
     ) -> VExprId {
         match o {
-            mir::Operand::Copy(s) => self.slot_to_ref(source, *s),
-            mir::Operand::Move(s) => self.slot_to_ref(source, *s),
-            mir::Operand::Literal(l) => {
-                let exp = lower_lit(l);
-
-                let item_id = self.body.item_id();
-                // TODO: This does not work since we are in a FnMut
-                // self.alloc(source, VExpr::new(exp))
-                let id = self.viper_body.arena.alloc(VExpr::new(exp));
-                match source.into() {
-                    BlockOrInstruction::Block(block_id) => {
-                        self.source_map.block_expr.insert((item_id, block_id), id);
-                        self.source_map
-                            .block_expr_back
-                            .insert(id, (item_id, block_id));
-                    }
-                    BlockOrInstruction::Instruction(inst_id) => {
-                        self.source_map.inst_expr.insert((item_id, inst_id), id);
-                        self.source_map
-                            .inst_expr_back
-                            .insert(id, (item_id, inst_id));
-                    }
-                }
-                id
-            }
+            mir::Operand::Copy(s) => self.place_to_ref(source, *s),
+            mir::Operand::Move(s) => self.place_to_ref(source, *s),
+            mir::Operand::Literal(l) => self.alloc(source, VExpr::new(lower_lit(l))),
+        }
+    }
+    fn place_for_assignment(&mut self, dest: mir::Place) -> LocalVar {
+        if self.body[dest.projection].is_empty() {
+            self.slot_to_var(dest.slot)
+        } else {
+            todo!()
         }
     }
 
@@ -458,27 +465,6 @@ impl BodyLower<'_> {
         e: &mir::MExpr,
     ) -> Result<VExprId, ViperLowerError> {
         let exp = match e {
-            mir::MExpr::Field(rcr, f) => match &f.parent {
-                hir::FieldParent::Struct(_) => {
-                    return Err(ViperLowerError::NotYetImplemented {
-                        msg: format!("lower struct field: {f:?}"),
-                        item_id: self.body.item_id(),
-                        block_or_inst: Some(inst.into()),
-                        span: None,
-                    });
-                }
-                hir::FieldParent::List(_) => match f.name.as_str() {
-                    "len" => Exp::Seq(SeqExp::new_length(self.operand_to_ref(inst, rcr))),
-                    _ => {
-                        return Err(ViperLowerError::NotYetImplemented {
-                            msg: format!("lower list field: {f:?}"),
-                            item_id: self.body.item_id(),
-                            block_or_inst: Some(inst.into()),
-                            span: None,
-                        });
-                    }
-                },
-            },
             mir::MExpr::Struct(s, fields) => {
                 Exp::FuncApp {
                     funcname: format!("init_{}", s.name(self.db)),

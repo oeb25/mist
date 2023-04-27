@@ -1,11 +1,15 @@
 use la_arena::ArenaMap;
-use mist_core::{hir, mir};
+use mist_core::{
+    hir,
+    mir::{self, Projection},
+};
 use silvers::{
     ast::Declaration,
-    expression::Exp,
-    program::AnyLocalVarDecl,
+    expression::{Exp, FieldAccess},
+    program::{AnyLocalVarDecl, Field},
     statement::{Seqn, Stmt},
 };
+use tracing::info;
 
 use crate::{
     gen::{VExpr, VExprId},
@@ -78,28 +82,71 @@ impl BodyLower<'_> {
                 mir::Instruction::Assign(s, x) => {
                     let rhs = self.expr(inst, x)?;
                     // TODO: This number is not correct when we do forward iteration
-                    match self.body.reference_to(*s).count() {
+                    match self.body.reference_to(s.slot).count() {
                         0 => {
                             // insts.push(Stmt::Expression(rhs));
                             // TODO: We don't need to assign
-                            insts.push(Stmt::LocalVarAssign {
-                                lhs: self.slot_to_var(*s),
-                                rhs,
-                            });
+                            match &self.body[s.projection] {
+                                [] => {
+                                    info!("lowering without projection (1)");
+                                    insts.push(Stmt::LocalVarAssign {
+                                        lhs: self.place_for_assignment(*s),
+                                        rhs,
+                                    });
+                                }
+                                [Projection::Field(f, ty)] => {
+                                    info!("lowering with projection (2)");
+                                    insts.push(Stmt::FieldAssign {
+                                        lhs: FieldAccess::new(
+                                            self.place_to_ref(inst, s.slot.into()),
+                                            Field::new(
+                                                f.name.to_string(),
+                                                // TODO: should we respect the extra constraints in such a scenario?
+                                                self.lower_type(*ty).vty,
+                                            ),
+                                        ),
+                                        rhs,
+                                    });
+                                }
+                                _ => todo!(),
+                            }
                         }
                         _ if self.can_inline(*s, rhs) => {
-                            let r = self.slot_to_ref(inst, *s);
+                            let r = self.place_to_ref(inst, *s);
                             self.inlined.insert(r, rhs);
                         }
                         _ => {
-                            self.times_referenced.entry(*s).or_default();
-                            if self.body.slot_ty(*s).is_void(self.db) {
+                            if self.body.place_ty(*s).is_void(self.db) {
                                 insts.push(Stmt::Expression(rhs));
                             } else {
-                                insts.push(Stmt::LocalVarAssign {
-                                    lhs: self.slot_to_var(*s),
-                                    rhs,
-                                });
+                                // insts.push(Stmt::LocalVarAssign {
+                                //     lhs: self.place_for_assignment(*s),
+                                //     rhs,
+                                // });
+                                match &self.body[s.projection] {
+                                    [] => {
+                                        info!("lowering without projection (2)");
+                                        insts.push(Stmt::LocalVarAssign {
+                                            lhs: self.place_for_assignment(*s),
+                                            rhs,
+                                        });
+                                    }
+                                    [Projection::Field(f, ty)] => {
+                                        info!("lowering with projection (2)");
+                                        insts.push(Stmt::FieldAssign {
+                                            lhs: FieldAccess::new(
+                                                self.place_to_ref(inst, s.slot.into()),
+                                                Field::new(
+                                                    f.name.to_string(),
+                                                    // TODO: should we respect the extra constraints in such a scenario?
+                                                    self.lower_type(*ty).vty,
+                                                ),
+                                            ),
+                                            rhs,
+                                        });
+                                    }
+                                    _ => todo!(),
+                                }
                             }
                         }
                     }
@@ -187,10 +234,9 @@ impl BodyLower<'_> {
                     destination,
                     target,
                 } => {
-                    self.times_referenced.entry(*destination).or_default();
-                    let var = self.slot_to_var(*destination);
+                    let var = self.place_for_assignment(*destination);
                     let f = self.function(block, *func, args)?;
-                    let voided = self.body.slot_ty(*destination).is_void(self.db);
+                    let voided = self.body.place_ty(*destination).is_void(self.db);
 
                     match f {
                         Exp::FuncApp { funcname, args } => {

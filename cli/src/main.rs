@@ -84,13 +84,15 @@ async fn cli() -> Result<()> {
                     mir::analysis::cfg::dot_imgcat(dot);
                 }
                 if dump_viper {
-                    match mist_viper_backend::gen::viper_item(&db, cx, item, &mir) {
-                        Ok(Some((viper_item, viper_body, _viper_source_map))) => {
-                            let output = ViperOutput::generate(&viper_body, &viper_item);
-                            println!("{}", output.buf);
-                        }
-                        Ok(None) => {
-                            warn!("no viper code generated")
+                    match mist_viper_backend::gen::viper_item(&db, program, cx, item, &mir) {
+                        Ok((viper_items, viper_body, _viper_source_map)) => {
+                            if viper_items.is_empty() {
+                                warn!("no viper code generated")
+                            }
+                            for viper_item in viper_items {
+                                let output = ViperOutput::generate(&viper_body, &viper_item);
+                                println!("{}", output.buf);
+                            }
                         }
                         Err(err) => error!("{}", err),
                     }

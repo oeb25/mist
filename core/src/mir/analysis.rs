@@ -292,7 +292,6 @@ impl MExpr {
     }
     pub fn all_operands(&self) -> impl IntoIterator<Item = &Operand> {
         match self {
-            MExpr::Field(e, _) => vec![e],
             MExpr::Struct(_, fields) => fields.iter().map(|f| &f.1).collect(),
             MExpr::Use(s) => vec![s],
             // TODO

@@ -178,7 +178,12 @@ pub fn item_lower(
     let _enter = span.enter();
 
     match item {
-        Item::Type(_) => None,
+        Item::Type(ty_decl) => match &ty_decl.data(db) {
+            TypeDeclData::Struct(_) => {
+                let checker = TypeCheckExpr::init(db, program, item_id, None);
+                Some(checker.into())
+            }
+        },
         Item::TypeInvariant(ty_inv) => {
             let mut checker = TypeCheckExpr::init(db, program, item_id, None);
             if let Some(ast_body) = ty_inv.node(db).block_expr() {

@@ -1,7 +1,8 @@
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use itertools::Itertools;
+use miette::IntoDiagnostic;
 use mist_core::hir::{Program, SourceProgram};
 use mist_syntax::SourceSpan;
 use mist_viper_backend::gen::ViperHints;
@@ -21,6 +22,8 @@ pub struct Backend {
     // Send+Sync. To fix this, we should get rid of those :)
     // db: crate::db::Database,
     files: dashmap::DashMap<Url, Arc<String>>,
+    working_dir: PathBuf,
+    viper_server: Arc<Mutex<Option<viperserver::ViperServer>>>,
 }
 
 #[tower_lsp::async_trait]
@@ -78,7 +81,7 @@ impl LanguageServer for Backend {
 }
 
 impl Backend {
-    pub fn new(client: Client) -> Self {
+    pub fn new(client: Client) -> miette::Result<Self> {
         use tracing_subscriber::prelude::*;
 
         #[derive(Clone)]
@@ -124,10 +127,16 @@ impl Backend {
             }))
             .init();
 
-        Self {
+        let target_dir = PathBuf::from("./.mist");
+        let lsp_dir = target_dir.join("lsp");
+        std::fs::create_dir_all(&lsp_dir).into_diagnostic()?;
+
+        Ok(Self {
             client,
             files: Default::default(),
-        }
+            working_dir: lsp_dir.canonicalize().into_diagnostic()?,
+            viper_server: Default::default(),
+        })
     }
 
     async fn initialize(&self, _ip: InitializeParams) -> Result<InitializeResult> {
@@ -297,12 +306,12 @@ impl Backend {
         let text = Arc::new(source);
         self.files.insert(uri.clone(), Arc::clone(&text));
 
+        let working_dir = self.working_dir.clone();
         let client = self.client.clone();
         let viperserver_jar = self.viperserver_jar();
+        let viperserver_ref = Arc::clone(&self.viper_server);
+
         tokio::task::spawn_local(async move {
-            // info!("Spawned a new thread!");
-            // tokio::task::spawn_local(async move {
-            info!("this is a task in the new thread");
             let db = crate::db::Database::default();
 
             let source = mist_core::hir::SourceProgram::new(&db, text.to_string());
@@ -317,18 +326,33 @@ impl Backend {
                     .publish_diagnostics(uri.clone(), vec![], Some(version))
                     .await;
 
-                let errors = match crate::viper::verify_file(
-                    &db,
+                let viperserver = viperserver_ref.lock().unwrap().take();
+                let viperserver = if let Some(it) = viperserver {
+                    info!("reusing viperserver!");
+                    it
+                } else {
+                    viperserver::server::ViperServer::builder()
+                        .spawn_http(&viperserver_jar)
+                        .await
+                        .into_diagnostic()
+                        .unwrap()
+                };
+
+                let verify_file = crate::viper::VerifyFile {
+                    db: &db,
                     program,
-                    &viperserver_jar,
-                    uri.as_str(),
-                    &text,
-                )
-                .await
-                {
+                    viperserver_jar: &viperserver_jar,
+                    viperserver: &viperserver,
+                    working_dir: &working_dir,
+                    mist_src_path: uri.as_str().into(),
+                    mist_src: &text,
+                };
+                let errors = match verify_file.run().await {
                     Ok(errors) => errors,
                     Err(err) => vec![err],
                 };
+
+                *viperserver_ref.lock().unwrap() = Some(viperserver);
 
                 let errors = errors
                     .into_iter()
@@ -346,7 +370,6 @@ impl Backend {
                 client.publish_diagnostics(uri, errors, Some(version)).await;
             }
         });
-        // });
 
         Ok(())
     }

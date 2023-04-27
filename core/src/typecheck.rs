@@ -937,7 +937,7 @@ impl<'a> TypeCheckExpr<'a> {
                                 None,
                                 None,
                                 TypeCheckErrorKind::NotYetImplemented(format!(
-                                    "reference to something that is not a struct: {}",
+                                    "field of reference to something that is not a struct: {}",
                                     self.pretty_ty(*inner)
                                 )),
                             );

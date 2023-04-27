@@ -5,7 +5,7 @@ struct Ghost {
 }
 
 struct List {
-    next: List?,
+    next: ?List,
     ghost g: Ghost,
 }
 
