@@ -1,0 +1,19 @@
+#[viper("Mutiset[T]")]
+primitive Multiset<T>;
+
+impl Multiset<T> {
+    #[viper("Multiset(Empty { elem_typ: T })")]
+    pure ghost fn empty() -> Mutiset<T>;
+    #[viper("Multiset(Empty)")]
+    pure ghost fn singleton(x: ) -> Mutiset<T>;
+    #[viper("Multiset(Bin { op: Union, lhs: Arg(0), rhs: Arg(1) })")]
+    pure ghost fn union(self, others: Multiset<T>) -> Multiset<T>;
+}
+
+#[viper("Set[T]")]
+primitive Set<T>;
+
+impl Set<T> {
+    #[viper("Set(Bin { op: Union, lhs: Arg(0), rhs: Arg(1) })")]
+    pure ghost fn union(self, others: Set) -> Set;
+}

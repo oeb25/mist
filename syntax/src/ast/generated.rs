@@ -419,6 +419,7 @@ pub enum SyntaxKind {
     TYPE_PARAM,
     CONST_PARAM,
     GENERIC_ARG_LIST,
+    GENERIC_ARG,
     LIFETIME,
     LIFETIME_ARG,
     TYPE_ARG,
@@ -1091,6 +1092,9 @@ impl Struct {
     pub fn struct_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![struct])
     }
+    pub fn generic_arg_list(&self) -> Option<GenericArgList> {
+        support::child(&self.syntax)
+    }
     pub fn l_curly_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T!['{'])
     }
@@ -1124,6 +1128,9 @@ impl crate::ast::HasName for TypeInvariant {}
 impl TypeInvariant {
     pub fn invariant_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![invariant])
+    }
+    pub fn generic_arg_list(&self) -> Option<GenericArgList> {
+        support::child(&self.syntax)
     }
     pub fn block_expr(&self) -> Option<BlockExpr> {
         support::child(&self.syntax)
@@ -1463,6 +1470,36 @@ impl AstNode for CommaExpr {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GenericArgList {
+    pub(crate) syntax: SyntaxNode,
+}
+impl GenericArgList {
+    pub fn l_angle_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T ! [<])
+    }
+    pub fn generic_args(&self) -> AstChildren<GenericArg> {
+        support::children(&self.syntax)
+    }
+    pub fn r_angle_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T ! [>])
+    }
+}
+impl AstNode for GenericArgList {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == GENERIC_ARG_LIST
+    }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StructField {
     pub(crate) syntax: SyntaxNode,
 }
@@ -1499,7 +1536,11 @@ pub struct NamedType {
     pub(crate) syntax: SyntaxNode,
 }
 impl crate::ast::HasName for NamedType {}
-impl NamedType {}
+impl NamedType {
+    pub fn generic_arg_list(&self) -> Option<GenericArgList> {
+        support::child(&self.syntax)
+    }
+}
 impl AstNode for NamedType {
     fn can_cast(kind: SyntaxKind) -> bool {
         kind == NAMED_TYPE
@@ -1547,11 +1588,11 @@ pub struct Optional {
     pub(crate) syntax: SyntaxNode,
 }
 impl Optional {
-    pub fn ty(&self) -> Option<Type> {
-        support::child(&self.syntax)
-    }
     pub fn question_mark_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T ! [?])
+    }
+    pub fn ty(&self) -> Option<Type> {
+        support::child(&self.syntax)
     }
 }
 impl AstNode for Optional {
@@ -1644,6 +1685,33 @@ impl RefType {
 impl AstNode for RefType {
     fn can_cast(kind: SyntaxKind) -> bool {
         kind == REF_TYPE
+    }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GenericArg {
+    pub(crate) syntax: SyntaxNode,
+}
+impl GenericArg {
+    pub fn ty(&self) -> Option<Type> {
+        support::child(&self.syntax)
+    }
+    pub fn comma_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T ! [,])
+    }
+}
+impl AstNode for GenericArg {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == GENERIC_ARG
     }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
@@ -2972,6 +3040,11 @@ impl std::fmt::Display for CommaExpr {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
+impl std::fmt::Display for GenericArgList {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
 impl std::fmt::Display for StructField {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
@@ -3003,6 +3076,11 @@ impl std::fmt::Display for GhostType {
     }
 }
 impl std::fmt::Display for RefType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for GenericArg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }

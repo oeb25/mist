@@ -304,6 +304,7 @@ pub(crate) const KINDS_SRC: KindsSrc<'_> = KindsSrc {
         "TYPE_PARAM",
         "CONST_PARAM",
         "GENERIC_ARG_LIST",
+        "GENERIC_ARG",
         "LIFETIME",
         "LIFETIME_ARG",
         "TYPE_ARG",

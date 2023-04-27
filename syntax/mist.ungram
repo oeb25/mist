@@ -57,12 +57,12 @@ Decreases =
 
 Struct =
   Attrs
-  'struct' Name '{' StructField* '}'
+  'struct' Name GenericArgList? '{' StructField* '}'
 
 StructField = Attrs Name ':' Type ','?
 
 TypeInvariant =
-  'invariant' Name BlockExpr
+  'invariant' Name GenericArgList? BlockExpr
 
 Macro =
   'macro' Name ParamList BlockExpr
@@ -82,7 +82,13 @@ Type =
 | RefType
 
 NamedType =
-  Name
+  Name GenericArgList?
+
+GenericArgList =
+  '<' GenericArg* '>'
+
+GenericArg =
+  Type ','?
 
 Primitive =
   'int'

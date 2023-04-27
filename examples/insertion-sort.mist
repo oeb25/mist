@@ -26,19 +26,13 @@ ghost fn lemma_total_order(xs: [int], i: int, j: int)
     }
 }
 
-struct Multiset {
-    ghost items: [int]
-}
-
-pure ghost fn union(x: Multiset, y: Multiset) -> Multiset;
-
-pure ghost fn to_multiset(xs: [int]) -> Multiset
+pure ghost fn to_multiset(xs: [int]) -> Multiset<int>
     dec xs.len
 {
     if xs.len == 0 {
-        Multiset { items: [] }
+        Multiset::empty()
     } else {
-        union(Multiset { items: [xs[0]] }, to_multiset(xs))
+        Multiset::union(Multiset::singleton(xs[0]), to_multiset(xs))
     }
 }
 

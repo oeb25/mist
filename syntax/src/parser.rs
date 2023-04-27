@@ -276,6 +276,7 @@ impl<'src> Parser<'src> {
         self.bump();
 
         self.name();
+        self.maybe_generic_arg_list();
 
         self.expect_control(T!['{']);
 
@@ -327,6 +328,7 @@ impl<'src> Parser<'src> {
         self.bump();
 
         self.name();
+        self.maybe_generic_arg_list();
 
         self.block();
 
@@ -534,9 +536,10 @@ impl<'src> Parser<'src> {
         self.skip_ws();
         match self.current() {
             Some(IDENT) => {
-                self.builder.start_node(NAMED_TYPE.into());
-                self.name();
-                self.builder.finish_node();
+                self.start_node(NAMED_TYPE, |this| {
+                    this.name();
+                    this.maybe_generic_arg_list();
+                });
             }
             Some(T![int] | T![bool]) => {
                 self.builder.start_node(PRIMITIVE.into());
@@ -549,6 +552,28 @@ impl<'src> Parser<'src> {
                 None,
                 ParseErrorKind::Context("a type".to_string()),
             ),
+        }
+    }
+
+    fn maybe_generic_arg_list(&mut self) {
+        self.skip_ws();
+        if let Some(T![<]) = self.current() {
+            self.start_node(GENERIC_ARG_LIST, |this| {
+                this.bump();
+                this.comma_sep(
+                    |t| t == T![>],
+                    |this| match this.current() {
+                        Some(T![>]) => ControlFlow::Break(()),
+                        _ => {
+                            this.start_node(GENERIC_ARG, |this| {
+                                this.ty();
+                            });
+                            ControlFlow::Continue(())
+                        }
+                    },
+                );
+                this.expect_control(T![>]);
+            });
         }
     }
 
@@ -1198,6 +1223,11 @@ impl<'src> Parser<'src> {
         eprintln!("{:?}", miette::Error::new(err.clone()));
         self.errors.push(err)
     }
+    fn start_node(&mut self, kind: SyntaxKind, f: impl FnOnce(&mut Self)) {
+        self.builder.start_node(kind.into());
+        f(self);
+        self.builder.finish_node();
+    }
     fn bump(&mut self) {
         let (kind, text, _) = self.tokens.pop().unwrap();
         self.builder.token(kind.into(), text);
@@ -1240,6 +1270,7 @@ fn is_start_of_expr(token: SyntaxKind) -> bool {
             | T![true]
             | T![false]
             | T![result]
+            | T![if]
             | T![return]
             | T![forall]
             | T![exists]
