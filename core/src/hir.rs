@@ -1,4 +1,6 @@
+mod item_context;
 mod lower;
+pub mod typecheck;
 
 use derive_more::Display;
 use derive_new::new;
@@ -10,12 +12,12 @@ use mist_syntax::{
     },
     SourceSpan,
 };
+use tracing::error;
 
-pub use crate::typecheck::{ItemContext, ItemSourceMap};
-use crate::{
-    typecheck::{self, TypeCheckError, TypeCheckErrorKind, TypeCheckExpr},
-    TypeCheckErrors,
-};
+use crate::{hir::typecheck::Typed, TypeCheckErrors};
+
+pub use item_context::{ItemContext, ItemSourceMap};
+use typecheck::{TypeCheckError, TypeCheckErrorKind, TypeChecker};
 
 mod ident {
     use super::*;
@@ -109,22 +111,25 @@ pub fn item(db: &dyn crate::Db, program: Program, item_id: ItemId) -> Option<Ite
                 todo!()
             };
             let attrs = f.attr_flags();
-            let param_list = typecheck::check_param_list(db, program, f.param_list());
-            let ret_ty = f.ret().map(|ty| find_type(db, program, ty));
-
-            match &ret_ty {
-                Some(ty) if !f.is_ghost() && ty.is_ghost(db) => {
-                    let err = TypeCheckError {
-                        input: program.program(db).to_string(),
-                        span: f.ret().unwrap().span(),
-                        label: None,
-                        help: None,
-                        kind: TypeCheckErrorKind::GhostUsedInNonGhost,
-                    };
-                    TypeCheckErrors::push(db, err);
-                }
-                _ => {}
-            }
+            let param_list = f
+                .param_list()
+                .map(|param_list| {
+                    param_list
+                        .params()
+                        .map(|param| -> Param<Ident, Option<mist_syntax::ast::Type>> {
+                            Param {
+                                is_ghost: param.is_ghost(),
+                                name: param
+                                    .name()
+                                    .map(|name| Ident::from(name))
+                                    .expect("param did not have a name"),
+                                ty: param.ty(),
+                            }
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let ret_ty = f.ret();
 
             if !f.is_ghost() && f.body().is_none() {
                 let err = TypeCheckError {
@@ -180,23 +185,24 @@ pub fn item_lower(
     match item {
         Item::Type(ty_decl) => match &ty_decl.data(db) {
             TypeDeclData::Struct(_) => {
-                let checker = TypeCheckExpr::init(db, program, item_id, None);
+                let checker = TypeChecker::init(db, program, item_id, None);
                 Some(checker.into())
             }
         },
         Item::TypeInvariant(ty_inv) => {
-            let mut checker = TypeCheckExpr::init(db, program, item_id, None);
+            let mut checker = TypeChecker::init(db, program, item_id, None);
             if let Some(ast_body) = ty_inv.node(db).block_expr() {
                 let body = checker.check_block(&ast_body, |f| f);
-                let ret = Type::bool(db).ghost(db);
+                let ret = checker.bool().ghost();
                 checker.expect_ty(ty_inv.name(db).span(), ret, body.return_ty);
-                checker.set_return_ty(ret);
+                let ret_ty = checker.unsourced_ty(ret);
+                checker.set_return_ty(ret_ty);
                 checker.set_body_expr_from_block(body, ast_body);
             }
             Some(checker.into())
         }
         Item::Function(function) => {
-            let mut checker = TypeCheckExpr::init(db, program, item_id, Some(function));
+            let mut checker = TypeChecker::init(db, program, item_id, Some(function));
             let ast_body = function.syntax(db).body();
             let body = ast_body
                 .as_ref()
@@ -204,27 +210,31 @@ pub fn item_lower(
             let is_ghost = function.attrs(db).is_ghost();
             if let Some(body) = body {
                 if let Some(ret) = function.ret(db) {
-                    let ret = ret.with_ghost(db, is_ghost);
+                    let ret = checker
+                        .find_type_src(&ret)
+                        .with_ghost(is_ghost)
+                        .ts(&mut checker);
                     checker.expect_ty(
                         function
                             .syntax(db)
                             .ret()
                             .map(|ret| ret.span())
                             .unwrap_or_else(|| function.name(db).span()),
-                        ret,
+                        checker.cx[ret].ty,
                         body.return_ty,
                     );
                 } else {
                     checker.expect_ty(
                         function.name(db).span(),
-                        Type::void(db).with_ghost(db, is_ghost),
+                        checker.void().with_ghost(is_ghost),
                         body.return_ty,
                     );
                 }
                 checker.set_body_expr_from_block(body, ast_body.unwrap());
             }
             if let Some(ret) = function.ret(db) {
-                checker.set_return_ty(ret);
+                let ret_ty = checker.find_type_src(&ret);
+                checker.set_return_ty(ret_ty);
             }
             Some(checker.into())
         }
@@ -232,7 +242,7 @@ pub fn item_lower(
 }
 
 #[salsa::tracked]
-pub fn struct_fields(db: &dyn crate::Db, program: Program, s: Struct) -> Vec<Field> {
+pub fn struct_fields(db: &dyn crate::Db, s: Struct) -> Vec<Field> {
     s.node(db)
         .struct_fields()
         .map(|f| {
@@ -242,19 +252,10 @@ pub fn struct_fields(db: &dyn crate::Db, program: Program, s: Struct) -> Vec<Fie
                 parent: FieldParent::Struct(s),
                 name: name.into(),
                 is_ghost,
-                ty: if let Some(ty) = f.ty() {
-                    find_type(db, program, ty).with_ghost(db, is_ghost)
-                } else {
-                    Type::error(db)
-                },
+                ty: f.ty(),
             }
         })
         .collect()
-}
-
-#[salsa::tracked]
-pub fn struct_ty(db: &dyn crate::Db, s: Struct, reference_span: SourceSpan) -> Type {
-    Type::new(db, TypeData::Struct(s), Some(reference_span))
 }
 
 #[salsa::interned]
@@ -326,120 +327,8 @@ pub struct Function {
     pub name: Ident,
     pub attrs: AttrFlags,
     #[return_ref]
-    pub param_list: ParamList<Ident>,
-    pub ret: Option<Type>,
-}
-
-#[salsa::tracked]
-pub fn find_named_type(db: &dyn crate::Db, program: Program, name: Ident) -> Type {
-    for item in program.items(db) {
-        let item_name = item.name(db).map(|n| n.to_string());
-        if item_name.as_deref() == Some(&name) {
-            match item.data(db) {
-                ItemData::Struct { ast } => {
-                    let item_name = ast.name().unwrap();
-                    let s = Struct::new(db, ast.clone(), item_name.into());
-                    return struct_ty(db, s, name.span());
-                }
-                ItemData::Const { .. }
-                | ItemData::Fn { .. }
-                | ItemData::TypeInvariant { .. }
-                | ItemData::Macro { .. } => return Type::error(db),
-            }
-        }
-    }
-
-    let err = TypeCheckError {
-        input: program.program(db).to_string(),
-        span: name.span(),
-        label: None,
-        help: None,
-        kind: TypeCheckErrorKind::UndefinedType(name.to_string()),
-    };
-    TypeCheckErrors::push(db, err);
-
-    Type::new(db, TypeData::Error, Some(name.span()))
-}
-#[salsa::tracked]
-pub fn find_type(db: &dyn crate::Db, program: Program, ty: mist_syntax::ast::Type) -> Type {
-    let result = match &ty {
-        mist_syntax::ast::Type::NamedType(name) => {
-            let name = name.name().unwrap().into();
-            return find_named_type(db, program, name);
-        }
-        mist_syntax::ast::Type::Primitive(it) => match () {
-            _ if it.int_token().is_some() => TypeData::Primitive(Primitive::Int),
-            _ if it.bool_token().is_some() => TypeData::Primitive(Primitive::Bool),
-            _ => {
-                todo!();
-                // TypeData::Error
-            }
-        },
-        mist_syntax::ast::Type::Optional(it) => {
-            if let Some(ty) = it.ty() {
-                let inner = find_type(db, program, ty);
-                TypeData::Optional(inner)
-            } else {
-                todo!()
-            }
-        }
-        mist_syntax::ast::Type::RefType(r) => {
-            let is_mut = r.mut_token().is_some();
-
-            if let Some(ty) = r.ty() {
-                let inner = find_type(db, program, ty);
-                TypeData::Ref { is_mut, inner }
-            } else {
-                let err = TypeCheckError {
-                    input: program.program(db).to_string(),
-                    span: r.span(),
-                    label: None,
-                    help: None,
-                    kind: TypeCheckErrorKind::UndefinedType("what is this".to_string()),
-                };
-                eprintln!("{:?}", miette::Error::new(err));
-
-                TypeData::Ref {
-                    is_mut,
-                    inner: Type::error(db),
-                }
-            }
-        }
-        mist_syntax::ast::Type::ListType(t) => {
-            if let Some(ty) = t.ty() {
-                let inner = find_type(db, program, ty);
-                TypeData::List(inner)
-            } else {
-                let err = TypeCheckError {
-                    input: program.program(db).to_string(),
-                    span: t.span(),
-                    label: None,
-                    help: None,
-                    kind: TypeCheckErrorKind::UndefinedType("list of what".to_string()),
-                };
-                eprintln!("{:?}", miette::Error::new(err));
-                return Type::error(db);
-            }
-        }
-        mist_syntax::ast::Type::GhostType(t) => {
-            if let Some(ty) = t.ty() {
-                let inner = find_type(db, program, ty);
-                TypeData::Ghost(inner)
-            } else {
-                let err = TypeCheckError {
-                    input: program.program(db).to_string(),
-                    span: t.span(),
-                    label: None,
-                    help: None,
-                    kind: TypeCheckErrorKind::UndefinedType("ghost of what".to_string()),
-                };
-                eprintln!("{:?}", miette::Error::new(err));
-                return Type::error(db);
-            }
-        }
-    };
-
-    Type::new(db, result, Some(ty.span()))
+    pub param_list: ParamList<Ident, Option<mist_syntax::ast::Type>>,
+    pub ret: Option<mist_syntax::ast::Type>,
 }
 
 #[salsa::interned]
@@ -487,12 +376,15 @@ impl From<&'_ VariableRef> for VariableIdx {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ParamList<I> {
-    pub params: Vec<Param<I>>,
+pub struct ParamList<I, T = TypeSrcId> {
+    pub params: Vec<Param<I, T>>,
 }
 
-impl<I> ParamList<I> {
-    pub fn map<O>(&self, mut f: impl FnMut(&I) -> O) -> ParamList<O> {
+impl<I, T> ParamList<I, T> {
+    pub fn map<O>(&self, mut f: impl FnMut(&I) -> O) -> ParamList<O, T>
+    where
+        T: Clone,
+    {
         ParamList {
             params: self
                 .params
@@ -500,14 +392,14 @@ impl<I> ParamList<I> {
                 .map(|param| Param {
                     is_ghost: param.is_ghost,
                     name: f(&param.name),
-                    ty: param.ty,
+                    ty: param.ty.clone(),
                 })
                 .collect(),
         }
     }
 }
 
-impl<I> Default for ParamList<I> {
+impl<I, T> Default for ParamList<I, T> {
     fn default() -> Self {
         Self {
             params: Default::default(),
@@ -515,16 +407,16 @@ impl<I> Default for ParamList<I> {
     }
 }
 
-impl<I> FromIterator<Param<I>> for ParamList<I> {
-    fn from_iter<T: IntoIterator<Item = Param<I>>>(iter: T) -> Self {
+impl<I, T> FromIterator<Param<I, T>> for ParamList<I, T> {
+    fn from_iter<Iter: IntoIterator<Item = Param<I, T>>>(iter: Iter) -> Self {
         ParamList {
             params: iter.into_iter().collect(),
         }
     }
 }
 
-impl<I> std::ops::Deref for ParamList<I> {
-    type Target = [Param<I>];
+impl<I, T> std::ops::Deref for ParamList<I, T> {
+    type Target = [Param<I, T>];
 
     fn deref(&self) -> &Self::Target {
         &self.params
@@ -532,10 +424,10 @@ impl<I> std::ops::Deref for ParamList<I> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Param<I> {
+pub struct Param<I, T = TypeSrcId> {
     pub is_ghost: bool,
     pub name: I,
-    pub ty: Type,
+    pub ty: T,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -563,7 +455,7 @@ pub enum Decreases {
 pub type ExprIdx = la_arena::Idx<Expr>;
 #[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Expr {
-    pub ty: Type,
+    pub ty: TypeId,
     pub data: ExprData,
 }
 
@@ -664,7 +556,7 @@ pub struct StructExprField {
 pub struct IfExpr {
     pub if_span: SourceSpan,
     pub is_ghost: bool,
-    pub return_ty: Type,
+    pub return_ty: TypeId,
     pub condition: ExprIdx,
     pub then_branch: ExprIdx,
     pub else_branch: Option<ExprIdx>,
@@ -674,7 +566,7 @@ pub struct IfExpr {
 pub struct Block {
     pub stmts: Vec<Statement>,
     pub tail_expr: Option<ExprIdx>,
-    pub return_ty: Type,
+    pub return_ty: TypeId,
 }
 
 #[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
@@ -688,7 +580,7 @@ pub enum StatementData {
     Expr(ExprIdx),
     Let {
         variable: VariableRef,
-        explicit_ty: Option<Type>,
+        explicit_ty: Option<TypeSrcId>,
         initializer: ExprIdx,
     },
     While {
@@ -715,24 +607,44 @@ pub enum AssertionKind {
     Exhale,
 }
 
-#[salsa::interned]
-pub struct Type {
-    #[return_ref]
-    pub data: TypeData,
-    pub span: Option<SourceSpan>,
+pub type TypeSrcId = la_arena::Idx<TypeSrc>;
+#[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TypeSrc {
+    pub data: Option<TypeData<TypeSrcId>>,
+    pub ty: TypeId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TypeId(TypeDataIdx);
+pub type TypeDataIdx = la_arena::Idx<TypeData>;
+
+impl ena::unify::UnifyKey for TypeId {
+    type Value = TypeData;
+
+    fn index(&self) -> u32 {
+        self.0.into_raw().into()
+    }
+
+    fn from_index(u: u32) -> Self {
+        Self(TypeDataIdx::from_raw(u.into()))
+    }
+
+    fn tag() -> &'static str {
+        "TypeId"
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum TypeData {
+pub enum TypeData<T = TypeId> {
     Error,
     Void,
-    Ghost(Type),
+    Ghost(T),
     Ref {
         is_mut: bool,
-        inner: Type,
+        inner: T,
     },
-    List(Type),
-    Optional(Type),
+    List(T),
+    Optional(T),
     Primitive(Primitive),
     Struct(Struct),
     Null,
@@ -740,9 +652,10 @@ pub enum TypeData {
         attrs: AttrFlags,
         name: Option<Ident>,
         params: ParamList<Ident>,
-        return_ty: Type,
+        return_ty: T,
     },
-    Range(Type),
+    Range(T),
+    Free,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -751,46 +664,58 @@ pub enum Primitive {
     Bool,
 }
 
-impl Type {
-    pub(crate) fn ghost(self, db: &dyn crate::Db) -> Self {
-        match self.data(db) {
-            TypeData::Ghost(_) => self,
-            _ => Type::new(db, TypeData::Ghost(self), self.span(db)),
+impl ena::unify::UnifyValue for TypeData {
+    type Error = ();
+
+    fn unify_values(ty1: &Self, ty2: &Self) -> Result<Self, ()> {
+        match (ty1, ty2) {
+            (TypeData::Free, other) | (other, TypeData::Free) => Ok(other.clone()),
+            _ => {
+                error!("could not unify {ty1:?} with {ty2:?}");
+                Err(())
+            }
         }
     }
-    pub(crate) fn with_ghost(self, db: &dyn crate::Db, ghost: bool) -> Self {
-        if ghost {
-            self.ghost(db)
-        } else {
-            self
+}
+
+impl<T> TypeData<T> {
+    pub fn map<S>(&self, mut f: impl FnMut(&T) -> S) -> TypeData<S> {
+        match self {
+            TypeData::Error => TypeData::Error,
+            TypeData::Void => TypeData::Void,
+            TypeData::Ghost(it) => TypeData::Ghost(f(it)),
+            TypeData::Ref { is_mut, inner } => TypeData::Ref {
+                is_mut: *is_mut,
+                inner: f(&inner),
+            },
+            TypeData::List(it) => TypeData::List(f(it)),
+            TypeData::Optional(it) => TypeData::Optional(f(it)),
+            TypeData::Primitive(it) => TypeData::Primitive(it.clone()),
+            TypeData::Struct(it) => TypeData::Struct(*it),
+            TypeData::Null => TypeData::Null,
+            TypeData::Function {
+                attrs,
+                name,
+                params,
+                return_ty,
+            } => TypeData::Function {
+                attrs: attrs.clone(),
+                name: name.clone(),
+                params: params.clone(),
+                return_ty: f(return_ty),
+            },
+            TypeData::Range(it) => TypeData::Range(f(it)),
+            TypeData::Free => TypeData::Free,
         }
     }
-    pub fn strip_ghost(self, db: &dyn crate::Db) -> Self {
-        match self.data(db) {
-            TypeData::Ghost(inner) => inner.strip_ghost(db),
-            _ => self,
-        }
+
+    pub fn is_void(&self) -> bool {
+        matches!(self, TypeData::Void)
     }
-    pub fn is_ghost(self, db: &dyn crate::Db) -> bool {
-        match self.data(db) {
-            TypeData::Ghost(_) => true,
-            // TODO: Should we recurse and check if non of the children are ghost?
-            _ => false,
-        }
-    }
-    pub fn is_void(self, db: &dyn crate::Db) -> bool {
-        match self.data(db) {
-            TypeData::Ghost(inner) => inner.is_void(db),
-            TypeData::Void => true,
-            _ => false,
-        }
-    }
-    #[allow(unused)]
-    pub(crate) fn with_span(self, db: &dyn crate::Db, span: SourceSpan) -> Self {
-        Type::new(db, self.data(db).clone(), Some(span))
-    }
-    pub(crate) fn without_span(self, db: &dyn crate::Db) -> Self {
-        Type::new(db, self.data(db).clone(), None)
+}
+impl TypeData<TypeSrcId> {
+    pub fn canonical(&self, cx: &ItemContext) -> TypeData {
+        self.map(|&id| cx[id].ty)
     }
 }
 
@@ -801,10 +726,10 @@ pub struct Struct {
     pub name: Ident,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FieldParent {
     Struct(Struct),
-    List(Type),
+    List(TypeId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -812,7 +737,7 @@ pub struct Field {
     pub parent: FieldParent,
     pub name: Ident,
     pub is_ghost: bool,
-    pub ty: Type,
+    pub ty: Option<mist_syntax::ast::Type>,
 }
 
 #[salsa::interned]
@@ -828,13 +753,26 @@ pub mod pretty {
 
     pub trait PrettyPrint {
         fn resolve_var(&self, idx: VariableIdx) -> Ident;
-        fn resolve_var_ty(&self, idx: VariableIdx) -> Type;
+        fn resolve_var_ty(&self, idx: VariableIdx) -> TypeId;
+        fn resolve_ty(&self, ty: TypeId) -> TypeData;
+        fn resolve_src_ty(&self, ts: TypeSrcId) -> TypeId;
         fn resolve_expr(&self, idx: ExprIdx) -> &Expr;
     }
 
     use expr as pp_expr;
     use params as pp_params;
     use ty as pp_ty;
+
+    fn pp_strip_ghost(pp: &impl PrettyPrint, strip: bool, ty: TypeId) -> TypeId {
+        if strip {
+            match pp.resolve_ty(ty) {
+                TypeData::Ghost(inner) => inner,
+                _ => ty,
+            }
+        } else {
+            ty
+        }
+    }
 
     pub fn params(
         pp: &impl PrettyPrint,
@@ -847,37 +785,29 @@ pub mod pretty {
             params
                 .params
                 .iter()
-                .map(|param| format!(
-                    "{}: {}",
-                    param.name,
-                    pp_ty(
-                        pp,
-                        db,
-                        if strip_ghost {
-                            param.ty.strip_ghost(db)
-                        } else {
-                            param.ty
-                        }
-                    )
-                ))
+                .map(|param| {
+                    let ty = pp_strip_ghost(pp, strip_ghost, pp.resolve_src_ty(param.ty));
+                    format!("{}: {}", param.name, pp_ty(pp, db, ty))
+                })
                 .format(", ")
         )
     }
-    pub fn ty(pp: &impl PrettyPrint, db: &dyn crate::Db, ty: Type) -> String {
-        match ty.data(db) {
+    pub fn ty(pp: &impl PrettyPrint, db: &dyn crate::Db, ty: TypeId) -> String {
+        match pp.resolve_ty(ty) {
             TypeData::Error => "Error".to_string(),
             TypeData::Void => "void".to_string(),
-            &TypeData::Ref { is_mut, inner } => {
+            TypeData::Free => "free".to_string(),
+            TypeData::Ref { is_mut, inner } => {
                 format!(
                     "&{}{}",
                     if is_mut { "mut " } else { "" },
                     pp_ty(pp, db, inner)
                 )
             }
-            &TypeData::Ghost(inner) => format!("ghost {}", pp_ty(pp, db, inner)),
-            &TypeData::Range(inner) => format!("range {}", pp_ty(pp, db, inner)),
-            &TypeData::List(inner) => format!("[{}]", pp_ty(pp, db, inner)),
-            &TypeData::Optional(inner) => format!("?{}", pp_ty(pp, db, inner)),
+            TypeData::Ghost(inner) => format!("ghost {}", pp_ty(pp, db, inner)),
+            TypeData::Range(inner) => format!("range {}", pp_ty(pp, db, inner)),
+            TypeData::List(inner) => format!("[{}]", pp_ty(pp, db, inner)),
+            TypeData::Optional(inner) => format!("?{}", pp_ty(pp, db, inner)),
             TypeData::Primitive(t) => format!("{t:?}").to_lowercase(),
             TypeData::Struct(s) => s.name(db).to_string(),
             TypeData::Null => "null".to_string(),
@@ -897,19 +827,12 @@ pub mod pretty {
                     .as_ref()
                     .map(|name| format!(" {name}"))
                     .unwrap_or_default();
-                let params = pretty::params(pp, db, is_ghost, params);
-                let ret = if let TypeData::Void = return_ty.strip_ghost(db).data(db) {
+                let params = pretty::params(pp, db, is_ghost, &params);
+                let ret = if let TypeData::Void = pp.resolve_ty(pp_strip_ghost(pp, true, return_ty))
+                {
                     String::new()
                 } else {
-                    let ty = pretty::ty(
-                        pp,
-                        db,
-                        if is_ghost {
-                            return_ty.strip_ghost(db)
-                        } else {
-                            *return_ty
-                        },
-                    );
+                    let ty = pretty::ty(pp, db, pp_strip_ghost(pp, is_ghost, return_ty));
                     format!(" -> {ty}")
                 };
 

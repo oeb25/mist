@@ -16,7 +16,6 @@ use super::{BodyLower, ViperLowerError};
 impl BodyLower<'_> {
     pub fn struct_lower(
         &mut self,
-        program: hir::Program,
         s: hir::Struct,
         invariants: impl IntoIterator<Item = hir::TypeInvariant>,
     ) -> Result<Vec<ViperItem<VExprId>>, ViperLowerError> {
@@ -31,10 +30,10 @@ impl BodyLower<'_> {
             ))),
         );
 
-        let body = hir::struct_fields(self.db, program, s)
+        let body = hir::struct_fields(self.db, s)
             .into_iter()
             .map(|f| {
-                let ty = self.lower_type(f.ty);
+                let ty = self.lower_type(self.cx.field_ty(&f));
                 let viper_field = Field {
                     name: f.name.to_string(),
                     typ: ty.vty,

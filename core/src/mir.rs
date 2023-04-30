@@ -13,7 +13,7 @@ use mist_syntax::{
 };
 use tracing::debug;
 
-use crate::hir::{self, AssertionKind, Field, Literal, Quantifier, Struct, Type, VariableIdx};
+use crate::hir::{self, AssertionKind, Field, Literal, Quantifier, Struct, TypeId, VariableIdx};
 
 pub use self::lower::{lower_item, lower_program};
 
@@ -179,7 +179,7 @@ impl From<SlotId> for Place {
 pub type ProjectionList = Idx<Vec<Projection>>;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Projection {
-    Field(Field, hir::Type),
+    Field(Field, hir::TypeId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -260,7 +260,7 @@ pub struct Body {
     #[new(default)]
     block_invariants: ArenaMap<BlockId, Vec<BlockId>>,
     #[new(default)]
-    slot_type: ArenaMap<SlotId, Type>,
+    slot_type: ArenaMap<SlotId, TypeId>,
 
     #[new(default)]
     requires: Vec<BlockId>,
@@ -371,11 +371,11 @@ impl Body {
         self.params.as_ref()
     }
 
-    pub fn slot_ty(&self, slot: SlotId) -> hir::Type {
+    pub fn slot_ty(&self, slot: SlotId) -> hir::TypeId {
         self.slot_type[slot]
     }
 
-    pub fn place_ty(&self, place: Place) -> hir::Type {
+    pub fn place_ty(&self, place: Place) -> hir::TypeId {
         if self[place.projection].is_empty() {
             self.slot_ty(place.slot)
         } else {

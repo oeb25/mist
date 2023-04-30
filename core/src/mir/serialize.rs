@@ -4,8 +4,8 @@ use derive_new::new;
 use owo_colors::{colors::*, OwoColorize};
 
 use crate::{
+    hir::ItemContext,
     mir::{Projection, Terminator},
-    typecheck::ItemContext,
 };
 
 use super::{

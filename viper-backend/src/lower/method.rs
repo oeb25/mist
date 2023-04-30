@@ -116,7 +116,7 @@ impl BodyLower<'_> {
                             self.inlined.insert(r, rhs);
                         }
                         _ => {
-                            if self.body.place_ty(*s).is_void(self.db) {
+                            if self.cx[self.body.place_ty(*s).strip_ghost(self.cx)].is_void() {
                                 insts.push(Stmt::Expression(rhs));
                             } else {
                                 // insts.push(Stmt::LocalVarAssign {
@@ -236,7 +236,8 @@ impl BodyLower<'_> {
                 } => {
                     let var = self.place_for_assignment(*destination);
                     let f = self.function(block, *func, args)?;
-                    let voided = self.body.place_ty(*destination).is_void(self.db);
+                    let voided =
+                        self.cx[self.body.place_ty(*destination).strip_ghost(self.cx)].is_void();
 
                     match f {
                         Exp::FuncApp { funcname, args } => {

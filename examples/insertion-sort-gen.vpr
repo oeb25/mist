@@ -10,7 +10,7 @@ domain RangeIndex[R, T] {
     forall x: Int, s: Seq[T] :: range_index(s, range_from(x)) == s[x..]
   }
   axiom axRangeto {
-    forall x: Int, s: Seq[T] :: range_index(s, range_to(x)) == s[x..]
+    forall x: Int, s: Seq[T] :: range_index(s, range_to(x)) == s[..x]
   }
   axiom axRangeFromTo {
     forall from: Int, to: Int, s: Seq[T] :: range_index(s, range_from_to(from, to)) == s[from..to]

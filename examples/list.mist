@@ -1,5 +1,5 @@
 struct List {
-    next: List?,
+    next: ?List,
     elem: int,
 }
 

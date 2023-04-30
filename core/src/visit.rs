@@ -2,13 +2,10 @@ use std::{ops::ControlFlow, sync::Arc};
 
 use derive_new::new;
 
-use crate::{
-    hir::{
-        self, Block, Decreases, ExprData, ExprIdx, Field, Function, Ident, IfExpr, Param,
-        ParamList, Program, Statement, StatementData, Type, TypeData, TypeDecl, TypeInvariant,
-        VariableIdx, VariableRef,
-    },
-    typecheck::{ItemContext, ItemSourceMap},
+use crate::hir::{
+    self, Block, Decreases, ExprData, ExprIdx, Field, Function, Ident, IfExpr, ItemContext,
+    ItemSourceMap, Param, ParamList, Program, Statement, StatementData, TypeData, TypeDecl,
+    TypeInvariant, TypeSrcId, VariableIdx, VariableRef,
 };
 
 pub trait Walker<'db>: Sized {
@@ -63,7 +60,7 @@ pub trait Walker<'db>: Sized {
         visitor: &mut V,
         function: Function,
     ) -> ControlFlow<V::Item>;
-    fn walk_ty<V: Visitor>(&mut self, visitor: &mut V, ty: Type) -> ControlFlow<V::Item>;
+    fn walk_ty<V: Visitor>(&mut self, visitor: &mut V, ty: TypeSrcId) -> ControlFlow<V::Item>;
     fn walk_decreases<V: Visitor>(
         &mut self,
         visitor: &mut V,
@@ -126,7 +123,7 @@ pub trait Visitor {
     fn visit_param(
         &mut self,
         vcx: &VisitContext,
-        param: &Param<VariableIdx>,
+        param: &Param<VariableIdx, TypeSrcId>,
     ) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
@@ -143,7 +140,7 @@ pub trait Visitor {
         ControlFlow::Continue(())
     }
     #[must_use]
-    fn visit_ty(&mut self, vcx: &VisitContext, ty: Type) -> ControlFlow<Self::Item> {
+    fn visit_ty(&mut self, vcx: &VisitContext, ty: TypeSrcId) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
     #[must_use]
@@ -223,11 +220,12 @@ where
         }
         match ty_decl.data(self.db) {
             hir::TypeDeclData::Struct(s) => {
-                self.walk_ty(
-                    visitor,
-                    hir::find_named_type(self.db, program, s.name(self.db)),
-                )?;
-                for f in hir::struct_fields(self.db, program, s) {
+                // TODO: Walk the name of the struct
+                // self.walk_ty(
+                //     visitor,
+                //     hir::find_named_type(self.db, program, s.name(self.db)),
+                // )?;
+                for f in hir::struct_fields(self.db, s) {
                     self.walk_field(visitor, &f, &f.name)?
                 }
             }
@@ -244,10 +242,11 @@ where
         program: Program,
         ty_inv: TypeInvariant,
     ) -> ControlFlow<V::Item> {
-        self.walk_ty(
-            visitor,
-            hir::find_named_type(self.db, program, ty_inv.name(self.db)),
-        )?;
+        // TODO: Walk the name of the struct
+        // self.walk_ty(
+        //     visitor,
+        //     hir::find_named_type(self.db, program, ty_inv.name(self.db)),
+        // )?;
         if let Some(body_expr) = self.vcx.cx.body_expr() {
             self.walk_expr(visitor, body_expr)?;
         }
@@ -263,7 +262,8 @@ where
         if self.pre() {
             visitor.visit_field(&self.vcx, field, reference)?;
         }
-        self.walk_ty(visitor, field.ty);
+        // TODO: Walk the actual type
+        // self.walk_ty(visitor, field.ty);
         if self.post() {
             visitor.visit_field(&self.vcx, field, reference)?;
         }
@@ -288,7 +288,7 @@ where
 
         self.walk_decreases(visitor, fx.decreases())?;
 
-        if let Some(ret_ty) = function.ret(self.db) {
+        if let Some(ret_ty) = fx.return_ty_src() {
             self.walk_ty(visitor, ret_ty)?;
         }
 
@@ -299,19 +299,29 @@ where
         ControlFlow::Continue(())
     }
 
-    fn walk_ty<V: Visitor>(&mut self, visitor: &mut V, ty: Type) -> ControlFlow<V::Item> {
+    fn walk_ty<V: Visitor>(&mut self, visitor: &mut V, ty: TypeSrcId) -> ControlFlow<V::Item> {
         if self.pre() {
             visitor.visit_ty(&self.vcx, ty)?;
         }
 
-        match ty.data(self.db) {
-            TypeData::Error | TypeData::Void | TypeData::Primitive(_) | TypeData::Null => {}
+        let td = if let Some(td) = &self.vcx.cx[ty].data {
+            td.clone()
+        } else {
+            return ControlFlow::Continue(());
+        };
+
+        match td {
+            TypeData::Error
+            | TypeData::Void
+            | TypeData::Primitive(_)
+            | TypeData::Null
+            | TypeData::Free => {}
             TypeData::Ghost(inner)
             | TypeData::Ref { inner, .. }
             | TypeData::List(inner)
             | TypeData::Range(inner)
             | TypeData::Optional(inner) => {
-                self.walk_ty(visitor, *inner)?;
+                self.walk_ty(visitor, inner)?;
             }
             TypeData::Struct(_) => {}
             TypeData::Function {
@@ -320,7 +330,7 @@ where
                 for param in params.iter() {
                     self.walk_ty(visitor, param.ty)?;
                 }
-                self.walk_ty(visitor, *return_ty)?;
+                self.walk_ty(visitor, return_ty)?;
             }
         }
         if self.post() {

@@ -229,13 +229,18 @@ impl<'a> BodyLower<'a> {
         }
     }
 
-    pub fn lower_type(&mut self, ty: hir::Type) -> ViperType {
-        match ty.data(self.db) {
+    pub fn lower_type(&mut self, ty: hir::TypeId) -> ViperType {
+        match &self.cx[ty] {
             hir::TypeData::Error => {
                 // TODO: Perhaps this should be handeld at a previous stage?
                 VTy::int().into()
             }
             hir::TypeData::Void => {
+                // TODO: Perhaps this should be handeld at a previous stage?
+                // VTy::internal_type().into()
+                VTy::int().into()
+            }
+            hir::TypeData::Free => {
                 // TODO: Perhaps this should be handeld at a previous stage?
                 // VTy::internal_type().into()
                 VTy::int().into()

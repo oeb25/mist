@@ -179,10 +179,10 @@ impl<'src> Visitor for Highlighter<'src> {
 
     fn visit_expr(&mut self, vcx: &VisitContext, expr: ExprIdx) -> ControlFlow<()> {
         let span = vcx.source_map.expr_span(expr);
-        let expr = vcx.cx.expr(expr);
-        match &expr.data {
+        let e = vcx.cx.expr(expr);
+        match &e.data {
             hir::ExprData::Literal(_) => {
-                let tt = match expr.ty.data(self.db) {
+                let tt = match &vcx.cx[vcx.cx.expr_ty(expr)] {
                     hir::TypeData::Function { .. } => TT::Function,
                     hir::TypeData::Primitive(_) => TT::Number,
                     hir::TypeData::Null => TT::Number,
@@ -214,13 +214,14 @@ impl<'src> Visitor for Highlighter<'src> {
         ControlFlow::Continue(())
     }
 
-    fn visit_ty(&mut self, _vcx: &VisitContext, ty: hir::Type) -> ControlFlow<()> {
-        match ty.data(self.db) {
+    fn visit_ty(&mut self, vcx: &VisitContext, ty: hir::TypeSrcId) -> ControlFlow<()> {
+        let ts = &vcx.cx[ty];
+        match &vcx.cx[ts.ty] {
             hir::TypeData::Primitive(_) => {
-                self.push_opt(ty.span(self.db), TT::Type, Some(TM::DefaultLibrary));
+                self.push_opt(Some(vcx.source_map[ty]), TT::Type, Some(TM::DefaultLibrary));
             }
             hir::TypeData::Struct(_) => {
-                self.push_opt(ty.span(self.db), TT::Type, None);
+                self.push_opt(Some(vcx.source_map[ty]), TT::Type, None);
             }
             _ => {}
         }

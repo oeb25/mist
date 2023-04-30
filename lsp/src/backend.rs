@@ -1,6 +1,9 @@
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
+use dashmap::DashMap;
 use itertools::Itertools;
 use miette::IntoDiagnostic;
 use mist_core::hir::{Program, SourceProgram};
@@ -21,9 +24,11 @@ pub struct Backend {
     // TODO: ATM we can't store a DB since it contains types which are not
     // Send+Sync. To fix this, we should get rid of those :)
     // db: crate::db::Database,
-    files: dashmap::DashMap<Url, Arc<String>>,
+    files: DashMap<Url, Arc<String>>,
     working_dir: PathBuf,
     viper_server: Arc<Mutex<Option<viperserver::ViperServer>>>,
+
+    verification_requests: DashMap<Url, tokio::task::JoinHandle<()>>,
 }
 
 #[tower_lsp::async_trait]
@@ -123,7 +128,7 @@ impl Backend {
                     .with_writer(move || logger_client.clone()),
             )
             .with(tracing_subscriber::filter::FilterFn::new(|m| {
-                !m.target().contains("salsa")
+                !m.target().contains("salsa") && !m.target().contains("ena")
             }))
             .init();
 
@@ -136,6 +141,7 @@ impl Backend {
             files: Default::default(),
             working_dir: lsp_dir.canonicalize().into_diagnostic()?,
             viper_server: Default::default(),
+            verification_requests: Default::default(),
         })
     }
 
@@ -303,6 +309,8 @@ impl Backend {
     }
 
     async fn update_text(&self, uri: Url, source: String, version: i32) -> Result<()> {
+        let start = std::time::Instant::now();
+
         let text = Arc::new(source);
         self.files.insert(uri.clone(), Arc::clone(&text));
 
@@ -310,8 +318,10 @@ impl Backend {
         let client = self.client.clone();
         let viperserver_jar = self.viperserver_jar();
         let viperserver_ref = Arc::clone(&self.viper_server);
+        let task_uri = uri.clone();
 
-        tokio::task::spawn_local(async move {
+        let join_handle = tokio::task::spawn_local(async move {
+            let uri = task_uri;
             let db = crate::db::Database::default();
 
             let source = mist_core::hir::SourceProgram::new(&db, text.to_string());
@@ -338,6 +348,8 @@ impl Backend {
                         .unwrap()
                 };
 
+                let verification_start = std::time::Instant::now();
+
                 let verify_file = crate::viper::VerifyFile {
                     db: &db,
                     program,
@@ -363,13 +375,34 @@ impl Backend {
                     })
                     .collect_vec();
 
-                client
-                    .publish_diagnostics(uri.clone(), errors, Some(version))
-                    .await;
+                if errors.is_empty() {
+                    client
+                        .show_message(
+                            MessageType::INFO,
+                            format!(
+                                "Successfully verified {} in {:?} + {:?}",
+                                PathBuf::from(uri.as_str())
+                                    .file_name()
+                                    .unwrap()
+                                    .to_string_lossy(),
+                                verification_start.duration_since(start),
+                                verification_start.elapsed()
+                            ),
+                        )
+                        .await;
+                } else {
+                    client
+                        .publish_diagnostics(uri.clone(), errors, Some(version))
+                        .await;
+                }
             } else {
                 client.publish_diagnostics(uri, errors, Some(version)).await;
             }
         });
+
+        if let Some(old) = self.verification_requests.insert(uri, join_handle) {
+            old.abort();
+        }
 
         Ok(())
     }

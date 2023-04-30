@@ -1,8 +1,7 @@
-use std::{collections::HashMap, ops::Deref};
+use std::{collections::HashMap, ops::Deref, sync::Mutex};
 
 use bitflags::bitflags;
 use derive_new::new;
-use la_arena::{Arena, ArenaMap};
 use miette::Diagnostic;
 use mist_syntax::{
     ast::{
@@ -14,11 +13,18 @@ use mist_syntax::{
     SourceSpan,
 };
 use thiserror::Error;
+use tracing::error;
 
 use crate::hir::{
     self, AssertionKind, Block, Condition, Decreases, Expr, ExprData, ExprIdx, Field, FieldParent,
     Ident, IfExpr, ItemId, Literal, Param, ParamList, Primitive, Program, Quantifier, Statement,
-    StatementData, StructExprField, Type, TypeData, Variable, VariableId, VariableIdx, VariableRef,
+    StatementData, StructExprField, TypeData, TypeId, Variable, VariableId, VariableIdx,
+    VariableRef,
+};
+
+use super::{
+    item_context::{ExprOrSpan, FunctionContext},
+    ItemContext, ItemSourceMap, TypeSrc, TypeSrcId,
 };
 
 fn id<T>(t: T) -> T {
@@ -53,6 +59,10 @@ impl VariableDeclaration {
         VariableDeclaration::new(name.into(), VariableDeclarationKind::Undefined)
     }
 
+    pub fn name(&self) -> &Ident {
+        &self.name
+    }
+
     pub fn kind(&self) -> VariableDeclarationKind {
         self.kind
     }
@@ -64,100 +74,24 @@ impl Spanned for &'_ VariableDeclaration {
     }
 }
 
-#[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ItemContext {
-    item_id: ItemId,
-    #[new(default)]
-    function_context: Option<FunctionContext>,
-    #[new(default)]
-    declarations: Trace<Variable, VariableDeclaration>,
-    #[new(default)]
-    types: ArenaMap<VariableIdx, Type>,
-    #[new(default)]
-    expr_arena: Arena<Expr>,
-
-    #[new(default)]
-    params: ParamList<VariableIdx>,
-    #[new(default)]
-    body_expr: Option<ExprIdx>,
-    #[new(default)]
-    return_ty: Option<Type>,
-}
-
-impl std::ops::Index<ExprIdx> for ItemContext {
-    type Output = Expr;
-
-    fn index(&self, index: ExprIdx) -> &Self::Output {
-        &self.expr_arena[index]
+impl TypeId {
+    pub(super) fn tc_strip_ghost(self, tc: &mut TypeChecker) -> TypeId {
+        match tc.ty_table.lock().unwrap().inlined_probe_value(self) {
+            TypeData::Ghost(inner) => inner,
+            _ => self,
+        }
     }
-}
-impl std::ops::Index<VariableIdx> for ItemContext {
-    type Output = Variable;
-
-    fn index(&self, index: VariableIdx) -> &Self::Output {
-        &self.declarations.arena[index]
+    pub(super) fn with_ghost(self, ghost: bool) -> impl Typed + Copy {
+        Ghosted(self, ghost)
     }
-}
-impl ItemContext {
-    pub fn item_id(&self) -> ItemId {
-        self.item_id
+    pub(super) fn ghost(self) -> impl Typed + Copy {
+        self.with_ghost(true)
     }
-    pub fn function_context(&self) -> Option<&FunctionContext> {
-        self.function_context.as_ref()
-    }
-    pub fn function_var(&self) -> Option<VariableRef> {
-        self.function_context.as_ref().map(|cx| cx.function_var)
-    }
-    pub fn conditions(&self) -> impl Iterator<Item = &Condition> {
-        self.function_context.iter().flat_map(|cx| &cx.conditions)
-    }
-    pub fn params(&self) -> &ParamList<VariableIdx> {
-        &self.params
-    }
-    pub fn return_ty(&self) -> Option<Type> {
-        self.return_ty
-    }
-    pub fn body_expr(&self) -> Option<ExprIdx> {
-        self.body_expr
-    }
-    pub fn var_ty(&self, var: impl Into<VariableIdx>) -> Type {
-        self.types[var.into()]
-    }
-    pub fn expr(&self, expr: ExprIdx) -> &Expr {
-        &self.expr_arena[expr]
-    }
-    pub fn expr_ty(&self, expr: ExprIdx) -> Type {
-        self.expr_arena[expr].ty
-    }
-    pub fn var(&self, var: impl Into<VariableIdx>) -> Variable {
-        self.declarations.arena[var.into()]
-    }
-    pub fn decl(&self, var: impl Into<VariableIdx>) -> &VariableDeclaration {
-        &self.declarations.map[var.into()]
-    }
-    pub fn var_span(&self, var: impl Into<VariableIdx>) -> SourceSpan {
-        self.declarations.map[var.into()].span()
-    }
-    pub fn var_ident(&self, var: impl Into<VariableIdx>) -> &Ident {
-        &self.declarations.map[var.into()].name
-    }
-}
-
-impl Type {
-    pub fn error(db: &dyn crate::Db) -> Self {
-        Type::new(db, TypeData::Error, None)
-    }
-    pub fn void(db: &dyn crate::Db) -> Self {
-        Type::new(db, TypeData::Void, None)
-    }
-    pub fn primitive(db: &dyn crate::Db, primitive: Primitive) -> Self {
-        Type::new(db, TypeData::Primitive(primitive), None)
-    }
-    pub fn int(db: &dyn crate::Db) -> Self {
-        Self::primitive(db, Primitive::Int)
-    }
-    pub fn bool(db: &dyn crate::Db) -> Self {
-        Self::primitive(db, Primitive::Bool)
+    pub(super) fn tc_is_ghost(self, tc: &mut TypeChecker) -> bool {
+        matches!(
+            tc.ty_table.lock().unwrap().inlined_probe_value(self),
+            TypeData::Ghost(_)
+        )
     }
 }
 
@@ -198,130 +132,63 @@ impl Scope {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FunctionContext {
-    function_var: VariableRef,
-    conditions: Vec<Condition>,
-    decreases: Decreases,
-}
-
-impl FunctionContext {
-    pub fn function_var(&self) -> VariableRef {
-        self.function_var
-    }
-    pub fn conditions(&self) -> &[Condition] {
-        self.conditions.as_ref()
-    }
-    pub fn decreases(&self) -> Decreases {
-        self.decreases
-    }
-}
-
-type ExprPtr = AstPtr<ast::Expr>;
-type ExprSrc = ExprOrSpan;
-
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct ItemSourceMap {
-    expr_map: HashMap<ExprSrc, ExprIdx>,
-    expr_map_back: HashMap<ExprIdx, ExprSrc>,
-}
-
-impl ItemSourceMap {
-    pub fn expr_span(&self, expr: ExprIdx) -> SourceSpan {
-        self.expr_map_back[&expr].span()
-    }
-}
-
-pub struct TypeCheckExpr<'w> {
+pub struct TypeChecker<'w> {
     db: &'w dyn crate::Db,
     program: Program,
-    return_ty: Option<Type>,
+    return_ty: Option<TypeSrcId>,
     scope: Scope,
     scope_stack: Vec<Scope>,
     source_map: ItemSourceMap,
-    item: ItemContext,
+    pub(super) cx: ItemContext,
+
+    ty_table: Mutex<ena::unify::InPlaceUnificationTable<TypeId>>,
+    ty_cache: HashMap<TypeData, TypeId>,
+    ty_keys: Vec<TypeId>,
 }
 
-impl From<TypeCheckExpr<'_>> for (ItemContext, ItemSourceMap) {
-    fn from(value: TypeCheckExpr<'_>) -> Self {
-        (value.item, value.source_map)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct Trace<T, V> {
-    arena: Arena<T>,
-    map: ArenaMap<la_arena::Idx<T>, V>,
-}
-
-impl<T, V> Trace<T, V> {
-    pub fn new() -> Self {
-        Trace {
-            arena: Default::default(),
-            map: Default::default(),
+impl From<TypeChecker<'_>> for (ItemContext, ItemSourceMap) {
+    fn from(mut tc: TypeChecker<'_>) -> Self {
+        for &ty in &tc.ty_keys {
+            let td = tc.ty_table.lock().unwrap().probe_value(ty);
+            tc.cx.ty_table.insert(ty.0, td);
         }
-    }
 
-    pub fn alloc(&mut self, value: V, data: T) -> la_arena::Idx<T> {
-        let id = self.arena.alloc(data);
-        self.map.insert(id, value);
-        id
-    }
-}
-impl<T, V> Default for Trace<T, V> {
-    fn default() -> Self {
-        Self::new()
+        (tc.cx, tc.source_map)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, derive_more::From)]
-enum ExprOrSpan {
-    Expr(ExprPtr),
-    Span(SourceSpan),
-}
-
-impl ExprOrSpan {
-    fn into_expr(self) -> Option<ExprPtr> {
-        match self {
-            ExprOrSpan::Expr(expr) => Some(expr),
-            ExprOrSpan::Span(_) => None,
-        }
-    }
-}
-impl Spanned for &'_ ExprOrSpan {
-    fn span(self) -> SourceSpan {
-        match self {
-            ExprOrSpan::Expr(expr) => expr.span(),
-            ExprOrSpan::Span(span) => *span,
-        }
-    }
-}
-impl From<ast::Expr> for ExprOrSpan {
-    fn from(value: ast::Expr) -> Self {
-        AstPtr::new(&value).into()
-    }
-}
-impl From<&'_ ast::Expr> for ExprOrSpan {
-    fn from(value: &ast::Expr) -> Self {
-        AstPtr::new(value).into()
-    }
-}
-
-impl<'a> TypeCheckExpr<'a> {
+impl<'a> TypeChecker<'a> {
     pub(crate) fn init(
         db: &'a dyn crate::Db,
         program: Program,
         id: ItemId,
         function: Option<hir::Function>,
     ) -> Self {
+        let mut ty_table = ena::unify::InPlaceUnificationTable::default();
+        let mut ty_cache = HashMap::new();
+        let mut ty_keys = vec![];
+        let mut cache = |td: TypeData| {
+            let key = ty_table.new_key(td.clone());
+            ty_cache.insert(td, key);
+            ty_keys.push(key);
+            key
+        };
+        cache(TypeData::Primitive(Primitive::Bool));
+        let int_ty = cache(TypeData::Primitive(Primitive::Int));
+        cache(TypeData::Void);
+        cache(TypeData::Null);
+        let error_ty = cache(TypeData::Error);
         let mut checker = Self {
             db,
             program,
-            return_ty: function.and_then(|f| f.ret(db)),
+            ty_table: Mutex::new(ty_table),
+            ty_cache,
+            ty_keys,
+            return_ty: None,
             scope: Default::default(),
             scope_stack: vec![],
             source_map: Default::default(),
-            item: ItemContext::new(id),
+            cx: ItemContext::new(id, error_ty, int_ty),
         };
 
         let is_ghost = if let Some(f) = function {
@@ -337,6 +204,46 @@ impl<'a> TypeCheckExpr<'a> {
         for &item_id in program.items(db) {
             let f = match hir::item(db, program, item_id) {
                 Some(hir::Item::Function(f)) => f,
+                Some(hir::Item::Type(t)) => match t.data(db) {
+                    hir::TypeDeclData::Struct(s) => {
+                        let s_ty = *checker
+                            .cx
+                            .named_types
+                            .entry(t.name(db).to_string())
+                            .or_insert_with(|| {
+                                let key = checker
+                                    .ty_table
+                                    .lock()
+                                    .unwrap()
+                                    .new_key(TypeData::Struct(s));
+                                checker.ty_keys.push(key);
+                                key
+                            });
+                        let ts = checker.alloc_type_src(
+                            TypeSrc {
+                                data: None,
+                                ty: s_ty,
+                            },
+                            Some(s.name(db).span()),
+                        );
+                        checker.cx.struct_types.insert(s, ts);
+
+                        let fields = hir::struct_fields(db, s)
+                            .into_iter()
+                            .map(|f| {
+                                let ty = if let Some(ty) = &f.ty {
+                                    checker.find_type(ty)
+                                } else {
+                                    checker.error_ty()
+                                };
+                                (f, ty)
+                            })
+                            .collect();
+                        checker.cx.structs.insert(s, fields);
+
+                        continue;
+                    }
+                },
                 _ => continue,
             };
             let is_ghost = f.attrs(db).is_ghost();
@@ -346,59 +253,79 @@ impl<'a> TypeCheckExpr<'a> {
                     .param_list(db)
                     .params
                     .iter()
-                    .map(|param| Param {
-                        is_ghost: param.is_ghost,
-                        name: param.name.clone(),
-                        ty: param.ty.with_ghost(db, is_ghost),
+                    .map(|param| {
+                        let ty = checker.expect_find_type_src(&param.ty);
+                        Param {
+                            is_ghost: param.is_ghost,
+                            name: param.name.clone(),
+                            ty: checker.ghostify(ty, is_ghost),
+                        }
                     })
                     .collect(),
             };
-            let return_ty = f
-                .ret(db)
-                .unwrap_or_else(|| Type::void(db))
-                .with_ghost(db, is_ghost);
+            let return_ty_src = f.ret(db).map(|ty| {
+                checker
+                    .find_type_src(&ty)
+                    .with_ghost(is_ghost)
+                    .ts(&mut checker)
+            });
+            let return_ty = return_ty_src
+                .map(|ts| checker.cx[ts].ty)
+                .unwrap_or_else(|| checker.void())
+                .with_ghost(is_ghost)
+                .ty(&mut checker);
 
             let var_span = f.name(db).span();
+            let ty = checker.ty_id(TypeData::Function {
+                attrs: f.attrs(db),
+                name: Some(f.name(db).clone()),
+                params,
+                return_ty,
+            });
+            let ts = checker.cx.ty_src_arena.alloc(TypeSrc { data: None, ty });
             let var = checker.declare_variable(
                 VariableDeclaration::new_function(f.name(db).clone()),
-                Type::new(
-                    db,
-                    TypeData::Function {
-                        attrs: f.attrs(db),
-                        name: Some(f.name(db).clone()),
-                        params,
-                        return_ty,
-                    },
-                    Some(var_span),
-                ),
+                ts,
+                None,
             );
 
             if Some(f) == function {
-                checker.item.function_context = Some(FunctionContext {
+                checker.cx.function_context = Some(FunctionContext {
                     function_var: VariableRef::new(var, var_span),
                     decreases: Default::default(),
                     conditions: vec![],
+                    return_ty_src,
                 });
             }
         }
 
         if let Some(f) = function {
-            checker.item.params = f
+            checker.cx.params = f
                 .param_list(db)
                 .params
                 .iter()
                 .map(|p| {
+                    let ty = checker
+                        .expect_find_type_src(&p.ty)
+                        .with_ghost(is_ghost)
+                        .ts(&mut checker);
                     let var = checker.declare_variable(
                         VariableDeclaration::new_param(p.name.clone()),
-                        p.ty.with_ghost(db, is_ghost),
+                        ty,
+                        None,
                     );
                     Param {
                         is_ghost: p.is_ghost,
                         name: var,
-                        ty: p.ty,
+                        ty,
                     }
                 })
                 .collect();
+
+            checker.return_ty = f.ret(db).map(|ty| {
+                let ty = checker.find_type_src(&ty);
+                checker.ghostify(ty, is_ghost)
+            });
 
             let conditions = f
                 .syntax(db)
@@ -415,7 +342,7 @@ impl<'a> TypeCheckExpr<'a> {
 
             let decreases = checker.check_decreases(f.syntax(db).decreases());
 
-            if let Some(cx) = &mut checker.item.function_context {
+            if let Some(cx) = &mut checker.cx.function_context {
                 cx.conditions = conditions;
                 cx.decreases = decreases;
             }
@@ -424,15 +351,43 @@ impl<'a> TypeCheckExpr<'a> {
         checker
     }
 
+    pub fn ty_id(&mut self, td: TypeData) -> TypeId {
+        let key = *self.ty_cache.entry(td).or_insert_with_key(|td| {
+            let key = self.ty_table.lock().unwrap().new_key(td.clone());
+            self.ty_keys.push(key);
+            key
+        });
+        key
+    }
+
+    pub fn bool(&self) -> TypeId {
+        self.ty_cache[&TypeData::Primitive(Primitive::Bool)]
+    }
+    pub fn ghost_bool(&mut self) -> TypeId {
+        self.bool().with_ghost(true).ty(self)
+    }
+    pub fn int(&self) -> TypeId {
+        self.ty_cache[&TypeData::Primitive(Primitive::Int)]
+    }
+    pub fn void(&self) -> TypeId {
+        self.ty_cache[&TypeData::Void]
+    }
+    fn null_ty(&self) -> TypeId {
+        self.ty_cache[&TypeData::Null]
+    }
+    fn error_ty(&self) -> TypeId {
+        self.ty_cache[&TypeData::Error]
+    }
+
     pub fn set_body_expr_from_block(&mut self, block: Block, node: ast::BlockExpr) {
         let idx = self.alloc_expr(
             Expr::new(block.return_ty, ExprData::Block(block)),
             ast::Expr::from(node),
         );
-        self.item.body_expr = Some(idx);
+        self.cx.body_expr = Some(idx);
     }
-    pub fn set_return_ty(&mut self, ty: Type) {
-        self.item.return_ty = Some(ty);
+    pub fn set_return_ty(&mut self, ty: TypeSrcId) {
+        self.cx.return_ty = Some(ty);
     }
 
     pub fn ghosted(mut self) -> Self {
@@ -441,7 +396,7 @@ impl<'a> TypeCheckExpr<'a> {
             "Tried to make a checker ghost, while it was in operation"
         );
         if let Some(ty) = self.return_ty {
-            self.return_ty = Some(ty.ghost(self.db));
+            self.return_ty = Some(self.ghostify(ty, true));
         }
         self.scope.flags |= ScopeFlags::GHOST;
         self
@@ -460,14 +415,14 @@ impl<'a> TypeCheckExpr<'a> {
         let condition = self.check(if_expr.span(), if_expr.condition());
 
         let condition_ty = self.expr_ty(condition);
-        let is_ghost = condition_ty.is_ghost(self.db);
+        let is_ghost = condition_ty.tc_is_ghost(self);
         if is_ghost {
             self.expect_ty(
                 if_expr
                     .condition()
                     .map(|e| e.span())
                     .unwrap_or_else(|| if_expr.span()),
-                Type::bool(self.db).ghost(self.db),
+                self.bool().ghost(),
                 condition_ty,
             );
         } else {
@@ -476,7 +431,7 @@ impl<'a> TypeCheckExpr<'a> {
                     .condition()
                     .map(|e| e.span())
                     .unwrap_or_else(|| if_expr.span()),
-                Type::bool(self.db),
+                self.bool(),
                 condition_ty,
             );
         }
@@ -520,13 +475,11 @@ impl<'a> TypeCheckExpr<'a> {
 
         let ty = if let Some(b) = else_branch {
             let span = else_tail_span.unwrap_or_else(|| if_expr.span());
-            self.unify(span, then_ty.with_ghost(self.db, is_ghost), self.expr_ty(b))
+            let then_ty = then_ty.with_ghost(is_ghost);
+            self.unify(span, then_ty, self.expr_ty(b))
         } else {
-            self.expect_ty(
-                if_expr.span(),
-                Type::void(self.db).with_ghost(self.db, is_ghost),
-                then_ty,
-            )
+            let else_ty = self.void().with_ghost(is_ghost);
+            self.expect_ty(if_expr.span(), then_ty, else_ty)
         };
 
         let result = IfExpr {
@@ -542,11 +495,11 @@ impl<'a> TypeCheckExpr<'a> {
             if_expr.span(),
         )
     }
-    pub fn expr_ty(&self, expr: ExprIdx) -> Type {
-        self.item.expr_arena[expr].ty
+    pub fn expr_ty(&self, expr: ExprIdx) -> TypeId {
+        self.cx.expr_arena[expr].ty
     }
     pub fn expr_span(&self, expr: ExprIdx) -> SourceSpan {
-        self.source_map.expr_map_back[&expr].span()
+        self.source_map.expr_map_back[expr].span()
     }
     pub fn check(&mut self, fallback_span: SourceSpan, expr: Option<ast::Expr>) -> ExprIdx {
         let expr = if let Some(expr) = expr {
@@ -563,11 +516,11 @@ impl<'a> TypeCheckExpr<'a> {
         let new = match &expr {
             ast::Expr::Literal(it) => match it.kind() {
                 ast::LiteralKind::IntNumber(s) => Expr::new(
-                    Type::int(self.db).with_ghost(self.db, self.scope.is_ghost()),
+                    self.int().with_ghost(self.scope.is_ghost()).ty(self),
                     ExprData::Literal(Literal::Int(s.to_string().parse().unwrap())),
                 ),
                 ast::LiteralKind::Bool(b) => Expr::new(
-                    Type::bool(self.db).with_ghost(self.db, self.scope.is_ghost()),
+                    self.bool().with_ghost(self.scope.is_ghost()).ty(self),
                     ExprData::Literal(Literal::Bool(b)),
                 ),
             },
@@ -585,18 +538,18 @@ impl<'a> TypeCheckExpr<'a> {
 
                 let is_ghost = self.is_ghost(inner);
 
-                let ty: Type = match op {
+                let ty: TypeId = match op {
                     ast::operators::UnaryOp::Not => {
-                        self.expect_ty(inner_span, Type::bool(self.db), inner_ty);
-                        Type::bool(self.db)
+                        self.expect_ty(inner_span, self.bool(), inner_ty);
+                        self.bool()
                     }
                     ast::operators::UnaryOp::Neg => {
-                        self.expect_ty(inner_span, Type::int(self.db), inner_ty);
-                        Type::int(self.db)
+                        self.expect_ty(inner_span, self.int(), inner_ty);
+                        self.int()
                     }
                 };
 
-                let ty = if is_ghost { ty.ghost(self.db) } else { ty };
+                let ty = if is_ghost { ty.ghost().ty(self) } else { ty };
 
                 Expr::new(ty, ExprData::Unary { op, inner })
             }
@@ -609,13 +562,13 @@ impl<'a> TypeCheckExpr<'a> {
                     let expr_span = expr.span();
                     let expr_idx = self.check(expr.span(), Some(expr));
 
-                    let return_ty = self.return_ty.unwrap_or_else(|| Type::void(self.db));
+                    let return_ty = self.return_ty();
                     self.expect_ty(expr_span, return_ty, self.expr_ty(expr_idx));
 
                     // TODO: These properly should not be Error
-                    Expr::new(Type::error(self.db), ExprData::Return(Some(expr_idx)))
+                    Expr::new(self.error_ty(), ExprData::Return(Some(expr_idx)))
                 } else {
-                    Expr::new(Type::error(self.db), ExprData::Return(None))
+                    Expr::new(self.error_ty(), ExprData::Return(None))
                 }
             }
             ast::Expr::BinExpr(it) => {
@@ -627,12 +580,12 @@ impl<'a> TypeCheckExpr<'a> {
                 };
                 let rhs = self.check(it.span(), it.rhs());
 
-                let lhs_ty = self.expr_ty(lhs).strip_ghost(self.db);
-                let rhs_ty = self.expr_ty(rhs).strip_ghost(self.db);
+                let lhs_ty = self.expr_ty(lhs).tc_strip_ghost(self);
+                let rhs_ty = self.expr_ty(rhs).tc_strip_ghost(self);
 
                 let is_ghost = self.is_ghost(lhs) || self.is_ghost(rhs);
-                let int_ty = Type::int(self.db);
-                let bool_ty = Type::bool(self.db);
+                let int_ty = self.int();
+                let bool_ty = self.bool();
 
                 let ty = match op {
                     BinaryOp::LogicOp(_) => {
@@ -642,15 +595,15 @@ impl<'a> TypeCheckExpr<'a> {
                     }
                     BinaryOp::CmpOp(CmpOp::Eq { .. }) => {
                         self.unify(it.span(), lhs_ty, rhs_ty);
-                        Type::bool(self.db)
+                        self.bool()
                     }
                     BinaryOp::CmpOp(CmpOp::Ord { .. }) => {
                         self.expect_ty(it.span(), int_ty, lhs_ty);
                         self.expect_ty(it.span(), int_ty, rhs_ty);
-                        Type::bool(self.db)
+                        self.bool()
                     }
                     BinaryOp::ArithOp(op) => match op {
-                        ArithOp::Add => match lhs_ty.data(self.db) {
+                        ArithOp::Add => match self.ty_data(lhs_ty) {
                             TypeData::Primitive(Primitive::Int) => {
                                 self.expect_ty(self.expr_span(rhs), lhs_ty, rhs_ty)
                             }
@@ -679,11 +632,7 @@ impl<'a> TypeCheckExpr<'a> {
                         | ArithOp::BitAnd => {
                             self.expect_ty(it.span(), int_ty, lhs_ty);
                             self.expect_ty(it.span(), int_ty, rhs_ty);
-                            Type::new(
-                                self.db,
-                                TypeData::Primitive(Primitive::Int),
-                                Some(expr.span()),
-                            )
+                            self.int()
                         }
                     },
                     BinaryOp::Assignment => {
@@ -703,7 +652,7 @@ impl<'a> TypeCheckExpr<'a> {
                     }
                 };
 
-                let ty = if is_ghost { ty.ghost(self.db) } else { ty };
+                let ty = if is_ghost { ty.ghost().ty(self) } else { ty };
 
                 Expr::new(ty, ExprData::Bin { lhs, op, rhs })
             }
@@ -716,7 +665,7 @@ impl<'a> TypeCheckExpr<'a> {
                     .map(|arg| self.check(arg.span(), arg.expr()))
                     .collect();
 
-                match self.item.expr_arena[fn_expr].ty.data(self.db) {
+                match self.ty_data(self.expr_ty(fn_expr)) {
                     TypeData::Function {
                         attrs,
                         name: _,
@@ -753,15 +702,13 @@ impl<'a> TypeCheckExpr<'a> {
                             );
                         }
                         for (a, b) in args.iter().zip(params.iter().map(|p| p.ty)) {
-                            self.expect_ty(
-                                self.expr_span(*a),
-                                b.with_ghost(self.db, ghostify_pure),
-                                self.item.expr_arena[*a].ty,
-                            );
+                            let b = self.cx[b].ty;
+                            let expected = b.with_ghost(ghostify_pure);
+                            self.expect_ty(self.expr_span(*a), expected, self.cx.expr_arena[*a].ty);
                         }
 
                         Expr {
-                            ty: return_ty.with_ghost(self.db, ghostify_pure),
+                            ty: return_ty.with_ghost(ghostify_pure).ty(self),
                             data: ExprData::Call {
                                 expr: fn_expr,
                                 args,
@@ -769,7 +716,7 @@ impl<'a> TypeCheckExpr<'a> {
                         }
                     }
                     TypeData::Error => Expr {
-                        ty: Type::error(self.db),
+                        ty: self.error_ty(),
                         data: ExprData::Call {
                             expr: fn_expr,
                             args,
@@ -793,32 +740,23 @@ impl<'a> TypeCheckExpr<'a> {
                     }
                     (None, Some(x)) | (Some(x), None) => {
                         let x_ty = self.expr_ty(x);
-                        self.expect_ty(
-                            self.expr_span(x),
-                            Type::int(self.db),
-                            x_ty.strip_ghost(self.db),
-                        );
+                        let actual = x_ty.tc_strip_ghost(self);
+                        self.expect_ty(self.expr_span(x), self.int(), actual);
                         x_ty
                     }
                     (Some(lhs), Some(rhs)) => {
                         let lhs_ty = self.expr_ty(lhs);
+                        let lhs_ty_no_ghost = lhs_ty.tc_strip_ghost(self);
                         let rhs_ty = self.expr_ty(rhs);
-                        self.expect_ty(
-                            self.expr_span(lhs),
-                            Type::int(self.db),
-                            lhs_ty.strip_ghost(self.db),
-                        );
-                        self.expect_ty(
-                            self.expr_span(rhs),
-                            Type::int(self.db),
-                            rhs_ty.strip_ghost(self.db),
-                        );
+                        let rhs_ty_no_ghost = rhs_ty.tc_strip_ghost(self);
+                        self.expect_ty(self.expr_span(lhs), self.int(), lhs_ty_no_ghost);
+                        self.expect_ty(self.expr_span(rhs), self.int(), rhs_ty_no_ghost);
                         lhs_ty
                     }
                 };
 
                 Expr::new(
-                    Type::new(self.db, TypeData::Range(ty), None),
+                    self.ty_id(TypeData::Range(ty)),
                     ExprData::Range { lhs, rhs },
                 )
             }
@@ -829,30 +767,31 @@ impl<'a> TypeCheckExpr<'a> {
                 let base_ty = self.expr_ty(base);
                 let index_ty = self.expr_ty(index);
 
-                let is_ghost = base_ty.is_ghost(self.db) || index_ty.is_ghost(self.db);
+                let is_ghost = base_ty.tc_is_ghost(self) || index_ty.tc_is_ghost(self);
 
-                let is_range = match index_ty.data(self.db) {
+                let is_range = match self.ty_data(index_ty) {
                     TypeData::Primitive(Primitive::Int) => false,
                     TypeData::Range(idx) => {
-                        self.expect_ty(it.span(), Type::int(self.db).ghost(self.db), *idx);
+                        self.expect_ty(it.span(), self.int().ghost(), idx);
                         true
                     }
                     _ => {
-                        self.expect_ty(it.span(), Type::int(self.db).ghost(self.db), index_ty);
+                        self.expect_ty(it.span(), self.int().ghost(), index_ty);
                         false
                     }
                 };
 
-                match base_ty.strip_ghost(self.db).data(self.db) {
+                let base_ty_no_ghost = base_ty.tc_strip_ghost(self);
+                match self.ty_data(base_ty_no_ghost) {
                     TypeData::List(elem_ty) => {
                         if is_range {
                             Expr::new(
-                                base_ty.with_ghost(self.db, is_ghost),
+                                base_ty.with_ghost(is_ghost).ty(self),
                                 ExprData::Index { base, index },
                             )
                         } else {
                             Expr::new(
-                                elem_ty.with_ghost(self.db, is_ghost),
+                                elem_ty.with_ghost(is_ghost).ty(self),
                                 ExprData::Index { base, index },
                             )
                         }
@@ -881,22 +820,22 @@ impl<'a> TypeCheckExpr<'a> {
                         } else {
                             elem_ty = Some(self.expr_ty(expr));
                         }
-                        // self.expect_ty(comma_expr.span(), bool_ty, self.expr_ty(expr));
                         expr
                     })
                     .collect();
 
                 if let Some(ty) = elem_ty {
+                    let inner_ty_no_ghost = ty.tc_strip_ghost(self);
                     Expr::new(
-                        Type::new(self.db, TypeData::List(ty.strip_ghost(self.db)), None)
-                            .with_ghost(self.db, ty.is_ghost(self.db)),
+                        self.ty_id(TypeData::List(inner_ty_no_ghost))
+                            .with_ghost(ty.tc_is_ghost(self))
+                            .ty(self),
                         ExprData::List { elems },
                     )
                 } else {
-                    // TODO: Do proper type inference, instead of always doing intes
+                    let elem_ty = self.new_free();
                     Expr::new(
-                        Type::new(self.db, TypeData::List(Type::int(self.db)), None)
-                            .with_ghost(self.db, false),
+                        self.ty_id(TypeData::List(elem_ty)),
                         ExprData::List { elems },
                     )
                 }
@@ -910,15 +849,16 @@ impl<'a> TypeCheckExpr<'a> {
                 };
 
                 let expr_ty = self.expr_ty(expr);
-                let sf: Option<Field> = match expr_ty.strip_ghost(self.db).data(self.db) {
-                    TypeData::Error => None,
-                    TypeData::Ref { is_mut, inner } => match inner.data(self.db) {
-                        &TypeData::Struct(s) => {
+                let expr_ty_no_ghost = expr_ty.tc_strip_ghost(self);
+                let (sf, field_ty): (Option<Field>, TypeId) = match self.ty_data(expr_ty_no_ghost) {
+                    TypeData::Error => (None, self.error_ty()),
+                    TypeData::Ref { is_mut, inner } => match self.ty_data(inner) {
+                        TypeData::Struct(s) => {
                             let fields = self.struct_fields(s);
                             if let Some(field) =
                                 fields.iter().find(|f| f.name.as_str() == field.as_str())
                             {
-                                Some(field.clone())
+                                (Some(field.clone()), self.expect_find_type(&field.ty))
                             } else {
                                 return self.expr_error(
                                     field.span(),
@@ -938,17 +878,17 @@ impl<'a> TypeCheckExpr<'a> {
                                 None,
                                 TypeCheckErrorKind::NotYetImplemented(format!(
                                     "field of reference to something that is not a struct: {}",
-                                    self.pretty_ty(*inner)
+                                    self.pretty_ty(inner)
                                 )),
                             );
-                            None
+                            (None, self.error_ty())
                         }
                     },
                     TypeData::Struct(s) => {
-                        let fields = self.struct_fields(*s);
+                        let fields = self.struct_fields(s);
                         if let Some(field) = fields.iter().find(|f| f.name.deref() == field.deref())
                         {
-                            Some(field.clone())
+                            (Some(field.clone()), self.expect_find_type(&field.ty))
                         } else {
                             self.push_error(
                                 field.span(),
@@ -959,16 +899,19 @@ impl<'a> TypeCheckExpr<'a> {
                                     strukt: s.name(self.db),
                                 },
                             );
-                            None
+                            (None, self.error_ty())
                         }
                     }
                     TypeData::List(ty) => match field.as_str() {
-                        "len" => Some(Field {
-                            parent: FieldParent::List(*ty),
-                            name: field.clone(),
-                            is_ghost: false,
-                            ty: Type::int(self.db),
-                        }),
+                        "len" => (
+                            Some(Field {
+                                parent: FieldParent::List(ty),
+                                name: field.clone(),
+                                is_ghost: false,
+                                ty: None,
+                            }),
+                            self.int(),
+                        ),
                         _ => {
                             return self.expr_error(
                                 it.span(),
@@ -994,10 +937,7 @@ impl<'a> TypeCheckExpr<'a> {
                 };
 
                 Expr::new(
-                    sf.as_ref()
-                        .map(|f| f.ty)
-                        .unwrap_or_else(|| Type::error(self.db))
-                        .with_ghost(self.db, self.is_ghost(expr)),
+                    field_ty.with_ghost(self.is_ghost(expr)).ty(self),
                     ExprData::Field {
                         expr,
                         field_name: field,
@@ -1013,8 +953,8 @@ impl<'a> TypeCheckExpr<'a> {
                 };
                 let struct_ty = self.find_named_type(name.clone());
 
-                let s = match struct_ty.data(self.db) {
-                    TypeData::Struct(s) => *s,
+                let s = match self.ty_data(struct_ty) {
+                    TypeData::Struct(s) => s,
                     _ => {
                         let expr_err = self.expr_error(
                             name.span(),
@@ -1041,7 +981,8 @@ impl<'a> TypeCheckExpr<'a> {
                         let field_name = Ident::from(f.name().unwrap());
                         if field_name.as_str() == sf.name.as_str() {
                             let value = self.check(f.span(), f.expr());
-                            self.expect_ty(self.expr_span(value), sf.ty, self.expr_ty(value));
+                            let expected = self.expect_find_type(&sf.ty);
+                            self.expect_ty(self.expr_span(value), expected, self.expr_ty(value));
                             present_fields.push(StructExprField::new(
                                 sf.clone(),
                                 field_name,
@@ -1075,12 +1016,11 @@ impl<'a> TypeCheckExpr<'a> {
             }
             ast::Expr::ParenExpr(e) => return self.check(fallback_span, e.expr()),
             ast::Expr::RefExpr(it) => {
-                let span = expr.span();
                 let expr = self.check(it.span(), it.expr());
                 let is_mut = it.mut_token().is_some();
-                let inner = self.item.expr_arena[expr].ty;
+                let inner = self.cx.expr_arena[expr].ty;
 
-                let ty = Type::new(self.db, TypeData::Ref { is_mut, inner }, Some(span));
+                let ty = self.ty_id(TypeData::Ref { is_mut, inner });
 
                 Expr::new(ty, ExprData::Ref { is_mut, expr })
             }
@@ -1096,21 +1036,20 @@ impl<'a> TypeCheckExpr<'a> {
 
                 Expr::new(ty, ExprData::Ident(VariableRef::new(var, name.span())))
             }
-            ast::Expr::NullExpr(_) => Expr::new(
-                Type::new(self.db, TypeData::Null, Some(expr.span())),
-                ExprData::Literal(Literal::Null),
-            ),
+            ast::Expr::NullExpr(_) => Expr::new(self.null_ty(), ExprData::Literal(Literal::Null)),
             ast::Expr::ResultExpr(_) => {
-                let ty = if let Some(return_ty) = self.return_ty {
-                    return_ty
-                } else {
-                    self.push_error(
-                        expr.span(),
-                        None,
-                        None,
-                        TypeCheckErrorKind::ResultWithNoReturn,
-                    )
-                };
+                // TODO: Perhaps this should be an error, as commented out below
+                // let ty = if let Some(return_ty) = self.return_ty() {
+                //     return_ty
+                // } else {
+                //     self.push_error(
+                //         expr.span(),
+                //         None,
+                //         None,
+                //         TypeCheckErrorKind::ResultWithNoReturn,
+                //     )
+                // };
+                let ty = self.return_ty();
                 Expr::new(ty, ExprData::Result)
             }
             ast::Expr::QuantifierExpr(it) => {
@@ -1120,7 +1059,7 @@ impl<'a> TypeCheckExpr<'a> {
                     None => todo!(),
                     _ => todo!(),
                 };
-                let params = check_param_list(self.db, self.program, it.param_list());
+                let params = self.check_param_list(it.param_list());
 
                 self.push_scope(|f| f);
                 let params = params
@@ -1130,6 +1069,7 @@ impl<'a> TypeCheckExpr<'a> {
                         let var = self.declare_variable(
                             VariableDeclaration::new_param(param.name.clone()),
                             param.ty,
+                            None,
                         );
                         Param {
                             is_ghost: true,
@@ -1143,7 +1083,7 @@ impl<'a> TypeCheckExpr<'a> {
                 self.pop_scope();
 
                 Expr::new(
-                    Type::bool(self.db),
+                    self.bool(),
                     ExprData::Quantifier {
                         quantifier,
                         params,
@@ -1155,12 +1095,24 @@ impl<'a> TypeCheckExpr<'a> {
 
         self.alloc_expr(new, AstPtr::new(&expr))
     }
-    pub(crate) fn pretty_ty(&self, ty: Type) -> String {
+
+    fn ty_data(&self, ty: TypeId) -> TypeData {
+        self.ty_table.lock().unwrap().probe_value(ty)
+    }
+    pub(crate) fn pretty_ty(&self, ty: TypeId) -> String {
         hir::pretty::ty(self, self.db, ty)
     }
-    pub fn expect_ty(&mut self, span: SourceSpan, expected: Type, actual: Type) -> Type {
-        self.unify_inner(expected, actual).unwrap_or_else(|| {
-            self.push_error(
+    pub fn expect_ty(
+        &mut self,
+        span: SourceSpan,
+        expected: impl Typed,
+        actual: impl Typed,
+    ) -> TypeId {
+        let expected = expected.ty(self);
+        let actual = actual.ty(self);
+        match self.unify_inner(expected, actual) {
+            Some(x) => x,
+            None => self.push_error(
                 span,
                 None,
                 None,
@@ -1168,79 +1120,82 @@ impl<'a> TypeCheckExpr<'a> {
                     expected: self.pretty_ty(expected),
                     actual: self.pretty_ty(actual),
                 },
-            )
-        })
+            ),
+        }
     }
-    fn unify(&mut self, span: SourceSpan, t1: Type, t2: Type) -> Type {
-        self.unify_inner(t1, t2).unwrap_or_else(|| {
-            self.push_error(
+    fn unify(&mut self, span: SourceSpan, t1: impl Typed, t2: impl Typed) -> TypeId {
+        let t1 = t1.ty(self);
+        let t2 = t2.ty(self);
+        match self.unify_inner(t1, t2) {
+            Some(x) => x,
+            None => self.push_error(
                 span,
                 None,
                 None,
                 TypeCheckErrorKind::CantUnify(self.pretty_ty(t1), self.pretty_ty(t2)),
-            )
-        })
+            ),
+        }
     }
-    fn unify_inner(&mut self, expected: Type, actual: Type) -> Option<Type> {
-        Some(match (expected.data(self.db), actual.data(self.db)) {
-            (TypeData::Error, _) => actual,
-            (_, TypeData::Error) => expected,
+    fn unify_inner(&mut self, expected: impl Typed, actual: impl Typed) -> Option<TypeId> {
+        let expected = expected.ty(self);
+        let actual = actual.ty(self);
+        Some(match (self.ty_data(expected), self.ty_data(actual)) {
+            (TypeData::Error, _) | (_, TypeData::Error) => expected,
             (TypeData::Void, TypeData::Void) => expected,
             (
-                &TypeData::Ref {
+                TypeData::Ref {
                     is_mut: mut1,
                     inner: inner1,
                 },
-                &TypeData::Ref {
+                TypeData::Ref {
                     is_mut: mut2,
                     inner: inner2,
                 },
-            ) => Type::new(
-                self.db,
-                TypeData::Ref {
+            ) => {
+                let inner = self.unify_inner(inner1, inner2)?;
+                self.ty_id(TypeData::Ref {
                     is_mut: mut1 && mut2,
-                    inner: self.unify_inner(inner1, inner2)?,
-                },
-                // TODO: What is the appropriate span here?
-                expected.span(self.db),
-            ),
-            (TypeData::Optional(inner1), TypeData::Optional(inner2)) if inner1 == inner2 => {
+                    inner,
+                })
+            }
+            (TypeData::Optional(inner1), TypeData::Optional(inner2)) => {
+                self.unify_inner(inner1, inner2)?;
                 expected
             }
-            (TypeData::Optional(inner), TypeData::Struct(_))
-                if inner.without_span(self.db) == actual.without_span(self.db) =>
-            {
-                expected
-            }
-            (TypeData::Struct(_), TypeData::Optional(inner))
-                if inner.without_span(self.db) == expected.without_span(self.db) =>
-            {
-                actual
-            }
+            (TypeData::Optional(inner), TypeData::Struct(_)) if inner == actual => expected,
+            (TypeData::Struct(_), TypeData::Optional(inner)) if inner == expected => actual,
             (TypeData::Primitive(p1), TypeData::Primitive(p2)) if p1 == p2 => expected,
             (TypeData::Struct(s1), TypeData::Struct(s2)) if s1 == s2 => expected,
             (TypeData::List(s1), TypeData::List(s2)) => {
-                Type::new(self.db, TypeData::List(self.unify_inner(*s1, *s2)?), None)
+                self.unify_inner(s1, s2)?;
+                expected
             }
             (TypeData::Null, TypeData::Null) => expected,
             (TypeData::Null, TypeData::Optional(_)) => actual,
             (TypeData::Optional(_), TypeData::Null) => expected,
 
             // Ghost
-            (&TypeData::Ghost(t1), &TypeData::Ghost(t2)) => {
-                if let Some(t) = self.unify_inner(t1.strip_ghost(self.db), t2.strip_ghost(self.db))
-                {
-                    t.ghost(self.db)
+            (TypeData::Ghost(t1), TypeData::Ghost(t2)) => {
+                if let Some(t) = self.unify_inner(t1, t2) {
+                    t.ghost().ty(self)
                 } else {
                     return None;
                 }
             }
-            (&TypeData::Ghost(t1), _) => {
+            (TypeData::Ghost(t1), _) => {
                 if let Some(t) = self.unify_inner(t1, actual) {
-                    t.ghost(self.db)
+                    t.ghost().ty(self)
                 } else {
                     return None;
                 }
+            }
+            (TypeData::Free, _) | (_, TypeData::Free) => {
+                self.ty_table
+                    .lock()
+                    .unwrap()
+                    .unify_var_var(expected, actual)
+                    .unwrap();
+                expected
             }
             _ => return None,
         })
@@ -1251,7 +1206,7 @@ impl<'a> TypeCheckExpr<'a> {
         label: Option<String>,
         help: Option<String>,
         kind: TypeCheckErrorKind,
-    ) -> Type {
+    ) -> TypeId {
         let err = TypeCheckError {
             input: self.program.program(self.db).to_string(),
             span,
@@ -1261,7 +1216,7 @@ impl<'a> TypeCheckExpr<'a> {
         };
         TypeCheckErrors::push(self.db, err);
         // eprintln!("{:?}", miette::Error::new(err));
-        Type::new(self.db, TypeData::Error, Some(span))
+        self.error_ty()
     }
     fn expr_error(
         &mut self,
@@ -1275,14 +1230,11 @@ impl<'a> TypeCheckExpr<'a> {
 
         self.push_error(span, label, help, kind);
 
-        self.alloc_expr(
-            Expr::new(Type::error(self.db), ExprData::Missing),
-            expr_or_span,
-        )
+        self.alloc_expr(Expr::new(self.error_ty(), ExprData::Missing), expr_or_span)
     }
     fn alloc_expr(&mut self, expr: Expr, ptr: impl Into<ExprOrSpan>) -> ExprIdx {
         let ptr = ptr.into();
-        let idx = self.item.expr_arena.alloc(expr);
+        let idx = self.cx.expr_arena.alloc(expr);
         self.source_map.expr_map_back.insert(idx, ptr.clone());
         self.source_map.expr_map.insert(ptr, idx);
         idx
@@ -1291,7 +1243,7 @@ impl<'a> TypeCheckExpr<'a> {
         &mut self,
         exprs: impl Iterator<Item = ast::CommaExpr>,
     ) -> Vec<ExprIdx> {
-        let bool_ty = Type::bool(self.db).ghost(self.db);
+        let bool_ty = self.bool().ghost();
         exprs
             .map(|comma_expr| {
                 let expr = self.check(comma_expr.span(), comma_expr.expr());
@@ -1314,8 +1266,138 @@ impl<'a> TypeCheckExpr<'a> {
             },
         )
     }
-    fn find_type(&self, ty: ast::Type) -> Type {
-        crate::hir::find_type(self.db, self.program, ty)
+    fn check_param_list(&mut self, param_list: Option<ast::ParamList>) -> ParamList<Ident> {
+        ParamList {
+            params: param_list
+                .map(|pl| {
+                    pl.params()
+                        .map(|p| Param {
+                            is_ghost: p.is_ghost(),
+                            name: if let Some(name) = p.name() {
+                                name.into()
+                            } else {
+                                todo!()
+                            },
+                            ty: if let Some(ty) = p.ty() {
+                                self.find_type_src(&ty)
+                            } else {
+                                self.unsourced_ty(self.error_ty())
+                            }
+                            .with_ghost(p.is_ghost())
+                            .ts(self),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }
+    }
+    pub(super) fn find_type(&mut self, ast_ty: &ast::Type) -> TypeId {
+        let ts = self.find_type_src(ast_ty);
+        self.cx[ts].ty
+    }
+    pub(super) fn find_type_src(&mut self, ast_ty: &ast::Type) -> TypeSrcId {
+        let (td, ty) = match ast_ty {
+            mist_syntax::ast::Type::NamedType(name) => {
+                let name = name.name().unwrap().into();
+                let ty = self.find_named_type(name);
+                let td = match self.ty_data(ty) {
+                    TypeData::Struct(s) => TypeData::Struct(s),
+                    TypeData::Error => TypeData::Error,
+                    _ => todo!(),
+                };
+                (td, ty)
+            }
+            mist_syntax::ast::Type::Primitive(it) => match () {
+                _ if it.int_token().is_some() => (TypeData::Primitive(Primitive::Int), self.int()),
+                _ if it.bool_token().is_some() => {
+                    (TypeData::Primitive(Primitive::Bool), self.bool())
+                }
+                _ => {
+                    todo!();
+                    // TypeData::Error
+                }
+            },
+            mist_syntax::ast::Type::Optional(it) => {
+                let inner = if let Some(ty) = it.ty() {
+                    self.find_type_src(&ty)
+                } else {
+                    todo!()
+                };
+                let td = TypeData::Optional(inner);
+                let ty = td.canonical(&self.cx);
+                let ty = self.ty_id(ty);
+                (td, ty)
+            }
+            mist_syntax::ast::Type::RefType(r) => {
+                let is_mut = r.mut_token().is_some();
+
+                let inner = if let Some(ty) = r.ty() {
+                    self.find_type_src(&ty)
+                } else {
+                    todo!()
+                    // let err = TypeCheckError {
+                    //     input: program.program(db).to_string(),
+                    //     span: r.span(),
+                    //     label: None,
+                    //     help: None,
+                    //     kind: TypeCheckErrorKind::UndefinedType("what is this".to_string()),
+                    // };
+                    // eprintln!("{:?}", miette::Error::new(err));
+
+                    // TypeData::Ref {
+                    //     is_mut,
+                    //     inner: Type::error(db),
+                    // }
+                };
+                let td = TypeData::Ref { is_mut, inner };
+                let ty = td.canonical(&mut self.cx);
+                let ty = self.ty_id(ty);
+                (td, ty)
+            }
+            mist_syntax::ast::Type::ListType(t) => {
+                let inner = if let Some(ty) = t.ty() {
+                    self.find_type_src(&ty)
+                } else {
+                    todo!()
+                    // let err = TypeCheckError {
+                    //     input: program.program(db).to_string(),
+                    //     span: t.span(),
+                    //     label: None,
+                    //     help: None,
+                    //     kind: TypeCheckErrorKind::UndefinedType("list of what".to_string()),
+                    // };
+                    // eprintln!("{:?}", miette::Error::new(err));
+                    // return Type::error(db);
+                };
+                let td = TypeData::List(inner);
+                let ty = td.canonical(&mut self.cx);
+                let ty = self.ty_id(ty);
+                (td, ty)
+            }
+            mist_syntax::ast::Type::GhostType(t) => {
+                let inner = if let Some(ty) = t.ty() {
+                    self.find_type_src(&ty)
+                } else {
+                    todo!()
+                    // let err = TypeCheckError {
+                    //     input: program.program(db).to_string(),
+                    //     span: t.span(),
+                    //     label: None,
+                    //     help: None,
+                    //     kind: TypeCheckErrorKind::UndefinedType("ghost of what".to_string()),
+                    // };
+                    // eprintln!("{:?}", miette::Error::new(err));
+                    // return Type::error(db);
+                };
+                let td = TypeData::Ghost(inner);
+                let ty = td.canonical(&mut self.cx);
+                let ty = self.ty_id(ty);
+                (td, ty)
+            }
+        };
+
+        let ts = TypeSrc { data: Some(td), ty };
+        self.alloc_type_src(ts, Some(ast_ty.span()))
     }
     fn check_decreases(&mut self, decreases: Option<ast::Decreases>) -> Decreases {
         if let Some(d) = decreases {
@@ -1340,10 +1422,11 @@ impl<'a> TypeCheckExpr<'a> {
                 ast::Stmt::LetStmt(it) => {
                     let span = it.span();
                     let name = it.name().unwrap();
-                    let explicit_ty = it.ty().map(|ty| self.find_type(ty));
+                    let explicit_ty = it.ty().map(|ty| self.find_type_src(&ty));
                     let initializer = self.check(it.span(), it.initializer());
 
                     let ty = if let Some(ty) = explicit_ty {
+                        let ty = self.cx[ty].ty;
                         let span = it
                             .initializer()
                             .map(|i| i.span())
@@ -1353,11 +1436,18 @@ impl<'a> TypeCheckExpr<'a> {
                     } else {
                         self.expr_ty(initializer)
                     }
-                    .with_ghost(self.db, self.scope.is_ghost());
+                    .with_ghost(self.scope.is_ghost())
+                    .ty(self);
 
                     let var_span = name.span();
+                    let var_ty = explicit_ty
+                        .unwrap_or_else(|| self.cx.ty_src_arena.alloc(TypeSrc { data: None, ty }));
                     let variable = VariableRef::new(
-                        self.declare_variable(VariableDeclaration::new_let(name), ty),
+                        self.declare_variable(
+                            VariableDeclaration::new_let(name),
+                            var_ty,
+                            it.ty().map(|t| t.span()),
+                        ),
                         var_span,
                     );
 
@@ -1409,38 +1499,52 @@ impl<'a> TypeCheckExpr<'a> {
             let tail_expr = self.check(tail_expr.span(), Some(tail_expr));
             (
                 Some(tail_expr),
-                self.expr_ty(tail_expr)
-                    .with_ghost(self.db, self.scope.is_ghost()),
+                self.expr_ty(tail_expr).with_ghost(self.scope.is_ghost()),
             )
         } else {
-            (
-                None,
-                Type::void(self.db).with_ghost(self.db, self.scope.is_ghost()),
-            )
+            (None, self.void().with_ghost(self.scope.is_ghost()))
         };
         self.pop_scope();
         Block {
             stmts,
             tail_expr,
-            return_ty,
+            return_ty: return_ty.ty(self),
         }
     }
-    pub fn declare_variable(&mut self, decl: VariableDeclaration, ty: Type) -> VariableIdx {
+    pub fn alloc_type_src(&mut self, ts: TypeSrc, span: Option<SourceSpan>) -> TypeSrcId {
+        let id = self.cx.ty_src_arena.alloc(ts);
+        if let Some(span) = span {
+            self.source_map.ty_src_map.insert(id, span);
+            self.source_map.ty_src_map_back.insert(span, id);
+        }
+        id
+    }
+    pub fn declare_variable(
+        &mut self,
+        decl: VariableDeclaration,
+        ty: TypeSrcId,
+        ty_span: Option<SourceSpan>,
+    ) -> VariableIdx {
         let name = decl.name.to_string();
-        let var = self.item.declarations.alloc(
+        let var = self.cx.declarations.alloc(
             decl,
             Variable::new(self.db, VariableId::new(self.db, name.clone())),
         );
         self.scope.insert(name, var);
-        self.item.types.insert(var, ty);
+        self.cx.var_types.insert(var, ty);
+        if let Some(ty_span) = ty_span {
+            self.source_map.ty_src_map.insert(ty, ty_span);
+            self.source_map.ty_src_map_back.insert(ty_span, ty);
+        }
         var
     }
-    pub fn var_ty(&self, var: VariableIdx) -> Type {
-        *self
-            .item
-            .types
+    pub fn var_ty(&self, var: VariableIdx) -> TypeId {
+        self.cx[*self
+            .cx
+            .var_types
             .get(var)
-            .expect("VariableIdx was not in types map")
+            .expect("VariableIdx was not in types map")]
+        .ty
     }
     pub fn lookup_name(&mut self, name: &ast::Name) -> VariableIdx {
         if let Some(var) = self.scope.get(&name.to_string()) {
@@ -1452,48 +1556,120 @@ impl<'a> TypeCheckExpr<'a> {
                 None,
                 TypeCheckErrorKind::UndefinedVariable(name.to_string()),
             );
-            self.declare_variable(VariableDeclaration::new_undefined(name.clone()), err_ty)
+            let ty = self.unsourced_ty(err_ty);
+            self.declare_variable(VariableDeclaration::new_undefined(name.clone()), ty, None)
         }
     }
 
-    fn find_named_type(&self, name: Ident) -> Type {
-        crate::hir::find_named_type(self.db, self.program, name)
+    fn find_named_type(&self, name: Ident) -> TypeId {
+        self.cx
+            .named_types
+            .get(&name.to_string())
+            .copied()
+            .unwrap_or_else(|| {
+                self.push_error(
+                    name.span(),
+                    None,
+                    None,
+                    TypeCheckErrorKind::UndefinedType(name.to_string()),
+                )
+            })
     }
 
     fn struct_fields(&self, s: crate::hir::Struct) -> Vec<Field> {
-        crate::hir::struct_fields(self.db, self.program, s)
+        crate::hir::struct_fields(self.db, s)
     }
 
-    fn is_ghost(&self, e: ExprIdx) -> bool {
-        self.expr_ty(e).is_ghost(self.db)
+    fn is_ghost(&mut self, e: ExprIdx) -> bool {
+        self.expr_ty(e).tc_is_ghost(self)
+    }
+
+    pub(super) fn unsourced_ty(&mut self, ty: impl Typed) -> TypeSrcId {
+        let ty = ty.ty(self);
+        self.cx.ty_src_arena.alloc(TypeSrc { data: None, ty })
+    }
+
+    pub(super) fn ghostify(&mut self, ts: TypeSrcId, is_ghost: bool) -> TypeSrcId {
+        let ty = self.cx[ts].ty;
+        if is_ghost && !ty.tc_is_ghost(self) {
+            self.unsourced_ty(ty.ghost())
+        } else {
+            ts
+        }
+    }
+
+    fn return_ty(&self) -> TypeId {
+        self.return_ty
+            .map(|ty| self.cx[ty].ty)
+            .unwrap_or_else(|| self.void())
+    }
+
+    pub(super) fn expect_find_type(&mut self, ty: &Option<ast::Type>) -> TypeId {
+        match ty {
+            Some(ty) => {
+                let ts = self.find_type_src(ty);
+                self.cx[ts].ty
+            }
+            None => self.error_ty(),
+        }
+    }
+    pub(super) fn expect_find_type_src(&mut self, ty: &Option<ast::Type>) -> TypeSrcId {
+        match ty {
+            Some(ty) => self.find_type_src(ty),
+            None => self.unsourced_ty(self.error_ty()),
+        }
+    }
+
+    fn new_free(&mut self) -> TypeId {
+        let key = self.ty_table.lock().unwrap().new_key(TypeData::Free);
+        self.ty_keys.push(key);
+        key
     }
 }
-pub fn check_param_list(
-    db: &dyn crate::Db,
-    program: Program,
-    param_list: Option<ast::ParamList>,
-) -> ParamList<Ident> {
-    ParamList {
-        params: param_list
-            .map(|pl| {
-                pl.params()
-                    .map(|p| Param {
-                        is_ghost: p.is_ghost(),
-                        name: if let Some(name) = p.name() {
-                            name.into()
-                        } else {
-                            todo!()
-                        },
-                        ty: if let Some(ty) = p.ty() {
-                            crate::hir::find_type(db, program, ty)
-                        } else {
-                            Type::new(db, TypeData::Error, None)
-                        }
-                        .with_ghost(db, p.is_ghost()),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default(),
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Ghosted<T>(pub T, pub bool);
+impl Ghosted<TypeSrcId> {
+    pub fn ts(&self, tc: &mut TypeChecker) -> TypeSrcId {
+        if self.1 {
+            tc.ghostify(self.0, self.1)
+        } else {
+            self.0
+        }
+    }
+}
+pub trait Typed {
+    fn with_ghost(self, ghost: bool) -> Ghosted<Self>
+    where
+        Self: Sized,
+    {
+        Ghosted(self, ghost)
+    }
+    fn ty(&self, tc: &mut TypeChecker) -> TypeId;
+}
+
+impl Typed for TypeId {
+    fn ty(&self, _tc: &mut TypeChecker) -> TypeId {
+        *self
+    }
+}
+impl Typed for TypeSrcId {
+    fn ty(&self, tc: &mut TypeChecker) -> TypeId {
+        tc.cx[*self].ty
+    }
+}
+impl<T: Typed> Typed for Ghosted<T> {
+    fn ty(&self, tc: &mut TypeChecker) -> TypeId {
+        if self.1 {
+            let ty = self.0.ty(tc);
+            if ty.tc_is_ghost(tc) {
+                ty
+            } else {
+                tc.ty_id(TypeData::Ghost(ty))
+            }
+        } else {
+            self.0.ty(tc)
+        }
     }
 }
 
@@ -1502,26 +1678,47 @@ impl hir::pretty::PrettyPrint for ItemContext {
         self.declarations.map[idx].name.clone()
     }
 
-    fn resolve_var_ty(&self, idx: VariableIdx) -> Type {
+    fn resolve_var_ty(&self, idx: VariableIdx) -> TypeId {
         self.var_ty(idx)
     }
 
     fn resolve_expr(&self, idx: ExprIdx) -> &Expr {
         &self.expr_arena[idx]
     }
-}
 
-impl hir::pretty::PrettyPrint for TypeCheckExpr<'_> {
-    fn resolve_var(&self, idx: VariableIdx) -> Ident {
-        self.item.declarations.map[idx].name.clone()
+    fn resolve_ty(&self, ty: TypeId) -> TypeData {
+        if self.ty_table.contains_idx(ty.0) {
+            self.ty_table[ty.0].clone()
+        } else {
+            error!("tried to get type id which was not in ItemContext: {ty:?}");
+            TypeData::Error
+        }
     }
 
-    fn resolve_var_ty(&self, idx: VariableIdx) -> Type {
+    fn resolve_src_ty(&self, ts: TypeSrcId) -> TypeId {
+        self.ty_src_arena[ts].ty
+    }
+}
+
+impl hir::pretty::PrettyPrint for TypeChecker<'_> {
+    fn resolve_var(&self, idx: VariableIdx) -> Ident {
+        self.cx.declarations.map[idx].name.clone()
+    }
+
+    fn resolve_var_ty(&self, idx: VariableIdx) -> TypeId {
         self.var_ty(idx)
     }
 
     fn resolve_expr(&self, idx: ExprIdx) -> &Expr {
-        &self.item.expr_arena[idx]
+        &self.cx.expr_arena[idx]
+    }
+
+    fn resolve_ty(&self, ty: TypeId) -> TypeData {
+        self.ty_table.lock().unwrap().probe_value(ty)
+    }
+
+    fn resolve_src_ty(&self, ts: TypeSrcId) -> TypeId {
+        self.cx.ty_src_arena[ts].ty
     }
 }
 
@@ -1529,7 +1726,7 @@ impl ItemContext {
     pub fn pretty_expr(&self, db: &dyn crate::Db, expr: ExprIdx) -> String {
         hir::pretty::expr(self, db, expr)
     }
-    pub fn pretty_ty(&self, db: &dyn crate::Db, ty: Type) -> String {
+    pub fn pretty_ty(&self, db: &dyn crate::Db, ty: TypeId) -> String {
         hir::pretty::ty(self, db, ty)
     }
 }

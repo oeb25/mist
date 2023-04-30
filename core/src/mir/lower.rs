@@ -4,11 +4,10 @@ use tracing::debug;
 
 use crate::{
     hir::{
-        self, pretty, AssertionKind, ExprData, ExprIdx, IfExpr, Program, Statement, StatementData,
-        Type, VariableIdx,
+        self, pretty, AssertionKind, ExprData, ExprIdx, IfExpr, ItemContext, Program, Statement,
+        StatementData, TypeId, VariableIdx,
     },
     mir::{MirError, MirErrors, Operand},
-    typecheck::ItemContext,
 };
 
 use super::{
@@ -45,7 +44,7 @@ pub fn lower_item(db: &dyn crate::Db, cx: ItemContext) -> (Body, BodySourceMap) 
     lower.body.params = cx
         .params()
         .iter()
-        .map(|param| lower.alloc_slot(Slot::from_var(param.name), param.ty))
+        .map(|param| lower.alloc_slot(Slot::from_var(param.name), cx[param.ty].ty))
         .collect();
 
     lower.body.result_slot = cx
@@ -104,19 +103,19 @@ impl<'a> MirLower<'a> {
         }
     }
 
-    fn alloc_tmp(&mut self, ty: Type) -> Place {
+    fn alloc_tmp(&mut self, ty: TypeId) -> Place {
         self.alloc_place(Slot::default(), ty)
     }
     fn alloc_expr(&mut self, expr: ExprIdx) -> Place {
         self.alloc_tmp(self.cx.expr_ty(expr))
     }
-    fn alloc_place(&mut self, slot: Slot, ty: Type) -> Place {
+    fn alloc_place(&mut self, slot: Slot, ty: TypeId) -> Place {
         self.alloc_slot(slot, ty).into()
     }
     fn alloc_var(&mut self, var: VariableIdx) -> SlotId {
         self.alloc_slot(Slot::Var(var), self.cx.var_ty(var))
     }
-    fn alloc_slot(&mut self, slot: Slot, ty: Type) -> SlotId {
+    fn alloc_slot(&mut self, slot: Slot, ty: TypeId) -> SlotId {
         let id = match &slot {
             Slot::Temp => self.body.slots.alloc(slot),
             Slot::Var(var) => {
@@ -210,7 +209,7 @@ impl<'a> MirLower<'a> {
 enum Placement<'a> {
     Ignore,
     Assign(Place),
-    IntoOperand(hir::Type, &'a mut Option<Operand>),
+    IntoOperand(TypeId, &'a mut Option<Operand>),
     Assertion(AssertionKind),
 }
 
@@ -370,7 +369,8 @@ impl MirLower<'_> {
         mut bid: BlockId,
         target: Option<BlockId>,
     ) -> (BlockId, Place) {
-        match &self.cx.expr(expr).data {
+        let expr_data = self.cx.expr(expr);
+        match &expr_data.data {
             ExprData::Literal(_) => todo!(),
             ExprData::Ident(x) => (bid, self.var_place(x.idx())),
             ExprData::Block(_) => todo!(),
@@ -381,9 +381,10 @@ impl MirLower<'_> {
             } => {
                 let (bid, place) = self.lhs_expr(*base, bid, None);
                 if let Some(f) = field {
+                    let f_ty = expr_data.ty;
                     (
                         bid,
-                        self.project_deeper(place, &[Projection::Field(f.clone(), f.ty)]),
+                        self.project_deeper(place, &[Projection::Field(f.clone(), f_ty)]),
                     )
                 } else {
                     MirErrors::push(
@@ -400,7 +401,7 @@ impl MirLower<'_> {
                 }
             }
             ExprData::Struct { .. } => todo!(),
-            ExprData::Missing => (bid, self.alloc_tmp(Type::error(self.db))),
+            ExprData::Missing => (bid, self.alloc_tmp(self.cx.error_ty())),
             ExprData::If(_) => todo!(),
             ExprData::Call { .. } => todo!(),
             ExprData::Unary { .. } => todo!(),
@@ -438,7 +439,8 @@ impl MirLower<'_> {
     ) -> BlockId {
         self.hint_block_source(expr, bid);
 
-        match &self.cx.expr(expr).data {
+        let expr_data = self.cx.expr(expr);
+        match &expr_data.data {
             ExprData::Literal(l) => {
                 self.put(
                     bid,
@@ -467,8 +469,9 @@ impl MirLower<'_> {
                 if let Some(field) = field {
                     let tmp = self.expr_into_operand(*base, &mut bid, None);
                     if let Some(place) = tmp.place() {
-                        let field_projection = self
-                            .project_deeper(place, &[Projection::Field(field.clone(), field.ty)]);
+                        let f_ty = expr_data.ty;
+                        let field_projection =
+                            self.project_deeper(place, &[Projection::Field(field.clone(), f_ty)]);
                         self.put(
                             bid,
                             dest,
@@ -560,7 +563,7 @@ impl MirLower<'_> {
                 bid
             }
             &ExprData::Index { base, index } => {
-                let f = match &self.cx.expr(index).ty.strip_ghost(self.db).data(self.db) {
+                let f = match self.cx.ty_data_without_ghost(self.cx.expr_ty(index)) {
                     hir::TypeData::Range(_) => FunctionData::RangeIndex,
                     hir::TypeData::Primitive(hir::Primitive::Int) => FunctionData::Index,
                     ty => todo!("tried to index with {ty:?}"),

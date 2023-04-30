@@ -32,7 +32,7 @@ pub fn viper_file(
         let Some(item) = hir::item(db, program, item_id) else { continue };
         let Some((cx, _source_map)) = hir::item_lower(db, program, item_id, item) else { continue };
         let (mir, _mir_source_map) = mir::lower_item(db, cx.clone());
-        match internal_viper_item(db, program, cx, &mut lowerer, item, &mir) {
+        match internal_viper_item(db, cx, &mut lowerer, item, &mir) {
             Ok(items) => {
                 for item in items {
                     match item {
@@ -67,19 +67,17 @@ pub fn viper_file(
 
 pub fn viper_item(
     db: &dyn crate::Db,
-    program: hir::Program,
     cx: hir::ItemContext,
     item: hir::Item,
     mir: &mir::Body,
 ) -> Result<(Vec<ViperItem<VExprId>>, ViperBody, ViperSourceMap), ViperLowerError> {
     let mut lowerer = ViperLowerer::new();
-    let items = internal_viper_item(db, program, cx, &mut lowerer, item, mir)?;
+    let items = internal_viper_item(db, cx, &mut lowerer, item, mir)?;
     let (viper_body, viper_source_map) = lowerer.finish();
     Ok((items, viper_body, viper_source_map))
 }
 fn internal_viper_item(
     db: &dyn crate::Db,
-    program: hir::Program,
     cx: hir::ItemContext,
     lowerer: &mut ViperLowerer,
     item: hir::Item,
@@ -89,7 +87,7 @@ fn internal_viper_item(
         hir::Item::Type(ty_decl) => match ty_decl.data(db) {
             hir::TypeDeclData::Struct(s) => {
                 let mut lower = lowerer.body_lower(db, &cx, mir, false);
-                lower.struct_lower(program, s, [])
+                lower.struct_lower(s, [])
             }
         },
         hir::Item::TypeInvariant(_) => Ok(vec![]),
