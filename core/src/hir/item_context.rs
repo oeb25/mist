@@ -156,7 +156,7 @@ impl ItemContext {
     pub(crate) fn ty_data_without_ghost(&self, ty: TypeId) -> &TypeData {
         match self.ty_data(ty) {
             TypeData::Ghost(inner) => self.ty_data_without_ghost(*inner),
-            td => &td,
+            td => td,
         }
     }
 }

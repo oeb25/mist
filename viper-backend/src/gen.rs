@@ -263,6 +263,12 @@ pub trait ViperWrite<Cx> {
     }
 }
 
+impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for Box<E> {
+    fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
+        E::emit(&**elem, w)
+    }
+}
+
 mod write_impl {
     use silvers::{
         ast::Declaration,
@@ -473,7 +479,9 @@ mod write_impl {
                 PermExp::Full => w!(w, "write"),
                 PermExp::No => w!(w, " // TODO: PermExp::No"),
                 PermExp::Epsilon => w!(w, " // TODO: PermExp::Epsilon"),
-                PermExp::Bin { op, left, right } => w!(w, " // TODO: PermExp::Bin"),
+                PermExp::Bin { op, left, right } => {
+                    w!(w, "(", left, " {op} ", right, ")")
+                }
                 PermExp::Current { res } => w!(w, " // TODO: PermExp::Current"),
             }
         }

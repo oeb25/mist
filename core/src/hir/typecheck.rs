@@ -1350,7 +1350,7 @@ impl<'a> TypeChecker<'a> {
                     // }
                 };
                 let td = TypeData::Ref { is_mut, inner };
-                let ty = td.canonical(&mut self.cx);
+                let ty = td.canonical(&self.cx);
                 let ty = self.ty_id(ty);
                 (td, ty)
             }
@@ -1370,7 +1370,7 @@ impl<'a> TypeChecker<'a> {
                     // return Type::error(db);
                 };
                 let td = TypeData::List(inner);
-                let ty = td.canonical(&mut self.cx);
+                let ty = td.canonical(&self.cx);
                 let ty = self.ty_id(ty);
                 (td, ty)
             }
@@ -1390,7 +1390,7 @@ impl<'a> TypeChecker<'a> {
                     // return Type::error(db);
                 };
                 let td = TypeData::Ghost(inner);
-                let ty = td.canonical(&mut self.cx);
+                let ty = td.canonical(&self.cx);
                 let ty = self.ty_id(ty);
                 (td, ty)
             }
