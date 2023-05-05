@@ -9,7 +9,7 @@ pub use generated::*;
 pub use items_ext::AttrFlags;
 pub use traits::{HasAttrs, HasName};
 
-use crate::{support::AstNode, SourceSpan, SyntaxNode, SyntaxToken};
+use crate::{support::AstNode, SourceSpan, SyntaxElement, SyntaxNode, SyntaxToken};
 
 pub struct Pure<T>(T);
 
@@ -74,6 +74,12 @@ impl Spanned for &'_ SyntaxNode {
     }
 }
 impl Spanned for SyntaxToken {
+    fn span(self) -> SourceSpan {
+        let range = self.text_range();
+        SourceSpan::new_start_end(range.start().into(), range.end().into())
+    }
+}
+impl Spanned for SyntaxElement {
     fn span(self) -> SourceSpan {
         let range = self.text_range();
         SourceSpan::new_start_end(range.start().into(), range.end().into())

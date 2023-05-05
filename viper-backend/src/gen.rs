@@ -19,6 +19,8 @@ pub fn viper_file(
     db: &dyn crate::Db,
     program: hir::Program,
 ) -> Result<(Program<VExprId>, ViperBody, ViperSourceMap), ViperLowerError> {
+    let root = program.parse(db).tree();
+
     let mut domains = vec![];
     let mut fields = vec![];
     let mut predicates = vec![];
@@ -29,7 +31,7 @@ pub fn viper_file(
     let mut lowerer = ViperLowerer::new();
 
     for &item_id in program.items(db) {
-        let Some(item) = hir::item(db, program, item_id) else { continue };
+        let Some(item) = hir::item(db, program, &root, item_id) else { continue };
         let Some((cx, _source_map)) = hir::item_lower(db, program, item_id, item) else { continue };
         let (mut mir, _mir_source_map) = mir::lower_item(db, cx.clone());
         for entry in mir.entry_blocks().collect_vec() {

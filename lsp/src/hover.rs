@@ -15,9 +15,10 @@ use mist_syntax::{ast::Spanned, SourceSpan};
 #[salsa::tracked]
 pub fn hover(db: &dyn crate::Db, source: SourceProgram, byte_offset: usize) -> Option<HoverResult> {
     let program = hir::parse_program(db, source);
+    let root = program.parse(db).tree();
 
     let mut visitor = HoverFinder::new(db, byte_offset);
-    match PostOrderWalk::walk_program(db, program, &mut visitor) {
+    match PostOrderWalk::walk_program(db, program, &root, &mut visitor) {
         ControlFlow::Break(result) => result,
         ControlFlow::Continue(()) => None,
     }

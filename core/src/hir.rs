@@ -10,7 +10,7 @@ use mist_syntax::{
         AttrFlags, HasAttrs, HasName, Spanned,
     },
     ptr::AstPtr,
-    SourceSpan,
+    AstNode, Parse, SourceSpan,
 };
 use tracing::error;
 
@@ -77,17 +77,16 @@ pub struct SourceProgram {
 #[salsa::tracked]
 pub struct Program {
     #[return_ref]
-    pub source: SourceProgram,
+    pub parse: Parse<ast::SourceFile>,
     #[return_ref]
     pub items: Vec<ItemId>,
-    #[return_ref]
-    pub errors: Vec<mist_syntax::ParseError>,
 }
 
 #[salsa::tracked]
 pub fn parse_program(db: &dyn crate::Db, source: SourceProgram) -> Program {
-    let (program, errors) = mist_syntax::parse(source.text(db));
-    let items = program
+    let parse = mist_syntax::parse(source.text(db));
+    let items = parse
+        .tree()
         .items()
         .map(|item| match item {
             ast::Item::Const(node) => ItemId::new(db, AstPtr::new(&node).into()),
@@ -97,13 +96,7 @@ pub fn parse_program(db: &dyn crate::Db, source: SourceProgram) -> Program {
             ast::Item::Macro(node) => ItemId::new(db, AstPtr::new(&node).into()),
         })
         .collect();
-    Program::new(db, source, items, errors)
-}
-
-impl Program {
-    pub fn expensive_compute_root(&self, db: &dyn crate::Db) -> ast::SourceFile {
-        mist_syntax::parse(self.source(db).text(db)).0
-    }
+    Program::new(db, parse, items)
 }
 
 pub fn item(
@@ -121,7 +114,7 @@ pub fn item(
 
             if !f.is_ghost() && f.body().is_none() {
                 let err = TypeCheckError {
-                    input: program.source(db).text(db).to_string(),
+                    input: program.parse(db).tree().to_string(),
                     span: f
                         .semicolon_token()
                         .map(|t| t.span())
@@ -165,7 +158,7 @@ pub fn item_lower(
     );
     let _enter = span.enter();
 
-    let root = program.expensive_compute_root(db);
+    let root = program.parse(db).tree();
 
     match item {
         Item::Type(ty_decl) => match &ty_decl.data(db) {
@@ -227,7 +220,7 @@ pub fn item_lower(
 
 #[salsa::tracked]
 pub fn struct_fields(db: &dyn crate::Db, s: Struct) -> Vec<Field> {
-    let root = s.program(db).expensive_compute_root(db);
+    let root = s.program(db).parse(db).tree();
     s.fields(db, &root)
         .map(|f| {
             let is_ghost = f.is_ghost();
@@ -248,7 +241,10 @@ pub struct ItemId {
 }
 
 impl ItemId {
-    pub fn name(&self, db: &dyn crate::Db, root: &mist_syntax::SyntaxNode) -> Option<ast::Name> {
+    pub fn syntax(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> mist_syntax::SyntaxNode {
+        self.data(db).syntax(root)
+    }
+    pub fn name(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> Option<ast::Name> {
         self.data(db).name(root)
     }
 }
@@ -262,13 +258,22 @@ pub enum ItemData {
     Macro { ast: AstPtr<ast::Macro> },
 }
 impl ItemData {
-    fn name(&self, root: &mist_syntax::SyntaxNode) -> Option<ast::Name> {
+    fn syntax(&self, root: &ast::SourceFile) -> mist_syntax::SyntaxNode {
         match self {
-            ItemData::Const { ast } => ast.to_node(root).name(),
-            ItemData::Fn { ast } => ast.to_node(root).name(),
-            ItemData::Struct { ast } => ast.to_node(root).name(),
-            ItemData::TypeInvariant { ast } => ast.to_node(root).name(),
-            ItemData::Macro { ast } => ast.to_node(root).name(),
+            ItemData::Const { ast } => ast.to_node(root.syntax()).syntax().clone(),
+            ItemData::Fn { ast } => ast.to_node(root.syntax()).syntax().clone(),
+            ItemData::Struct { ast } => ast.to_node(root.syntax()).syntax().clone(),
+            ItemData::TypeInvariant { ast } => ast.to_node(root.syntax()).syntax().clone(),
+            ItemData::Macro { ast } => ast.to_node(root.syntax()).syntax().clone(),
+        }
+    }
+    fn name(&self, root: &ast::SourceFile) -> Option<ast::Name> {
+        match self {
+            ItemData::Const { ast } => ast.to_node(root.syntax()).name(),
+            ItemData::Fn { ast } => ast.to_node(root.syntax()).name(),
+            ItemData::Struct { ast } => ast.to_node(root.syntax()).name(),
+            ItemData::TypeInvariant { ast } => ast.to_node(root.syntax()).name(),
+            ItemData::Macro { ast } => ast.to_node(root.syntax()).name(),
         }
     }
 }
@@ -302,7 +307,7 @@ pub enum TypeDeclData {
     Struct(Struct),
 }
 
-#[salsa::tracked]
+#[salsa::interned]
 pub struct Function {
     #[return_ref]
     syntax: AstPtr<ast::Fn>,

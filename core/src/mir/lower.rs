@@ -20,7 +20,7 @@ pub fn lower_program(
     db: &dyn crate::Db,
     program: Program,
 ) -> Vec<(hir::Item, ItemContext, ItemSourceMap, Body, BodySourceMap)> {
-    let root = program.expensive_compute_root(db);
+    let root = program.parse(db).tree();
     program.items(db).iter().filter_map(|&item_id| {
         let Some(item) = hir::item(db, program, &root, item_id) else { return None; };
         let Some((cx, item_source_map)) = hir::item_lower(db, program, item_id, item) else { return None; };

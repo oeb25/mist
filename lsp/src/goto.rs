@@ -21,9 +21,10 @@ pub fn goto_declaration(
     byte_offset: usize,
 ) -> Option<DeclarationSpans> {
     let program = hir::parse_program(db, source);
+    let root = program.parse(db).tree();
 
     let mut visitor = DeclarationFinder::new(db, byte_offset);
-    match PostOrderWalk::walk_program(db, program, &mut visitor) {
+    match PostOrderWalk::walk_program(db, program, &root, &mut visitor) {
         ControlFlow::Break(result) => result,
         ControlFlow::Continue(()) => None,
     }

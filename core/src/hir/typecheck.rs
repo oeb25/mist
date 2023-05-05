@@ -1213,7 +1213,7 @@ impl<'a> TypeChecker<'a> {
         kind: TypeCheckErrorKind,
     ) -> TypeId {
         let err = TypeCheckError {
-            input: self.program.source(self.db).text(self.db).to_string(),
+            input: self.program.parse(self.db).tree().to_string(),
             span,
             label,
             help,

@@ -8,7 +8,7 @@ fn main() -> color_eyre::Result<()> {
             .nth(1)
             .wrap_err("missing file as first argument")?,
     )?;
-    let (doc, _errors) = mist_syntax::parse(&src);
-    eprintln!("{:#?}", doc.syntax());
+    let parse = mist_syntax::parse(&src);
+    eprintln!("{:#?}", parse.syntax());
     Ok(())
 }

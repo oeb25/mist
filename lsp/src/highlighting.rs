@@ -21,9 +21,10 @@ use TokenType as TT;
 #[salsa::tracked]
 pub fn highlighting(db: &dyn crate::Db, source: SourceProgram) -> Arc<HighlightResult> {
     let program = hir::parse_program(db, source);
+    let root = program.parse(db).tree();
 
     let mut hf = Highlighter::new(db, source.text(db));
-    PostOrderWalk::walk_program(db, program, &mut hf);
+    PostOrderWalk::walk_program(db, program, &root, &mut hf);
     Arc::new(hf.finish())
 }
 

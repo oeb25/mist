@@ -1,6 +1,9 @@
+use std::{marker::PhantomData, sync::Arc};
+
 pub(crate) use ast::SyntaxKind;
 pub use parser::ParseError;
 use parser::Parser;
+pub use rowan::{Direction, GreenNode};
 pub use support::{AstNode, SourceSpan};
 
 pub mod ast;
@@ -11,8 +14,46 @@ mod support;
 #[cfg(test)]
 mod tests;
 
-pub fn parse(src: &str) -> (ast::SourceFile, Vec<ParseError>) {
-    Parser::new(src).parse()
+#[derive(Debug, PartialEq, Eq)]
+pub struct Parse<T> {
+    green: GreenNode,
+    errors: Arc<Vec<ParseError>>,
+    _ty: PhantomData<fn() -> T>,
+}
+
+impl<T> Clone for Parse<T> {
+    fn clone(&self) -> Self {
+        Self {
+            green: self.green.clone(),
+            errors: self.errors.clone(),
+            _ty: PhantomData,
+        }
+    }
+}
+
+pub fn parse(src: &str) -> Parse<ast::SourceFile> {
+    let (ast, errors) = Parser::new(src).parse();
+    Parse {
+        green: ast.syntax().green().into_owned(),
+        errors: Arc::new(errors),
+        _ty: PhantomData,
+    }
+}
+
+impl<T> Parse<T> {
+    pub fn syntax(&self) -> SyntaxNode {
+        SyntaxNode::new_root(self.green.clone())
+    }
+
+    pub fn errors(&self) -> &[ParseError] {
+        &self.errors
+    }
+}
+
+impl<T: AstNode> Parse<T> {
+    pub fn tree(&self) -> T {
+        T::cast(self.syntax()).unwrap()
+    }
 }
 
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Hash, Clone, Copy)]
@@ -30,6 +71,7 @@ impl rowan::Language for MistLanguage {
     }
 }
 
-type SyntaxToken = rowan::SyntaxToken<MistLanguage>;
+pub type SyntaxToken = rowan::SyntaxToken<MistLanguage>;
 pub type SyntaxNode = rowan::SyntaxNode<MistLanguage>;
-type SyntaxNodeChildren = rowan::SyntaxNodeChildren<MistLanguage>;
+pub type SyntaxNodeChildren = rowan::SyntaxNodeChildren<MistLanguage>;
+pub type SyntaxElement = rowan::SyntaxElement<MistLanguage>;

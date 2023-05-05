@@ -7,15 +7,19 @@ use dashmap::DashMap;
 use itertools::Itertools;
 use miette::IntoDiagnostic;
 use mist_core::{
-    hir::{Program, SourceProgram},
+    hir::SourceProgram,
     salsa::{ParallelDatabase, Snapshot},
 };
-use mist_syntax::SourceSpan;
+use mist_syntax::{ast::Spanned, AstNode, SourceSpan};
 use mist_viper_backend::gen::ViperHints;
-use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::request::{GotoDeclarationParams, GotoDeclarationResponse};
-use tower_lsp::lsp_types::*;
-use tower_lsp::{Client, LanguageServer};
+use tower_lsp::{
+    jsonrpc::Result,
+    lsp_types::{
+        request::{GotoDeclarationParams, GotoDeclarationResponse},
+        *,
+    },
+    Client, LanguageServer,
+};
 use tracing::{error, info};
 
 use crate::highlighting::{TokenModifier, TokenType};
@@ -322,12 +326,13 @@ impl Backend {
 
             let source = mist_core::hir::SourceProgram::new(&*db, text.to_string());
             let program = mist_core::hir::parse_program(&*db, source);
+            let parse = program.parse(&*db).clone();
 
-            let errors = mist_cli::accumulated_errors(&*db, program)
+            let errors = mist_cli::accumulated_errors(&*db, program, &parse.tree())
                 .flat_map(|e| miette_to_diagnostic(&text, e.inner_diagnostic().unwrap()))
                 .collect_vec();
 
-            drop(db);
+            // drop(db);
 
             if errors.is_empty() {
                 client
@@ -356,7 +361,7 @@ impl Backend {
                     mist_src_path: uri.as_str().into(),
                     mist_src: &text,
                 };
-                let errors = match verify_file.run(&db_arc).await {
+                let errors = match verify_file.run(&db_arc, &parse).await {
                     Ok(errors) => errors,
                     Err(err) => vec![err],
                 };
@@ -386,6 +391,32 @@ impl Backend {
                                 verification_start.elapsed()
                             ),
                         )
+                        .await;
+
+                    let diagnostics = program
+                        .items(&*db)
+                        .iter()
+                        .filter_map(|item| {
+                            Some(
+                                item.name(&*db, &parse.tree())?
+                                    .syntax()
+                                    .siblings_with_tokens(mist_syntax::Direction::Prev)
+                                    .nth(1)?
+                                    .span(),
+                            )
+                        })
+                        .map(|name| {
+                            let range = span_to_range(&text, name.span().set_len(0));
+                            Diagnostic {
+                                severity: Some(DiagnosticSeverity::INFORMATION),
+                                message: "Successfully verified".to_string(),
+                                range,
+                                ..Default::default()
+                            }
+                        })
+                        .collect();
+                    client
+                        .publish_diagnostics(uri.clone(), diagnostics, Some(version))
                         .await;
                 } else {
                     client
@@ -452,13 +483,10 @@ fn miette_to_diagnostic(src: &str, report: miette::Report) -> Vec<Diagnostic> {
         .map(|labels| {
             labels
                 .map(|label| {
-                    use mist_core::util::Position as Pos;
-
-                    let start = Pos::from_byte_offset(src, label.offset());
-                    let end = Pos::from_byte_offset(src, label.offset() + label.len());
-                    let start = Position::new(start.line, start.character);
-                    let end = Position::new(end.line, end.character);
-                    let range = Range::new(start, end);
+                    let range = span_to_range(
+                        src,
+                        SourceSpan::new_start_end(label.offset(), label.offset() + label.len()),
+                    );
                     Diagnostic {
                         severity: Some(DiagnosticSeverity::ERROR),
                         message: report.to_string(), // label.label().unwrap_or("here").to_string(),

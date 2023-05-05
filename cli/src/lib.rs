@@ -4,7 +4,7 @@ pub mod db;
 
 use miette::Diagnostic;
 use mist_core::{hir, mir, salsa, util::Position, TypeCheckError};
-use mist_syntax::{ParseError, SourceSpan};
+use mist_syntax::{ast, ParseError, SourceSpan};
 use mist_viper_backend::{
     gen::ViperOutput,
     lower::{ViperLowerError, ViperSourceMap},
@@ -48,11 +48,12 @@ impl MistError {
     }
 }
 
-pub fn accumulated_errors(
-    db: &dyn crate::Db,
+pub fn accumulated_errors<'a>(
+    db: &'a dyn crate::Db,
     program: hir::Program,
-) -> impl Iterator<Item = MistError> + '_ {
-    let parse_errors = program.errors(db);
+    root: &'a ast::SourceFile,
+) -> impl Iterator<Item = MistError> + 'a {
+    let parse_errors = program.parse(db).errors();
     let type_errors = mir::lower_program::accumulated::<mist_core::TypeCheckErrors>(db, program);
     let mir_errors = mir::lower_program::accumulated::<mir::MirErrors>(db, program);
     let viper_errors = if parse_errors.is_empty() && type_errors.is_empty() && mir_errors.is_empty()
@@ -76,19 +77,19 @@ pub fn accumulated_errors(
             MistError::TypeCheck(_) => {}
             MistError::Mir(err) => err.populate_spans(
                 |item_id, expr| {
-                    let item = hir::item(db, program, item_id).unwrap();
+                    let item = hir::item(db, program, root, item_id).unwrap();
                     let (_cx, source_map) = hir::item_lower(db, program, item_id, item).unwrap();
                     Some(source_map.expr_span(expr))
                 },
                 |item_id, var| {
-                    let item = hir::item(db, program, item_id).unwrap();
+                    let item = hir::item(db, program, root, item_id).unwrap();
                     let (cx, _source_map) = hir::item_lower(db, program, item_id, item).unwrap();
                     Some(cx.var_span(var))
                 },
             ),
             MistError::ViperLower(err) => {
                 err.populate_spans(|item_id, block_or_instr| {
-                    let item = hir::item(db, program, item_id).unwrap();
+                    let item = hir::item(db, program, root, item_id).unwrap();
                     let (cx, source_map) = hir::item_lower(db, program, item_id, item).unwrap();
                     let (_mir, mir_source_span) = mir::lower_item(db, cx);
                     Some(source_map.expr_span(mir_source_span.trace_expr(block_or_instr).unwrap()))
@@ -112,6 +113,7 @@ impl VerificationContext<'_> {
     pub fn handle_status(
         &self,
         db: &dyn crate::Db,
+        root: &ast::SourceFile,
         status: VerificationStatus,
     ) -> Vec<miette::Error> {
         use viperserver::client::VerificationStatus as Vs;
@@ -132,7 +134,7 @@ impl VerificationContext<'_> {
             }
             Vs::InvalidArgsReport { .. } => eprintln!("? {status:?}"),
             Vs::AstConstructionResult { details, .. } => {
-                let errors = self.details_to_miette(db, details);
+                let errors = self.details_to_miette(db, root, details);
                 for err in errors {
                     eprintln!("{err:?}");
                     outer_errors.push(err);
@@ -144,7 +146,7 @@ impl VerificationContext<'_> {
             Vs::ExceptionReport { .. } => eprintln!("? {status:?}"),
             Vs::ConfigurationConfirmation { .. } => {}
             Vs::VerificationResult { details, .. } => {
-                let errors = self.details_to_miette(db, details);
+                let errors = self.details_to_miette(db, root, details);
                 for err in errors {
                     eprintln!("{err:?}");
                     outer_errors.push(err);
@@ -156,10 +158,15 @@ impl VerificationContext<'_> {
         outer_errors
     }
 
-    fn trace_span(&self, db: &dyn crate::Db, viper_span: SourceSpan) -> Option<SourceSpan> {
+    fn trace_span(
+        &self,
+        db: &dyn crate::Db,
+        root: &ast::SourceFile,
+        viper_span: SourceSpan,
+    ) -> Option<SourceSpan> {
         if let Some(back) = self.viper_output.trace_expr(viper_span) {
             if let Some((item_id, back)) = self.viper_source_map.trace_exp(back) {
-                let item = hir::item(db, self.program, item_id).unwrap();
+                let item = hir::item(db, self.program, root, item_id).unwrap();
                 let (cx, source_map) = hir::item_lower(db, self.program, item_id, item).unwrap();
                 let (_mir, mir_source_map) = mir::lower_item(db, cx);
                 if let Some(back) = mir_source_map.trace_expr(back) {
@@ -192,6 +199,7 @@ impl VerificationContext<'_> {
     fn details_to_miette<'a>(
         &'a self,
         db: &'a dyn crate::Db,
+        root: &'a ast::SourceFile,
         details: &'a Details,
     ) -> impl Iterator<Item = miette::Error> + 'a {
         details.result.iter().flat_map(|result| {
@@ -205,7 +213,7 @@ impl VerificationContext<'_> {
                 if let Some(pos) = err.position.inner() {
                     let viper_span = viper_position_to_internal(&self.viper_output.buf, pos)
                         .unwrap_or_else(|| SourceSpan::new_start_end(0, 0));
-                    let source_span = self.trace_span(db, viper_span);
+                    let source_span = self.trace_span(db, root, viper_span);
 
                     #[derive(Debug, thiserror::Error, miette::Diagnostic)]
                     #[error("{error}")]
