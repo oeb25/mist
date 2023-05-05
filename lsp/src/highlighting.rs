@@ -24,7 +24,7 @@ pub fn highlighting(db: &dyn crate::Db, source: SourceProgram) -> Arc<HighlightR
     let root = program.parse(db).tree();
 
     let mut hf = Highlighter::new(db, source.text(db));
-    PostOrderWalk::walk_program(db, program, &root, &mut hf);
+    let _ = PostOrderWalk::walk_program(db, program, &root, &mut hf);
     Arc::new(hf.finish())
 }
 

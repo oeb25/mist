@@ -16,12 +16,14 @@ pub fn init_hooks() {
 
 #[wasm_bindgen]
 pub fn parse(src: &str) -> String {
-    let (ast, errors) = mist_syntax::parse(src);
-    let markers = errors
-        .into_iter()
+    let parse = mist_syntax::parse(src);
+    let markers = parse
+        .errors()
+        .iter()
+        .cloned()
         .flat_map(|e| miette_to_markers(src, miette::Error::new(e)))
         .collect();
-    let node = ast.syntax();
+    let node = parse.syntax();
     let res = ParseResult {
         markers,
         parse_tree: format!("{node:#?}"),
@@ -31,13 +33,16 @@ pub fn parse(src: &str) -> String {
 
 #[wasm_bindgen]
 pub fn type_check(src: &str) -> String {
-    let db = mist_viper_backend::db::Database::default();
+    let db = db::Database::default();
     let source = mist_core::hir::SourceProgram::new(&db, src.to_string());
     let program = mist_core::hir::parse_program(&db, source);
 
-    let parse_errors = program.errors(&db);
+    let parse_errors = program.parse(&db).errors();
     let (viper_program, viper_body, _viper_source_map) =
-        mist_viper_backend::gen::viper_file(&db, program).unwrap();
+        match mist_viper_backend::gen::viper_file(&db, program) {
+            Ok(res) => res,
+            Err(e) => return format!("viper error: {e:?}"),
+        };
     let viper_src = ViperOutput::generate(&viper_body, &viper_program).buf;
     let type_errors = mist_viper_backend::gen::viper_file::accumulated::<mist_core::TypeCheckErrors>(
         &db, program,

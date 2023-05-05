@@ -34,7 +34,7 @@ pub struct ItemContext {
     #[new(default)]
     pub(super) named_types: HashMap<String, TypeId>,
     #[new(default)]
-    pub(super) structs: HashMap<Struct, Vec<(Field, TypeId)>>,
+    pub(super) structs: HashMap<Struct, Vec<(Field, TypeSrcId)>>,
     #[new(default)]
     pub(super) struct_types: HashMap<Struct, TypeSrcId>,
 
@@ -131,10 +131,23 @@ impl ItemContext {
         match &field.parent {
             super::FieldParent::Struct(s) => self.structs[s]
                 .iter()
-                .find_map(|(f, ty)| if f == field { Some(*ty) } else { None })
+                .find_map(|(f, ty)| if f == field { Some(self[*ty].ty) } else { None })
                 .unwrap(),
             super::FieldParent::List(_) => match field.name.as_str() {
                 "len" => self.int_ty(),
+                _ => todo!(),
+            },
+        }
+    }
+    pub fn field_ty_src(&self, field: &Field) -> Option<TypeSrcId> {
+        match &field.parent {
+            super::FieldParent::Struct(s) => {
+                self.structs[s]
+                    .iter()
+                    .find_map(|(f, ty)| if f == field { Some(*ty) } else { None })
+            }
+            super::FieldParent::List(_) => match field.name.as_str() {
+                "len" => None,
                 _ => todo!(),
             },
         }
@@ -253,7 +266,8 @@ pub enum SpanOrAstPtr<T: mist_syntax::AstNode> {
 }
 
 impl<T: mist_syntax::AstNode> SpanOrAstPtr<T> {
-    fn into_ptr(self) -> Option<AstPtr<T>> {
+    #[allow(unused)]
+    pub fn into_ptr(self) -> Option<AstPtr<T>> {
         match self {
             SpanOrAstPtr::Ptr(ptr) => Some(ptr),
             SpanOrAstPtr::Span(_) => None,

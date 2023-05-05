@@ -396,19 +396,11 @@ impl Backend {
                     let diagnostics = program
                         .items(&*db)
                         .iter()
-                        .filter_map(|item| {
-                            Some(
-                                item.name(&*db, &parse.tree())?
-                                    .syntax()
-                                    .siblings_with_tokens(mist_syntax::Direction::Prev)
-                                    .nth(1)?
-                                    .span(),
-                            )
-                        })
+                        .filter_map(|item| Some(item.name(&*db, &parse.tree())?.span()))
                         .map(|name| {
                             let range = span_to_range(&text, name.span().set_len(0));
                             Diagnostic {
-                                severity: Some(DiagnosticSeverity::INFORMATION),
+                                severity: Some(DiagnosticSeverity::HINT),
                                 message: "Successfully verified".to_string(),
                                 range,
                                 ..Default::default()

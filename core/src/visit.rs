@@ -13,6 +13,7 @@ pub trait Walker<'db>: Sized {
     fn init(db: &'db dyn crate::Db, vcx: VisitContext) -> Self
     where
         Self:;
+    #[must_use]
     fn walk_program<'v, V: Visitor>(
         db: &'db dyn crate::Db,
         program: Program,
@@ -39,47 +40,58 @@ pub trait Walker<'db>: Sized {
         }
         ControlFlow::Continue(())
     }
+    #[must_use]
     fn walk_ty_decl<V: Visitor>(
         &mut self,
         visitor: &mut V,
         program: Program,
         ty_decl: TypeDecl,
     ) -> ControlFlow<V::Item>;
+    #[must_use]
     fn walk_ty_inv<V: Visitor>(
         &mut self,
         visitor: &mut V,
         program: Program,
         ty_inv: TypeInvariant,
     ) -> ControlFlow<V::Item>;
+    #[must_use]
     fn walk_field<V: Visitor>(
         &mut self,
         visitor: &mut V,
         field: &Field,
         reference: &Ident,
     ) -> ControlFlow<V::Item>;
+    #[must_use]
     fn walk_function<V: Visitor>(
         &mut self,
         visitor: &mut V,
         function: Function,
     ) -> ControlFlow<V::Item>;
+    #[must_use]
     fn walk_ty<V: Visitor>(&mut self, visitor: &mut V, ty: TypeSrcId) -> ControlFlow<V::Item>;
+    #[must_use]
     fn walk_decreases<V: Visitor>(
         &mut self,
         visitor: &mut V,
         decreases: Decreases,
     ) -> ControlFlow<V::Item>;
+    #[must_use]
     fn walk_exprs<V: Visitor>(
         &mut self,
         visitor: &mut V,
         exprs: &[ExprIdx],
     ) -> ControlFlow<V::Item>;
+    #[must_use]
     fn walk_expr<V: Visitor>(&mut self, visitor: &mut V, expr: ExprIdx) -> ControlFlow<V::Item>;
+    #[must_use]
     fn walk_if_expr<V: Visitor>(
         &mut self,
         visitor: &mut V,
         if_expr: &IfExpr,
     ) -> ControlFlow<V::Item>;
+    #[must_use]
     fn walk_block<V: Visitor>(&mut self, visitor: &mut V, block: &Block) -> ControlFlow<V::Item>;
+    #[must_use]
     fn walk_param_list<V: Visitor>(
         &mut self,
         visitor: &mut V,
@@ -211,10 +223,11 @@ where
         }
     }
 
+    #[must_use]
     fn walk_ty_decl<V: Visitor>(
         &mut self,
         visitor: &mut V,
-        program: Program,
+        _program: Program,
         ty_decl: TypeDecl,
     ) -> ControlFlow<V::Item> {
         if self.pre() {
@@ -222,11 +235,7 @@ where
         }
         match ty_decl.data(self.db) {
             hir::TypeDeclData::Struct(s) => {
-                // TODO: Walk the name of the struct
-                // self.walk_ty(
-                //     visitor,
-                //     hir::find_named_type(self.db, program, s.name(self.db)),
-                // )?;
+                self.walk_ty(visitor, self.vcx.cx.struct_ty(s))?;
                 for f in hir::struct_fields(self.db, s) {
                     self.walk_field(visitor, &f, &f.name)?
                 }
@@ -238,23 +247,22 @@ where
         ControlFlow::Continue(())
     }
 
+    #[must_use]
     fn walk_ty_inv<V: Visitor>(
         &mut self,
         visitor: &mut V,
-        program: Program,
-        ty_inv: TypeInvariant,
+        _program: Program,
+        _ty_inv: TypeInvariant,
     ) -> ControlFlow<V::Item> {
-        // TODO: Walk the name of the struct
-        // self.walk_ty(
-        //     visitor,
-        //     hir::find_named_type(self.db, program, ty_inv.name(self.db)),
-        // )?;
+        // TODO: Walk the name of the invariant
+        // self.walk_ty(visitor, self.vcx.cx.struct_ty(ty_inv.))?;
         if let Some(body_expr) = self.vcx.cx.body_expr() {
             self.walk_expr(visitor, body_expr)?;
         }
         ControlFlow::Continue(())
     }
 
+    #[must_use]
     fn walk_field<V: Visitor>(
         &mut self,
         visitor: &mut V,
@@ -264,18 +272,20 @@ where
         if self.pre() {
             visitor.visit_field(&self.vcx, field, reference)?;
         }
-        // TODO: Walk the actual type
-        // self.walk_ty(visitor, field.ty);
+        if let Some(ty) = self.vcx.cx.field_ty_src(field) {
+            self.walk_ty(visitor, ty)?;
+        }
         if self.post() {
             visitor.visit_field(&self.vcx, field, reference)?;
         }
         ControlFlow::Continue(())
     }
 
+    #[must_use]
     fn walk_function<V: Visitor>(
         &mut self,
         visitor: &mut V,
-        function: Function,
+        _function: Function,
     ) -> ControlFlow<V::Item> {
         let Some(fx) = self.vcx.cx.function_context().cloned() else { return ControlFlow::Continue(()) };
 
@@ -301,6 +311,7 @@ where
         ControlFlow::Continue(())
     }
 
+    #[must_use]
     fn walk_ty<V: Visitor>(&mut self, visitor: &mut V, ty: TypeSrcId) -> ControlFlow<V::Item> {
         if self.pre() {
             visitor.visit_ty(&self.vcx, ty)?;
@@ -341,6 +352,7 @@ where
         ControlFlow::Continue(())
     }
 
+    #[must_use]
     fn walk_decreases<V: Visitor>(
         &mut self,
         visitor: &mut V,
@@ -359,6 +371,7 @@ where
         ControlFlow::Continue(())
     }
 
+    #[must_use]
     fn walk_exprs<V: Visitor>(
         &mut self,
         visitor: &mut V,
@@ -369,6 +382,7 @@ where
         }
         ControlFlow::Continue(())
     }
+    #[must_use]
     fn walk_expr<V: Visitor>(&mut self, visitor: &mut V, expr: ExprIdx) -> ControlFlow<V::Item> {
         if self.pre() {
             visitor.visit_expr(&self.vcx, expr)?;
@@ -452,6 +466,7 @@ where
         ControlFlow::Continue(())
     }
 
+    #[must_use]
     fn walk_if_expr<V: Visitor>(
         &mut self,
         visitor: &mut V,
@@ -465,6 +480,7 @@ where
         }
     }
 
+    #[must_use]
     fn walk_block<V: Visitor>(&mut self, visitor: &mut V, block: &Block) -> ControlFlow<V::Item> {
         for stmt in &block.stmts {
             if self.pre() {
@@ -512,6 +528,7 @@ where
         ControlFlow::Continue(())
     }
 
+    #[must_use]
     fn walk_param_list<V: Visitor>(
         &mut self,
         visitor: &mut V,

@@ -223,7 +223,7 @@ impl<'a> TypeChecker<'a> {
                             });
                         let ts = checker.alloc_type_src(
                             TypeSrc {
-                                data: None,
+                                data: Some(TypeData::Struct(s)),
                                 ty: s_ty,
                             },
                             s.name(db).span(),
@@ -233,12 +233,8 @@ impl<'a> TypeChecker<'a> {
                         let fields = hir::struct_fields(db, s)
                             .into_iter()
                             .map(|f| {
-                                let ty = if let Some(ty) = &f.ty(db, root) {
-                                    checker.find_type(ty)
-                                } else {
-                                    checker.error_ty()
-                                };
-                                (f, ty)
+                                let data = f.ty(db, root);
+                                (f, checker.expect_find_type_src(&data))
                             })
                             .collect();
                         checker.cx.structs.insert(s, fields);
@@ -1291,10 +1287,6 @@ impl<'a> TypeChecker<'a> {
                 .ts(self),
             })
             .collect()
-    }
-    pub(super) fn find_type(&mut self, ast_ty: &ast::Type) -> TypeId {
-        let ts = self.find_type_src(ast_ty);
-        self.cx[ts].ty
     }
     pub(super) fn find_type_src(&mut self, ast_ty: &ast::Type) -> TypeSrcId {
         let (td, ty) = match ast_ty {
