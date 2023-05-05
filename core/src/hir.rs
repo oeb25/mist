@@ -106,19 +106,17 @@ impl Program {
     }
 }
 
-#[salsa::tracked]
-pub fn item(db: &dyn crate::Db, program: Program, item_id: ItemId) -> Option<Item> {
-    let root = program.expensive_compute_root(db);
-
-    match item_id.data(db) {
-        ItemData::Const { .. } => None,
+pub fn item(
+    db: &dyn crate::Db,
+    program: Program,
+    root: &ast::SourceFile,
+    item_id: ItemId,
+) -> Option<Item> {
+    Some(match item_id.data(db) {
+        ItemData::Const { .. } => return None,
         ItemData::Fn { ast } => {
             let f = ast.to_node(root.syntax());
-            let name = if let Some(name) = f.name() {
-                name
-            } else {
-                todo!()
-            };
+            let name = f.name().unwrap();
             let attrs = f.attr_flags();
 
             if !f.is_ghost() && f.body().is_none() {
@@ -135,31 +133,21 @@ pub fn item(db: &dyn crate::Db, program: Program, item_id: ItemId) -> Option<Ite
                 TypeCheckErrors::push(db, err);
             }
 
-            Some(Item::Function(Function::new(
-                db,
-                AstPtr::new(&f),
-                name.into(),
-                attrs,
-            )))
+            Function::new(db, ast, name.into(), attrs).into()
         }
         ItemData::Struct { ast } => {
             let s = ast.to_node(root.syntax());
             let name = Ident::from(s.name().unwrap());
-            let data =
-                TypeDeclData::Struct(Struct::new(db, program, AstPtr::new(&s), name.clone()));
-            Some(Item::Type(TypeDecl::new(db, name, data)))
+            let data = TypeDeclData::Struct(Struct::new(db, program, ast, name.clone()));
+            TypeDecl::new(db, name, data).into()
         }
         ItemData::TypeInvariant { ast } => {
             let i = ast.to_node(root.syntax());
             let name = Ident::from(i.name().unwrap());
-            Some(Item::TypeInvariant(TypeInvariant::new(
-                db,
-                AstPtr::new(&i),
-                name,
-            )))
+            TypeInvariant::new(db, ast, name).into()
         }
-        ItemData::Macro { .. } => None,
-    }
+        ItemData::Macro { .. } => return None,
+    })
 }
 
 #[salsa::tracked]
@@ -256,7 +244,6 @@ pub fn struct_fields(db: &dyn crate::Db, s: Struct) -> Vec<Field> {
 
 #[salsa::interned]
 pub struct ItemId {
-    #[return_ref]
     pub data: ItemData,
 }
 
@@ -286,7 +273,7 @@ impl ItemData {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, From)]
 pub enum Item {
     Type(TypeDecl),
     TypeInvariant(TypeInvariant),

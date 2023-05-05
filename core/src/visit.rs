@@ -1,6 +1,7 @@
 use std::{ops::ControlFlow, sync::Arc};
 
 use derive_new::new;
+use mist_syntax::ast;
 
 use crate::hir::{
     self, Block, Decreases, ExprData, ExprIdx, Field, Function, Ident, IfExpr, ItemContext,
@@ -15,10 +16,11 @@ pub trait Walker<'db>: Sized {
     fn walk_program<'v, V: Visitor>(
         db: &'db dyn crate::Db,
         program: Program,
+        root: &ast::SourceFile,
         visitor: &'v mut V,
     ) -> ControlFlow<V::Item> {
         for &item_id in program.items(db) {
-            let Some(item) = hir::item(db, program, item_id) else { continue };
+            let Some(item) = hir::item(db, program, root, item_id) else { continue };
             let Some((cx, source_map)) = hir::item_lower(db, program, item_id, item) else { continue };
             let cx = Arc::new(cx);
             let source_map = Arc::new(source_map);

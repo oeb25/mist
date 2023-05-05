@@ -60,20 +60,20 @@ impl Visitor for DeclarationFinder<'_> {
         vcx: &VisitContext,
         ty: hir::TypeSrcId,
     ) -> ControlFlow<Option<DeclarationSpans>> {
-        match vcx.source_map[ty] {
-            original_span if original_span.contains(self.byte_offset) => {
-                match vcx.cx[vcx.cx[ty].ty] {
-                    hir::TypeData::Struct(s) => {
-                        let target_span = s.name(self.db).span();
-                        ControlFlow::Break(Some(DeclarationSpans {
-                            original_span,
-                            target_span,
-                        }))
-                    }
-                    _ => ControlFlow::Continue(()),
+        let original_span = vcx.source_map[ty].span();
+        if original_span.contains(self.byte_offset) {
+            match vcx.cx[vcx.cx[ty].ty] {
+                hir::TypeData::Struct(s) => {
+                    let target_span = s.name(self.db).span();
+                    ControlFlow::Break(Some(DeclarationSpans {
+                        original_span,
+                        target_span,
+                    }))
                 }
+                _ => ControlFlow::Continue(()),
             }
-            _ => ControlFlow::Continue(()),
+        } else {
+            ControlFlow::Continue(())
         }
     }
     fn visit_var(

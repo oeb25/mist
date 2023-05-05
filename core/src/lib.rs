@@ -23,7 +23,6 @@ pub struct Jar(
     crate::hir::VariableId,
     crate::hir::Variable,
     crate::hir::parse_program,
-    crate::hir::item,
     crate::hir::struct_fields,
     crate::hir::item_lower,
     crate::hir::typecheck::TypeCheckErrors,

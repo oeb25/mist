@@ -191,15 +191,12 @@ impl TypeId {
     }
 }
 
-type ExprPtr = AstPtr<ast::Expr>;
-type ExprSrc = ExprOrSpan;
-
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ItemSourceMap {
-    pub(super) expr_map: HashMap<ExprSrc, ExprIdx>,
-    pub(super) expr_map_back: ArenaMap<ExprIdx, ExprSrc>,
-    pub(super) ty_src_map: ArenaMap<TypeSrcId, SourceSpan>,
-    pub(super) ty_src_map_back: HashMap<SourceSpan, TypeSrcId>,
+    pub(super) expr_map: HashMap<SpanOrAstPtr<ast::Expr>, ExprIdx>,
+    pub(super) expr_map_back: ArenaMap<ExprIdx, SpanOrAstPtr<ast::Expr>>,
+    pub(super) ty_src_map: ArenaMap<TypeSrcId, SpanOrAstPtr<ast::Type>>,
+    pub(super) ty_src_map_back: HashMap<SpanOrAstPtr<ast::Type>, TypeSrcId>,
 }
 
 impl ItemSourceMap {
@@ -209,14 +206,14 @@ impl ItemSourceMap {
 }
 
 impl std::ops::Index<ExprIdx> for ItemSourceMap {
-    type Output = ExprSrc;
+    type Output = SpanOrAstPtr<ast::Expr>;
 
     fn index(&self, index: ExprIdx) -> &Self::Output {
         &self.expr_map_back[index]
     }
 }
 impl std::ops::Index<TypeSrcId> for ItemSourceMap {
-    type Output = SourceSpan;
+    type Output = SpanOrAstPtr<ast::Type>;
 
     fn index(&self, index: TypeSrcId) -> &Self::Output {
         &self.ty_src_map[index]
@@ -249,36 +246,36 @@ impl<T, V> Default for Trace<T, V> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, derive_more::From)]
-pub enum ExprOrSpan {
-    Expr(ExprPtr),
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum SpanOrAstPtr<T: mist_syntax::AstNode> {
     Span(SourceSpan),
+    Ptr(AstPtr<T>),
 }
 
-impl ExprOrSpan {
-    fn into_expr(self) -> Option<ExprPtr> {
+impl<T: mist_syntax::AstNode> SpanOrAstPtr<T> {
+    fn into_ptr(self) -> Option<AstPtr<T>> {
         match self {
-            ExprOrSpan::Expr(expr) => Some(expr),
-            ExprOrSpan::Span(_) => None,
+            SpanOrAstPtr::Ptr(ptr) => Some(ptr),
+            SpanOrAstPtr::Span(_) => None,
         }
     }
 }
-impl Spanned for &'_ ExprOrSpan {
+impl<T: mist_syntax::AstNode> Spanned for &'_ SpanOrAstPtr<T> {
     fn span(self) -> SourceSpan {
         match self {
-            ExprOrSpan::Expr(expr) => expr.span(),
-            ExprOrSpan::Span(span) => *span,
+            SpanOrAstPtr::Ptr(ptr) => ptr.span(),
+            SpanOrAstPtr::Span(span) => *span,
         }
     }
 }
-impl From<ast::Expr> for ExprOrSpan {
-    fn from(value: ast::Expr) -> Self {
-        AstPtr::new(&value).into()
+impl<T: mist_syntax::AstNode> From<SourceSpan> for SpanOrAstPtr<T> {
+    fn from(span: SourceSpan) -> Self {
+        SpanOrAstPtr::Span(span)
     }
 }
-impl From<&'_ ast::Expr> for ExprOrSpan {
-    fn from(value: &ast::Expr) -> Self {
-        AstPtr::new(value).into()
+impl<T: mist_syntax::AstNode> From<&'_ T> for SpanOrAstPtr<T> {
+    fn from(value: &T) -> Self {
+        SpanOrAstPtr::Ptr(AstPtr::new(value))
     }
 }
 

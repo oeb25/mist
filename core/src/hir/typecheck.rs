@@ -9,7 +9,6 @@ use mist_syntax::{
         operators::{ArithOp, BinaryOp, CmpOp},
         HasAttrs, HasName, Spanned,
     },
-    ptr::AstPtr,
     SourceSpan,
 };
 use thiserror::Error;
@@ -23,7 +22,7 @@ use crate::hir::{
 };
 
 use super::{
-    item_context::{ExprOrSpan, FunctionContext},
+    item_context::{FunctionContext, SpanOrAstPtr},
     ItemContext, ItemSourceMap, TypeSrc, TypeSrcId,
 };
 
@@ -205,7 +204,7 @@ impl<'a> TypeChecker<'a> {
         }
 
         for &item_id in program.items(db) {
-            let f = match hir::item(db, program, item_id) {
+            let f = match hir::item(db, program, root, item_id) {
                 Some(hir::Item::Function(f)) => f,
                 Some(hir::Item::Type(t)) => match t.data(db) {
                     hir::TypeDeclData::Struct(s) => {
@@ -227,7 +226,7 @@ impl<'a> TypeChecker<'a> {
                                 data: None,
                                 ty: s_ty,
                             },
-                            Some(s.name(db).span()),
+                            s.name(db).span(),
                         );
                         checker.cx.struct_types.insert(s, ts);
 
@@ -285,7 +284,7 @@ impl<'a> TypeChecker<'a> {
             let var = checker.declare_variable(
                 VariableDeclaration::new_function(f.name(db).clone()),
                 ts,
-                None,
+                var_span,
             );
 
             if Some(f) == function {
@@ -309,7 +308,10 @@ impl<'a> TypeChecker<'a> {
                     let var = checker.declare_variable(
                         VariableDeclaration::new_param(p.name.clone()),
                         ty,
-                        None,
+                        match p.ty {
+                            Some(ty) => SpanOrAstPtr::from(&ty),
+                            None => SpanOrAstPtr::Span(p.name.span()),
+                        },
                     );
                     Param {
                         is_ghost: p.is_ghost,
@@ -378,7 +380,7 @@ impl<'a> TypeChecker<'a> {
     pub fn set_body_expr_from_block(&mut self, block: Block, node: ast::BlockExpr) {
         let idx = self.alloc_expr(
             Expr::new(block.return_ty, ExprData::Block(block)),
-            ast::Expr::from(node),
+            &ast::Expr::from(node),
         );
         self.cx.body_expr = Some(idx);
     }
@@ -688,7 +690,8 @@ impl<'a> TypeChecker<'a> {
                         if args.len() != params.len() {
                             return self.expr_error(
                                 it.expr()
-                                    .map(ExprOrSpan::from)
+                                    .as_ref()
+                                    .map(SpanOrAstPtr::from)
                                     .unwrap_or_else(|| it.span().into()),
                                 None,
                                 None,
@@ -728,7 +731,7 @@ impl<'a> TypeChecker<'a> {
                 let ty = match (lhs, rhs) {
                     (None, None) => {
                         return self.expr_error(
-                            expr,
+                            &expr,
                             None,
                             None,
                             TypeCheckErrorKind::NotYetImplemented("inference of '..'".to_string()),
@@ -794,7 +797,7 @@ impl<'a> TypeChecker<'a> {
                     }
                     _ => {
                         return self.expr_error(
-                            expr,
+                            &expr,
                             None,
                             None,
                             TypeCheckErrorKind::NotYetImplemented(format!(
@@ -1070,7 +1073,8 @@ impl<'a> TypeChecker<'a> {
                         let var = self.declare_variable(
                             VariableDeclaration::new_param(param.name.clone()),
                             param.ty,
-                            None,
+                            // TODO: Should this not be the ty?
+                            param.name.span(),
                         );
                         Param {
                             is_ghost: true,
@@ -1094,7 +1098,7 @@ impl<'a> TypeChecker<'a> {
             }
         };
 
-        self.alloc_expr(new, AstPtr::new(&expr))
+        self.alloc_expr(new, &expr)
     }
 
     fn ty_data(&self, ty: TypeId) -> TypeData {
@@ -1221,7 +1225,7 @@ impl<'a> TypeChecker<'a> {
     }
     fn expr_error(
         &mut self,
-        expr_or_span: impl Into<ExprOrSpan>,
+        expr_or_span: impl Into<SpanOrAstPtr<ast::Expr>>,
         label: Option<String>,
         help: Option<String>,
         kind: TypeCheckErrorKind,
@@ -1233,7 +1237,7 @@ impl<'a> TypeChecker<'a> {
 
         self.alloc_expr(Expr::new(self.error_ty(), ExprData::Missing), expr_or_span)
     }
-    fn alloc_expr(&mut self, expr: Expr, ptr: impl Into<ExprOrSpan>) -> ExprIdx {
+    fn alloc_expr(&mut self, expr: Expr, ptr: impl Into<SpanOrAstPtr<ast::Expr>>) -> ExprIdx {
         let ptr = ptr.into();
         let idx = self.cx.expr_arena.alloc(expr);
         self.source_map.expr_map_back.insert(idx, ptr.clone());
@@ -1394,7 +1398,7 @@ impl<'a> TypeChecker<'a> {
         };
 
         let ts = TypeSrc { data: Some(td), ty };
-        self.alloc_type_src(ts, Some(ast_ty.span()))
+        self.alloc_type_src(ts, ast_ty)
     }
     fn check_decreases(&mut self, decreases: Option<ast::Decreases>) -> Decreases {
         if let Some(d) = decreases {
@@ -1443,7 +1447,10 @@ impl<'a> TypeChecker<'a> {
                         self.declare_variable(
                             VariableDeclaration::new_let(name),
                             var_ty,
-                            it.ty().map(|t| t.span()),
+                            match it.ty() {
+                                Some(ty) => SpanOrAstPtr::from(&ty),
+                                None => SpanOrAstPtr::from(var_span),
+                            },
                         ),
                         var_span,
                     );
@@ -1508,19 +1515,22 @@ impl<'a> TypeChecker<'a> {
             return_ty: return_ty.ty(self),
         }
     }
-    pub fn alloc_type_src(&mut self, ts: TypeSrc, span: Option<SourceSpan>) -> TypeSrcId {
+    pub fn alloc_type_src(
+        &mut self,
+        ts: TypeSrc,
+        ty_src: impl Into<SpanOrAstPtr<ast::Type>>,
+    ) -> TypeSrcId {
         let id = self.cx.ty_src_arena.alloc(ts);
-        if let Some(span) = span {
-            self.source_map.ty_src_map.insert(id, span);
-            self.source_map.ty_src_map_back.insert(span, id);
-        }
+        let span = ty_src.into();
+        self.source_map.ty_src_map.insert(id, span.clone());
+        self.source_map.ty_src_map_back.insert(span, id);
         id
     }
     pub fn declare_variable(
         &mut self,
         decl: VariableDeclaration,
         ty: TypeSrcId,
-        ty_span: Option<SourceSpan>,
+        ty_span: impl Into<SpanOrAstPtr<ast::Type>>,
     ) -> VariableIdx {
         let name = decl.name.to_string();
         let var = self.cx.declarations.alloc(
@@ -1529,10 +1539,9 @@ impl<'a> TypeChecker<'a> {
         );
         self.scope.insert(name, var);
         self.cx.var_types.insert(var, ty);
-        if let Some(ty_span) = ty_span {
-            self.source_map.ty_src_map.insert(ty, ty_span);
-            self.source_map.ty_src_map_back.insert(ty_span, ty);
-        }
+        let ty_src = ty_span.into();
+        self.source_map.ty_src_map.insert(ty, ty_src.clone());
+        self.source_map.ty_src_map_back.insert(ty_src, ty);
         var
     }
     pub fn var_ty(&self, var: VariableIdx) -> TypeId {
@@ -1554,7 +1563,11 @@ impl<'a> TypeChecker<'a> {
                 TypeCheckErrorKind::UndefinedVariable(name.to_string()),
             );
             let ty = self.unsourced_ty(err_ty);
-            self.declare_variable(VariableDeclaration::new_undefined(name.clone()), ty, None)
+            self.declare_variable(
+                VariableDeclaration::new_undefined(name.clone()),
+                ty,
+                name.span(),
+            )
         }
     }
 

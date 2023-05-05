@@ -218,10 +218,14 @@ impl<'src> Visitor for Highlighter<'src> {
         let ts = &vcx.cx[ty];
         match &vcx.cx[ts.ty] {
             hir::TypeData::Primitive(_) => {
-                self.push_opt(Some(vcx.source_map[ty]), TT::Type, Some(TM::DefaultLibrary));
+                self.push_opt(
+                    Some(vcx.source_map[ty].span()),
+                    TT::Type,
+                    Some(TM::DefaultLibrary),
+                );
             }
             hir::TypeData::Struct(_) => {
-                self.push_opt(Some(vcx.source_map[ty]), TT::Type, None);
+                self.push_opt(Some(vcx.source_map[ty].span()), TT::Type, None);
             }
             _ => {}
         }

@@ -1,7 +1,7 @@
 pub(crate) use ast::SyntaxKind;
 pub use parser::ParseError;
 use parser::Parser;
-pub use support::SourceSpan;
+pub use support::{AstNode, SourceSpan};
 
 pub mod ast;
 mod parser;

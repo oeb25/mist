@@ -139,8 +139,8 @@ impl<'a> Visitor for HoverFinder<'a> {
     }
 
     fn visit_ty(&mut self, vcx: &VisitContext, ty: TypeSrcId) -> ControlFlow<Option<HoverResult>> {
-        let span = match vcx.source_map[ty] {
-            span if span.contains(self.byte_offset) => span,
+        let span = match &vcx.source_map[ty] {
+            src if src.span().contains(self.byte_offset) => src.span(),
             _ => return ControlFlow::Continue(()),
         };
 
