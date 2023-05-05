@@ -1,0 +1,25 @@
+struct Person {
+    age: int,
+    child: Person,
+}
+
+fn main(p: &mut Person) -> int
+    req p.age >= 0
+    ens p.age > 0
+    ens p.age + p.age + p.child.age > p.child.age
+    ens result == p.child.age + 6 * p.age
+{
+    p.age = p.age + 1;
+    let p = p;
+    let q = p.age + p.child.age;
+    let x = q + two_age(p);
+    let z = p.age;
+    x + z + two_age(p)
+}
+
+pure fn two_age(p: &Person) -> int
+    ens result == 2 * p.age
+{
+    let ret = p.age * 2;
+    ret
+}

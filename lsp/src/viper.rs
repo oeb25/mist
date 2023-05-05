@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 
 use futures_util::StreamExt;
 use miette::{Context, IntoDiagnostic};
@@ -8,7 +11,6 @@ use mist_viper_backend::gen::ViperOutput;
 use tracing::info;
 
 pub struct VerifyFile<'a> {
-    pub db: &'a dyn crate::Db,
     pub program: hir::Program,
     pub viperserver_jar: &'a Path,
     pub viperserver: &'a viperserver::ViperServer,
@@ -18,9 +20,12 @@ pub struct VerifyFile<'a> {
 }
 
 impl VerifyFile<'_> {
-    pub async fn run(&self) -> miette::Result<Vec<miette::Report>> {
+    pub(crate) async fn run(
+        &self,
+        db: &Mutex<crate::db::Database>,
+    ) -> miette::Result<Vec<miette::Report>> {
         let (viper_program, viper_body, viper_source_map) =
-            mist_viper_backend::gen::viper_file(self.db, self.program)?;
+            mist_viper_backend::gen::viper_file(&*db.lock().unwrap(), self.program)?;
         let viper_output = ViperOutput::generate(&viper_body, &viper_program);
         let viper_src = &viper_output.buf;
 
@@ -69,7 +74,7 @@ impl VerifyFile<'_> {
 
         while let Some(status) = stream.next().await {
             let status = status.into_diagnostic()?;
-            errors.append(&mut ctx.handle_status(self.db, status));
+            errors.append(&mut ctx.handle_status(&*db.lock().unwrap(), status));
         }
 
         // if errors.is_empty() {

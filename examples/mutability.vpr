@@ -75,7 +75,63 @@ method move() {
     // Notice indices
     assert unfolding Person(p3) in p1.age == 20
 
-    // Unfolding two if not okay
+    // Unfolding two is not okay
     unfold Person(p1)
     unfold Person(p2)
+}
+
+domain Tuple[A,B] {
+    function tuple(a: A, b: B): Tuple[A, B]
+    function fst(t: Tuple[A,B]): A
+    function snd(t: Tuple[A,B]): B
+    axiom ax_fst {
+        forall a: A, b: B :: fst(tuple(a, b)) == a
+    }
+    axiom ax_snd {
+        forall a: A, b: B :: snd(tuple(a, b)) == b
+    }
+}
+
+method take_by_ref(x: Ref, x_perm: Perm) returns (y: Int)
+    requires x_perm > none
+    requires acc(x.age, x_perm)
+    ensures acc(x.age, x_perm)
+{
+    if (x_perm == write) {
+        x.age := 2
+    }
+    y := x.age
+}
+
+method same_back() {
+    var x: Ref
+    var y: Int
+    x := new(age)
+    x.age := 0
+    y := take_by_ref(x, 1/2)
+    x.age := x.age + 5
+    assert x.age == 5
+}
+
+method take_by_ref2(x: Tuple[Ref, Perm]) returns (y: Int)
+    requires snd(x) > none
+    requires acc(fst(x).age, snd(x))
+    ensures acc(fst(x).age, snd(x))
+{
+    if (snd(x) == write) {
+        fst(x).age := 2
+    }
+    y := fst(x).age
+}
+
+method same_back2() {
+    var x: Ref
+    var y: Int
+    x := new(age)
+    x.age := 0
+    var q: Perm
+    assume write > q && q > none
+    y := take_by_ref2(tuple(x, q))
+    x.age := x.age + 5
+    assert x.age == 5
 }

@@ -47,14 +47,17 @@
 //!       a `let-in` expression, wrapping the tail of the fold.
 
 use mist_core::{hir, mir};
-use silvers::expression::{Exp, QuantifierExp};
+use silvers::expression::{Exp, PermExp, PredicateAccess, PredicateAccessPredicate, QuantifierExp};
+use tracing::warn;
 
-use crate::gen::{VExpr, VExprId};
+use crate::gen::VExprId;
 
 use super::{BlockOrInstruction, BodyLower, ViperLowerError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PureLowerResult {
+    /// An expression ([`VExprId`]) which has not yet been assigned to
+    /// [`mir::Place`] and stopped before [`Option<mir::BlockId>`].
     UnassignedExpression(VExprId, mir::Place, Option<mir::BlockId>),
     Empty {
         stopped_before: Option<mir::BlockId>,
@@ -77,7 +80,7 @@ impl PureLowerResult {
                 } else {
                     let variable = lower.place_for_assignment(x);
                     Ok(PureLowerResult::UnassignedExpression(
-                        lower.alloc(source, VExpr::new(Exp::new_let(variable.into(), exp, body))),
+                        lower.alloc(source, Exp::new_let(variable.into(), exp, body)),
                         target,
                         stopped_before,
                     ))
@@ -88,6 +91,15 @@ impl PureLowerResult {
                 x,
                 stopped_before,
             )),
+        }
+    }
+
+    fn map_exp(self, mut f: impl FnMut(VExprId) -> VExprId) -> PureLowerResult {
+        match self {
+            PureLowerResult::UnassignedExpression(exp, place, stopped_before) => {
+                PureLowerResult::UnassignedExpression(f(exp), place, stopped_before)
+            }
+            PureLowerResult::Empty { stopped_before } => PureLowerResult::Empty { stopped_before },
         }
     }
 }
@@ -156,14 +168,18 @@ impl BodyLower<'_> {
                     })
                 }
                 mir::Terminator::Quantify(q, over, next) => match self.pure_block(*next, None)? {
-                    PureLowerResult::UnassignedExpression(exp, _slot, stopped_before) => {
+                    PureLowerResult::UnassignedExpression(exp, place, stopped_before) => {
+                        for s in over {
+                            self.internally_bound_slots.insert(*s, ());
+                        }
+
                         let variables = over.iter().map(|s| self.slot_to_decl(*s)).collect();
                         let triggers = vec![];
 
                         PureLowerResult::UnassignedExpression(
                             self.alloc(
                                 block,
-                                VExpr::new(Exp::new_quantifier(match q {
+                                match q {
                                     hir::Quantifier::Forall => QuantifierExp::Forall {
                                         variables,
                                         triggers,
@@ -174,14 +190,22 @@ impl BodyLower<'_> {
                                         triggers,
                                         exp,
                                     },
-                                })),
+                                },
                             ),
                             // TODO
-                            self.body.result_slot().unwrap().into(),
+                            place,
+                            // self.body.result_slot().unwrap().into(),
                             stopped_before,
                         )
                     }
-                    PureLowerResult::Empty { .. } => todo!(),
+                    PureLowerResult::Empty { .. } => {
+                        return Err(ViperLowerError::NotYetImplemented {
+                            msg: "quantifier with empty result".into(),
+                            item_id: self.body.item_id(),
+                            block_or_inst: Some(block.into()),
+                            span: None,
+                        })
+                    }
                 },
                 mir::Terminator::QuantifyEnd(next) => PureLowerResult::Empty {
                     stopped_before: Some(*next),
@@ -202,7 +226,7 @@ impl BodyLower<'_> {
                 mir::Terminator::Switch(test, switch) => {
                     let Some(next) = self.postdominators.get(block) else {
                         return Err(ViperLowerError::NotYetImplemented {
-                            msg: "block did not have a postdominator".to_string(),
+                            msg: format!("block :B{} did not have a postdominator", block.into_raw()),
                             item_id: self.body.item_id(),
                             block_or_inst: Some(block.into()),
                             span: None,
@@ -210,8 +234,8 @@ impl BodyLower<'_> {
                     };
 
                     let (mut values, otherwise) = switch.values();
-                    let otherwise = self.pure_block(otherwise, Some(block))?;
-                    let cont = values.try_fold(otherwise, |els, (value, target)| {
+                    let otherwise_result = self.pure_block(otherwise, Some(block))?;
+                    let cont = values.try_fold(otherwise_result, |els, (value, target)| {
                         match (els, self.pure_block(target, Some(block))?) {
                             (
                                 PureLowerResult::UnassignedExpression(els, els_slot, _),
@@ -230,7 +254,7 @@ impl BodyLower<'_> {
                                     _ => todo!(), // Exp::new_bin(BinOp::EqCmp, test, value)
                                 };
                                 Ok(PureLowerResult::UnassignedExpression(
-                                    self.alloc(block, VExpr::new(Exp::new_cond(cond, thn, els))),
+                                    self.alloc(block, Exp::new_cond(cond, thn, els)),
                                     thn_slot,
                                     Some(next),
                                 ))
@@ -245,9 +269,9 @@ impl BodyLower<'_> {
                             )),
                             (PureLowerResult::Empty { .. }, _) => {
                                 Err(ViperLowerError::NotYetImplemented {
-                                    msg: "divergent branches".to_string(),
+                                    msg: format!("divergent branches: :B{} is empty, and was told to stop at :B{}", otherwise.into_raw(), block.into_raw()),
                                     item_id: self.body.item_id(),
-                                    block_or_inst: Some(block.into()),
+                                    block_or_inst: Some(otherwise.into()),
                                     span: None,
                                 })
                             }
@@ -268,7 +292,7 @@ impl BodyLower<'_> {
                     target,
                 } => {
                     let f = self.function(block, *func, args)?;
-                    let f_application = self.alloc(block, VExpr::new(f));
+                    let f_application = self.alloc(block, f);
 
                     if let Some(target) = *target {
                         self.conditional_continue(
@@ -299,7 +323,33 @@ impl BodyLower<'_> {
                         let exp = self.expr(inst, e)?;
                         acc.wrap_in_assignment(self, inst, *x, exp)?
                     }
-                    mir::Instruction::Assertion(_, _) => acc,
+                    mir::Instruction::Assertion(_, _) | mir::Instruction::PlaceMention(_) => acc,
+                    mir::Instruction::Folding(folding) => {
+                        let unfolding_place = match folding {
+                            mir::Folding::Fold { .. } => return Ok(acc),
+                            mir::Folding::Unfold { consume, .. } => *consume,
+                        };
+                        if let Some(s) = self.cx.ty_struct(self.body.place_ty(unfolding_place)) {
+                            acc.map_exp(|exp| {
+                                let place_ref = self.place_to_ref(inst, unfolding_place);
+                                let pred_acc = PredicateAccessPredicate::new(
+                                    PredicateAccess::new(
+                                        s.name(self.db).to_string(),
+                                        vec![place_ref],
+                                    ),
+                                    self.alloc(inst, PermExp::Wildcard),
+                                );
+
+                                self.alloc(inst, Exp::new_unfolding(pred_acc, exp))
+                            })
+                        } else {
+                            warn!(
+                                "no struct found for {:?}",
+                                self.cx[self.body.place_ty(unfolding_place)]
+                            );
+                            acc
+                        }
+                    }
                 })
             })
     }

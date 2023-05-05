@@ -13,7 +13,10 @@ use mist_syntax::{
     SourceSpan,
 };
 use silvers::{
-    expression::{AbstractLocalVar, BinOp, Exp, FieldAccess, LocalVar, SeqExp, UnOp},
+    expression::{
+        AbstractLocalVar, AccessPredicate, BinOp, Exp, LocalVar, PermExp, PredicateAccess,
+        PredicateAccessPredicate, SeqExp, UnOp,
+    },
     program::{Field, LocalVarDecl},
     typ::Type as VTy,
 };
@@ -170,11 +173,11 @@ pub struct ViperLowerErrors(ViperLowerError);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ViperType {
     pub vty: VTy,
-    optional: bool,
-    is_mut: bool,
-    inner: Option<Box<ViperType>>,
-    is_ref: bool,
-    strukt: Option<hir::Struct>,
+    pub optional: bool,
+    pub is_mut: bool,
+    pub inner: Option<Box<ViperType>>,
+    pub is_ref: bool,
+    pub strukt: Option<hir::Struct>,
 }
 
 impl From<VTy> for ViperType {
@@ -202,6 +205,7 @@ pub struct BodyLower<'a> {
     postdominators: cfg::Postdominators,
     var_refs: ArenaMap<mir::SlotId, VExprId>,
     inlined: ArenaMap<VExprId, VExprId>,
+    internally_bound_slots: ArenaMap<mir::SlotId, ()>,
 }
 
 impl<'a> BodyLower<'a> {
@@ -226,6 +230,7 @@ impl<'a> BodyLower<'a> {
             postdominators: Default::default(),
             var_refs: Default::default(),
             inlined: Default::default(),
+            internally_bound_slots: Default::default(),
         }
     }
 
@@ -317,9 +322,13 @@ impl<'a> BodyLower<'a> {
 }
 
 impl BodyLower<'_> {
-    fn alloc(&mut self, source: impl Into<BlockOrInstruction>, vexpr: VExpr) -> VExprId {
+    pub(crate) fn alloc(
+        &mut self,
+        source: impl Into<BlockOrInstruction>,
+        vexpr: impl Into<Exp<VExprId>>,
+    ) -> VExprId {
         let item_id = self.body.item_id();
-        let id = self.viper_body.arena.alloc(vexpr);
+        let id = self.viper_body.arena.alloc(VExpr::new(vexpr.into()));
         match source.into() {
             BlockOrInstruction::Block(block_id) => {
                 self.source_map.block_expr.insert((item_id, block_id), id);
@@ -352,7 +361,7 @@ impl BodyLower<'_> {
             mir::FunctionData::Index => {
                 let base = self.operand_to_ref(source, &args[0]);
                 let index = self.operand_to_ref(source, &args[1]);
-                Exp::Seq(SeqExp::new_index(base, index))
+                SeqExp::new_index(base, index).into()
             }
             mir::FunctionData::RangeIndex => {
                 let base = self.operand_to_ref(source, &args[0]);
@@ -376,11 +385,12 @@ impl BodyLower<'_> {
                 };
                 Exp::new_func_app(f.to_string(), args)
             }
-            mir::FunctionData::List => Exp::Seq(SeqExp::new_explicit(
+            mir::FunctionData::List => SeqExp::new_explicit(
                 args.iter()
                     .map(|s| self.operand_to_ref(source, s))
                     .collect(),
-            )),
+            )
+            .into(),
         })
     }
 
@@ -388,7 +398,7 @@ impl BodyLower<'_> {
         let var = self.slot_to_var(x);
         LocalVarDecl::new(var.name, var.typ)
     }
-    fn slot_to_var(&mut self, x: mir::SlotId) -> LocalVar {
+    pub(super) fn slot_to_var(&mut self, x: mir::SlotId) -> LocalVar {
         match &self.body[x] {
             mir::Slot::Var(var) => LocalVar::new(
                 format!("{}_{}", self.cx.var_ident(*var), x.into_raw()),
@@ -400,50 +410,55 @@ impl BodyLower<'_> {
             ),
         }
     }
-    fn place_to_ref(
+    pub(super) fn place_to_ref(
         &mut self,
         source: impl Into<BlockOrInstruction> + Copy,
         p: mir::Place,
     ) -> VExprId {
         let var = self.slot_to_var(p.slot);
-        if let Some(exp) = self.var_refs.get(p.slot).copied() {
-            exp
-        } else {
-            let exp = match &self.body[p.slot] {
-                mir::Slot::Temp | mir::Slot::Var(_) => {
-                    Exp::AbstractLocalVar(AbstractLocalVar::LocalVar(var))
-                }
-                mir::Slot::Result => {
-                    if self.is_method {
-                        Exp::AbstractLocalVar(AbstractLocalVar::LocalVar(var))
-                    } else {
-                        Exp::AbstractLocalVar(AbstractLocalVar::Result { typ: var.typ })
-                    }
-                }
-            };
-
-            let id = self.alloc(source, VExpr::new(exp));
-            self.var_refs.insert(p.slot, id);
-
-            self.body[p.projection]
-                .iter()
-                .fold(id, |base, proj| match proj {
-                    mir::Projection::Field(f, ty) => {
-                        let exp =
-                            Exp::LocationAccess(silvers::expression::ResourceAccess::Location(
-                                silvers::expression::LocationAccess::Field(FieldAccess::new(
-                                    base,
-                                    Field::new(
-                                        f.name.to_string(),
-                                        // TODO: Should we look at the contraints?
-                                        self.lower_type(*ty).vty,
-                                    ),
-                                )),
-                            ));
-                        self.alloc(source, VExpr::new(exp))
-                    }
-                })
+        if self.body[p.projection].is_empty() {
+            if let Some(exp) = self.var_refs.get(p.slot).copied() {
+                return exp;
+            }
         }
+
+        let exp = match &self.body[p.slot] {
+            mir::Slot::Temp | mir::Slot::Var(_) => AbstractLocalVar::LocalVar(var),
+            mir::Slot::Result => {
+                if self.is_method {
+                    AbstractLocalVar::LocalVar(var)
+                } else {
+                    AbstractLocalVar::Result { typ: var.typ }
+                }
+            }
+        };
+
+        let id = self.alloc(source, exp);
+        self.var_refs.insert(p.slot, id);
+
+        self.body[p.projection]
+            .iter()
+            .fold(id, |base, proj| match proj {
+                mir::Projection::Field(f, ty) => {
+                    if f.name.as_str() == "len" {
+                        let exp = SeqExp::Length { s: base };
+                        self.alloc(source, exp)
+                    } else {
+                        let exp = Field::new(
+                            f.name.to_string(),
+                            // TODO: Should we look at the contraints?
+                            self.lower_type(*ty).vty,
+                        )
+                        .access_exp(base);
+                        self.alloc(source, exp)
+                    }
+                }
+                mir::Projection::Index(index, _) => {
+                    let idx = self.slot_to_var(*index);
+                    let idx = self.alloc(source, AbstractLocalVar::LocalVar(idx));
+                    self.alloc(source, SeqExp::Index { s: base, idx })
+                }
+            })
     }
     fn operand_to_ref(
         &mut self,
@@ -453,7 +468,7 @@ impl BodyLower<'_> {
         match o {
             mir::Operand::Copy(s) => self.place_to_ref(source, *s),
             mir::Operand::Move(s) => self.place_to_ref(source, *s),
-            mir::Operand::Literal(l) => self.alloc(source, VExpr::new(lower_lit(l))),
+            mir::Operand::Literal(l) => self.alloc(source, lower_lit(l)),
         }
     }
     fn place_for_assignment(&mut self, dest: mir::Place) -> LocalVar {
@@ -507,6 +522,48 @@ impl BodyLower<'_> {
                 Exp::new_un(op, x)
             }
         };
-        Ok(self.alloc(inst, VExpr::new(exp)))
+        Ok(self.alloc(inst, exp))
+    }
+
+    pub(super) fn ty_to_condition(
+        &mut self,
+        source: impl Into<BlockOrInstruction> + Copy,
+        place: VExprId,
+        ty: hir::TypeId,
+    ) -> (Option<VExprId>, Option<VExprId>) {
+        let ty = self.lower_type(ty);
+        if let Some(st) = ty.strukt {
+            let perm = self.alloc(source, PermExp::Full);
+            return (
+                Some(self.alloc(
+                    source,
+                    AccessPredicate::Predicate(PredicateAccessPredicate::new(
+                        PredicateAccess::new(st.name(self.db).to_string(), vec![place]),
+                        perm,
+                    )),
+                )),
+                None,
+            );
+        }
+        if let Some(inner) = ty.inner {
+            if ty.is_ref {
+                if let Some(st) = inner.strukt {
+                    let perm = if ty.is_mut {
+                        self.alloc(source, PermExp::Full)
+                    } else {
+                        self.alloc(source, PermExp::Wildcard)
+                    };
+                    let exp = self.alloc(
+                        source,
+                        AccessPredicate::Predicate(PredicateAccessPredicate::new(
+                            PredicateAccess::new(st.name(self.db).to_string(), vec![place]),
+                            perm,
+                        )),
+                    );
+                    return (Some(exp), Some(exp));
+                }
+            }
+        }
+        (None, None)
     }
 }

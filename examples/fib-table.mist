@@ -1,0 +1,54 @@
+struct FibTable {
+  values: [int]
+}
+
+fn compute_up_to(t: &mut FibTable, n: int)
+  req forall(i: int)
+    if 0 <= i && i < t.values.len {
+      t.values[i] == fib(i)
+    } else {
+      true
+    }
+  req n > 1
+  ens t.values.len >= n
+  ens forall(i: int)
+    if 0 <= i && i < n {
+      t.values[i] == fib(i)
+    } else {
+      true
+    }
+{
+  while t.values.len < n
+    inv
+      t.values.len <= n,
+      // forall j in 0..t.values.len { t.values[j] == fib(j) },
+      // forall j {
+      //   if j in 0..t.values.len { t.values[j] == fib(j) } else { true }
+      // },
+      forall(j: int) if 0 <= j && j < t.values.len {
+        t.values[j] == fib(j)
+      } else {
+        true
+      }
+  {
+    if t.values.len < 2 {
+      t.values = [1, 1];
+    } else {
+      t.values = t.values + [t.values[t.values.len - 1] + t.values[t.values.len - 2]];
+    }
+  }
+
+  // This looks nice :)
+  // for i in 2..n
+  //   inv t.values.len == i,
+  //       forall j in 0..i { t.values[j] == fib(j) }
+  // {
+  //   t.values = t.values + [t.values[i - 1] + t.values[i - 2])]
+  // }
+}
+
+pure fn fib(n: int) -> int
+  req n >= 0
+{
+  if n < 2 { 1 } else { fib(n - 1) + fib(n - 2) }
+}

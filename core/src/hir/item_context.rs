@@ -11,7 +11,7 @@ use mist_syntax::{
 use crate::VariableDeclaration;
 
 use super::{
-    Condition, Decreases, Expr, ExprIdx, Field, Ident, ItemId, ParamList, Struct, TypeData,
+    Condition, Decreases, Expr, ExprIdx, Field, Ident, ItemId, Param, Struct, TypeData,
     TypeDataIdx, TypeId, TypeSrc, TypeSrcId, Variable, VariableIdx, VariableRef,
 };
 
@@ -39,7 +39,7 @@ pub struct ItemContext {
     pub(super) struct_types: HashMap<Struct, TypeSrcId>,
 
     #[new(default)]
-    pub(super) params: ParamList<VariableIdx>,
+    pub(super) params: Vec<Param<VariableIdx>>,
     #[new(default)]
     pub(super) body_expr: Option<ExprIdx>,
     #[new(default)]
@@ -94,7 +94,7 @@ impl ItemContext {
     pub fn conditions(&self) -> impl Iterator<Item = &Condition> {
         self.function_context.iter().flat_map(|cx| &cx.conditions)
     }
-    pub fn params(&self) -> &ParamList<VariableIdx> {
+    pub fn params(&self) -> &[Param<VariableIdx>] {
         &self.params
     }
     pub fn return_ty(&self) -> Option<TypeId> {
@@ -157,6 +157,24 @@ impl ItemContext {
         match self.ty_data(ty) {
             TypeData::Ghost(inner) => self.ty_data_without_ghost(*inner),
             td => td,
+        }
+    }
+    pub fn ty_struct(&self, ty: TypeId) -> Option<Struct> {
+        match self.ty_data(ty) {
+            TypeData::Struct(s) => Some(*s),
+
+            TypeData::Ghost(inner) => self.ty_struct(*inner),
+            TypeData::Ref { inner, .. } => self.ty_struct(*inner),
+            TypeData::Optional(inner) => self.ty_struct(*inner),
+
+            TypeData::Error
+            | TypeData::Void
+            | TypeData::List(_)
+            | TypeData::Primitive(_)
+            | TypeData::Null
+            | TypeData::Function { .. }
+            | TypeData::Range(_)
+            | TypeData::Free => None,
         }
     }
 }

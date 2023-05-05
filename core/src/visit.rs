@@ -4,8 +4,8 @@ use derive_new::new;
 
 use crate::hir::{
     self, Block, Decreases, ExprData, ExprIdx, Field, Function, Ident, IfExpr, ItemContext,
-    ItemSourceMap, Param, ParamList, Program, Statement, StatementData, TypeData, TypeDecl,
-    TypeInvariant, TypeSrcId, VariableIdx, VariableRef,
+    ItemSourceMap, Param, Program, Statement, StatementData, TypeData, TypeDecl, TypeInvariant,
+    TypeSrcId, VariableIdx, VariableRef,
 };
 
 pub trait Walker<'db>: Sized {
@@ -81,7 +81,7 @@ pub trait Walker<'db>: Sized {
     fn walk_param_list<V: Visitor>(
         &mut self,
         visitor: &mut V,
-        param_list: &ParamList<VariableIdx>,
+        param_list: &[Param<VariableIdx>],
     ) -> ControlFlow<V::Item>;
 }
 
@@ -279,7 +279,7 @@ where
 
         visitor.visit_var(&self.vcx, fx.function_var())?;
 
-        let params = self.vcx.cx.params().clone();
+        let params = self.vcx.cx.params().to_vec();
         self.walk_param_list(visitor, &params)?;
 
         for it in fx.conditions() {
@@ -513,9 +513,9 @@ where
     fn walk_param_list<V: Visitor>(
         &mut self,
         visitor: &mut V,
-        param_list: &ParamList<VariableIdx>,
+        param_list: &[Param<VariableIdx>],
     ) -> ControlFlow<V::Item> {
-        for param in &param_list.params {
+        for param in param_list {
             if self.pre() {
                 visitor.visit_param(&self.vcx, param)?;
             }

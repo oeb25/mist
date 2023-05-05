@@ -21,11 +21,11 @@ impl salsa::Database for Database {
     }
 }
 
-// impl salsa::ParallelDatabase for Database {
-//     fn snapshot(&self) -> salsa::Snapshot<Self> {
-//         salsa::Snapshot::new(Database {
-//             storage: self.storage.snapshot(),
-//             logs: self.logs.clone(),
-//         })
-//     }
-// }
+impl salsa::ParallelDatabase for Database {
+    fn snapshot(&self) -> salsa::Snapshot<Self> {
+        salsa::Snapshot::new(Database {
+            storage: self.storage.snapshot(),
+            logs: self.logs.clone(),
+        })
+    }
+}

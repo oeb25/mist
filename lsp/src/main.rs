@@ -3,18 +3,11 @@ use tower_lsp::{LspService, Server};
 
 use mist_lsp::backend::Backend;
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> Result<()> {
     miette::set_panic_hook();
 
-    let local = tokio::task::LocalSet::new();
-
-    // Run the local task set.
-    local
-        .run_until(async move {
-            run().await.unwrap();
-        })
-        .await;
+    run().await?;
 
     Ok(())
 }

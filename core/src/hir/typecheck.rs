@@ -17,7 +17,7 @@ use tracing::error;
 
 use crate::hir::{
     self, AssertionKind, Block, Condition, Decreases, Expr, ExprData, ExprIdx, Field, FieldParent,
-    Ident, IfExpr, ItemId, Literal, Param, ParamList, Primitive, Program, Quantifier, Statement,
+    Ident, IfExpr, ItemId, Literal, Param, Primitive, Program, Quantifier, Statement,
     StatementData, StructExprField, TypeData, TypeId, Variable, VariableId, VariableIdx,
     VariableRef,
 };
@@ -135,6 +135,7 @@ impl Scope {
 pub struct TypeChecker<'w> {
     db: &'w dyn crate::Db,
     program: Program,
+    root: &'w ast::SourceFile,
     return_ty: Option<TypeSrcId>,
     scope: Scope,
     scope_stack: Vec<Scope>,
@@ -161,6 +162,7 @@ impl<'a> TypeChecker<'a> {
     pub(crate) fn init(
         db: &'a dyn crate::Db,
         program: Program,
+        root: &'a ast::SourceFile,
         id: ItemId,
         function: Option<hir::Function>,
     ) -> Self {
@@ -181,6 +183,7 @@ impl<'a> TypeChecker<'a> {
         let mut checker = Self {
             db,
             program,
+            root,
             ty_table: Mutex::new(ty_table),
             ty_cache,
             ty_keys,
@@ -231,7 +234,7 @@ impl<'a> TypeChecker<'a> {
                         let fields = hir::struct_fields(db, s)
                             .into_iter()
                             .map(|f| {
-                                let ty = if let Some(ty) = &f.ty {
+                                let ty = if let Some(ty) = &f.ty(db, root) {
                                     checker.find_type(ty)
                                 } else {
                                     checker.error_ty()
@@ -248,22 +251,18 @@ impl<'a> TypeChecker<'a> {
             };
             let is_ghost = f.attrs(db).is_ghost();
 
-            let params = ParamList {
-                params: f
-                    .param_list(db)
-                    .params
-                    .iter()
-                    .map(|param| {
-                        let ty = checker.expect_find_type_src(&param.ty);
-                        Param {
-                            is_ghost: param.is_ghost,
-                            name: param.name.clone(),
-                            ty: checker.ghostify(ty, is_ghost),
-                        }
-                    })
-                    .collect(),
-            };
-            let return_ty_src = f.ret(db).map(|ty| {
+            let params = f
+                .param_list(db, root)
+                .map(|param| {
+                    let ty = checker.expect_find_type_src(&param.ty);
+                    Param {
+                        is_ghost: param.is_ghost,
+                        name: param.name,
+                        ty: checker.ghostify(ty, is_ghost),
+                    }
+                })
+                .collect();
+            let return_ty_src = f.ret(db, root).map(|ty| {
                 checker
                     .find_type_src(&ty)
                     .with_ghost(is_ghost)
@@ -301,9 +300,7 @@ impl<'a> TypeChecker<'a> {
 
         if let Some(f) = function {
             checker.cx.params = f
-                .param_list(db)
-                .params
-                .iter()
+                .param_list(db, root)
                 .map(|p| {
                     let ty = checker
                         .expect_find_type_src(&p.ty)
@@ -322,14 +319,13 @@ impl<'a> TypeChecker<'a> {
                 })
                 .collect();
 
-            checker.return_ty = f.ret(db).map(|ty| {
+            checker.return_ty = f.ret(db, root).map(|ty| {
                 let ty = checker.find_type_src(&ty);
                 checker.ghostify(ty, is_ghost)
             });
 
             let conditions = f
-                .syntax(db)
-                .conditions()
+                .conditions(db, root)
                 .map(|c| match c {
                     ast::Condition::Requires(r) => {
                         Condition::Requires(checker.check_boolean_exprs(r.comma_exprs()))
@@ -340,7 +336,7 @@ impl<'a> TypeChecker<'a> {
                 })
                 .collect();
 
-            let decreases = checker.check_decreases(f.syntax(db).decreases());
+            let decreases = checker.check_decreases(f.decreases(db, root));
 
             if let Some(cx) = &mut checker.cx.function_context {
                 cx.conditions = conditions;
@@ -858,7 +854,10 @@ impl<'a> TypeChecker<'a> {
                             if let Some(field) =
                                 fields.iter().find(|f| f.name.as_str() == field.as_str())
                             {
-                                (Some(field.clone()), self.expect_find_type(&field.ty))
+                                (
+                                    Some(field.clone()),
+                                    self.expect_find_type(&field.ty(self.db, self.root)),
+                                )
                             } else {
                                 return self.expr_error(
                                     field.span(),
@@ -888,7 +887,10 @@ impl<'a> TypeChecker<'a> {
                         let fields = self.struct_fields(s);
                         if let Some(field) = fields.iter().find(|f| f.name.deref() == field.deref())
                         {
-                            (Some(field.clone()), self.expect_find_type(&field.ty))
+                            (
+                                Some(field.clone()),
+                                self.expect_find_type(&field.ty(self.db, self.root)),
+                            )
                         } else {
                             self.push_error(
                                 field.span(),
@@ -981,7 +983,7 @@ impl<'a> TypeChecker<'a> {
                         let field_name = Ident::from(f.name().unwrap());
                         if field_name.as_str() == sf.name.as_str() {
                             let value = self.check(f.span(), f.expr());
-                            let expected = self.expect_find_type(&sf.ty);
+                            let expected = self.expect_find_type(&sf.ty(self.db, self.root));
                             self.expect_ty(self.expr_span(value), expected, self.expr_ty(value));
                             present_fields.push(StructExprField::new(
                                 sf.clone(),
@@ -1063,8 +1065,7 @@ impl<'a> TypeChecker<'a> {
 
                 self.push_scope(|f| f);
                 let params = params
-                    .params
-                    .iter()
+                    .into_iter()
                     .map(|param| {
                         let var = self.declare_variable(
                             VariableDeclaration::new_param(param.name.clone()),
@@ -1208,7 +1209,7 @@ impl<'a> TypeChecker<'a> {
         kind: TypeCheckErrorKind,
     ) -> TypeId {
         let err = TypeCheckError {
-            input: self.program.program(self.db).to_string(),
+            input: self.program.source(self.db).text(self.db).to_string(),
             span,
             label,
             help,
@@ -1266,30 +1267,26 @@ impl<'a> TypeChecker<'a> {
             },
         )
     }
-    fn check_param_list(&mut self, param_list: Option<ast::ParamList>) -> ParamList<Ident> {
-        ParamList {
-            params: param_list
-                .map(|pl| {
-                    pl.params()
-                        .map(|p| Param {
-                            is_ghost: p.is_ghost(),
-                            name: if let Some(name) = p.name() {
-                                name.into()
-                            } else {
-                                todo!()
-                            },
-                            ty: if let Some(ty) = p.ty() {
-                                self.find_type_src(&ty)
-                            } else {
-                                self.unsourced_ty(self.error_ty())
-                            }
-                            .with_ghost(p.is_ghost())
-                            .ts(self),
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
-        }
+    fn check_param_list(&mut self, param_list: Option<ast::ParamList>) -> Vec<Param<Ident>> {
+        param_list
+            .into_iter()
+            .flat_map(|pl| pl.params())
+            .map(|p| Param {
+                is_ghost: p.is_ghost(),
+                name: if let Some(name) = p.name() {
+                    name.into()
+                } else {
+                    todo!()
+                },
+                ty: if let Some(ty) = p.ty() {
+                    self.find_type_src(&ty)
+                } else {
+                    self.unsourced_ty(self.error_ty())
+                }
+                .with_ghost(p.is_ghost())
+                .ts(self),
+            })
+            .collect()
     }
     pub(super) fn find_type(&mut self, ast_ty: &ast::Type) -> TypeId {
         let ts = self.find_type_src(ast_ty);

@@ -4,5 +4,13 @@ struct Person {
 }
 
 fn get_age(p: &Person) -> int {
-    p.age
+    let x = p.age;
+    get_age(p);
+    p.age + p.age
+}
+
+fn init() -> Person {
+    let p = Person { age: 12, height: 13 };
+    p.age = p.age + 1;
+    p
 }

@@ -200,6 +200,17 @@ impl<'a> MirLower<'a> {
     fn project_deeper(&mut self, mut place: Place, projection: &[Projection]) -> Place {
         let mut new_projection = self.body[place.projection].to_vec();
         new_projection.extend_from_slice(projection);
+
+        if let Some((id, _)) = self
+            .body
+            .projections
+            .iter()
+            .find(|(_, proj)| proj == &&new_projection)
+        {
+            place.projection = id;
+            return place;
+        }
+
         place.projection = self.body.projections.alloc(new_projection);
         place
     }
@@ -407,7 +418,15 @@ impl MirLower<'_> {
             ExprData::Unary { .. } => todo!(),
             ExprData::Bin { .. } => todo!(),
             ExprData::Ref { .. } => todo!(),
-            ExprData::Index { .. } => todo!(),
+            ExprData::Index { base, index } => {
+                let idx = self.alloc_tmp(self.cx.expr_ty(*index));
+                let bid = self.expr(*index, bid, None, Placement::Assign(idx));
+                let (bid, place) = self.lhs_expr(*base, bid, None);
+                (
+                    bid,
+                    self.project_deeper(place, &[Projection::Index(idx.slot, expr_data.ty)]),
+                )
+            }
             ExprData::List { .. } => todo!(),
             ExprData::Quantifier { .. } => todo!(),
             ExprData::Result => todo!(),
@@ -566,6 +585,7 @@ impl MirLower<'_> {
                 let f = match self.cx.ty_data_without_ghost(self.cx.expr_ty(index)) {
                     hir::TypeData::Range(_) => FunctionData::RangeIndex,
                     hir::TypeData::Primitive(hir::Primitive::Int) => FunctionData::Index,
+                    hir::TypeData::Error => FunctionData::Index,
                     ty => todo!("tried to index with {ty:?}"),
                 };
                 let base_s = self.expr_into_operand(base, &mut bid, None);

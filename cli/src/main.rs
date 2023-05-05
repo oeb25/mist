@@ -6,7 +6,7 @@ use itertools::Itertools;
 use miette::{bail, Context, IntoDiagnostic, Result};
 use mist_core::{hir, mir};
 use mist_viper_backend::gen::ViperOutput;
-use tracing::{error, info, warn};
+use tracing::{error, info, warn, Level};
 use tracing_subscriber::prelude::*;
 
 use mist_cli::{accumulated_errors, db::Database, Db, VerificationContext};
@@ -47,6 +47,8 @@ enum Cli {
         #[clap(short, long)]
         cfg: bool,
         #[clap(short, long)]
+        isorecursive: bool,
+        #[clap(short, long)]
         viper: bool,
         file: PathBuf,
     },
@@ -63,6 +65,7 @@ async fn cli() -> Result<()> {
         Cli::Dump {
             mir: dump_mir,
             cfg: dump_cfg,
+            isorecursive: dump_isorecursive,
             viper: dump_viper,
             file,
         } => {
@@ -73,9 +76,18 @@ async fn cli() -> Result<()> {
                 .wrap_err_with(|| format!("failed to read `{}`", file.display()))?;
             let source = hir::SourceProgram::new(&db, source);
             let program = hir::parse_program(&db, source);
-            for (item, cx, _, mir, _) in mir::lower_program(&db, program) {
+            for (item, cx, _, mut mir, _) in mir::lower_program(&db, program) {
                 info!("{}", item.name(&db));
+                let span = tracing::span!(Level::DEBUG, "dump", item = item.name(&db).to_string());
+                let _enter = span.enter();
                 if dump_mir {
+                    println!("{}", mir.serialize(mir::serialize::Color::Yes, &db, &cx));
+                }
+                if dump_isorecursive {
+                    for entry in mir.entry_blocks().collect_vec() {
+                        mir::analysis::isorecursive::IsorecursivePass::new(&cx, &mut mir)
+                            .run(entry);
+                    }
                     println!("{}", mir.serialize(mir::serialize::Color::Yes, &db, &cx));
                 }
                 if dump_cfg {

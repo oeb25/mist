@@ -31,5 +31,5 @@ impl rowan::Language for MistLanguage {
 }
 
 type SyntaxToken = rowan::SyntaxToken<MistLanguage>;
-type SyntaxNode = rowan::SyntaxNode<MistLanguage>;
+pub type SyntaxNode = rowan::SyntaxNode<MistLanguage>;
 type SyntaxNodeChildren = rowan::SyntaxNodeChildren<MistLanguage>;

@@ -9,8 +9,8 @@ use crate::{
 };
 
 use super::{
-    BlockId, Body, FunctionData, FunctionId, Instruction, InstructionId, MExpr, Operand, Place,
-    Slot, SlotId,
+    BlockId, Body, Folding, FunctionData, FunctionId, Instruction, InstructionId, MExpr, Operand,
+    Place, Slot, SlotId,
 };
 
 #[derive(new)]
@@ -164,6 +164,14 @@ impl Serializer<'_> {
                 self.expr(expr);
                 wln!(self, Default, "");
             }
+            Instruction::PlaceMention(p) => {
+                w!(self, Default, "mention ");
+                self.place(p);
+                wln!(self, Default, "");
+            }
+            Instruction::Folding(folding) => {
+                self.folding(folding);
+            }
         }
     }
 
@@ -186,6 +194,11 @@ impl Serializer<'_> {
                         let name = &f.name;
                         w!(self, Default, ".{name}");
                     }
+                    Projection::Index(idx, _) => {
+                        w!(self, Default, "[");
+                        self.slot(*idx);
+                        w!(self, Default, "]");
+                    }
                 }
             }
         }
@@ -196,6 +209,33 @@ impl Serializer<'_> {
             Operand::Copy(s) => self.place(s),
             Operand::Move(s) => self.place(s),
             Operand::Literal(l) => w!(self, Magenta, "${l}"),
+        }
+    }
+
+    fn folding(&mut self, f: &Folding) {
+        match f {
+            Folding::Fold { consume, into } => {
+                w!(self, Red, "fold ");
+                w!(self, BrightWhite, "[");
+                for s in consume {
+                    self.place(s);
+                }
+                w!(self, BrightWhite, "]");
+                w!(self, Red, " into ");
+                self.place(into);
+                wln!(self, Default, "");
+            }
+            Folding::Unfold { consume, into } => {
+                w!(self, Red, "unfold ");
+                self.place(consume);
+                w!(self, Red, " into ");
+                w!(self, BrightWhite, "[");
+                for s in into {
+                    self.place(s);
+                }
+                w!(self, BrightWhite, "]");
+                wln!(self, Default, "");
+            }
         }
     }
 

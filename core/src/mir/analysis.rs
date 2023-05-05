@@ -8,9 +8,12 @@ pub use petgraph;
 
 use crate::hir;
 
-use super::{serialize, BlockId, Body, MExpr, Operand, SlotId};
+use super::{serialize, BlockId, Body, MExpr, Operand, Place, SlotId};
 
 pub mod cfg;
+pub mod isorecursive;
+pub mod liveness;
+mod monotone;
 
 pub fn pretty_dot<N, E>(g: &Graph<N, E>) -> String
 where
@@ -28,10 +31,11 @@ impl MExpr {
         match self {
             MExpr::Struct(_, fields) => fields.iter().map(|f| &f.1).collect(),
             MExpr::Use(s) => vec![s],
-            // TODO
-            // MExpr::Quantifier(_, _, _, _) => vec![],
             MExpr::BinaryOp(_, l, r) => vec![l, r],
             MExpr::UnaryOp(_, o) => vec![o],
         }
+    }
+    pub fn places(&self) -> impl Iterator<Item = Place> + '_ {
+        self.all_operands().into_iter().filter_map(|o| o.place())
     }
 }

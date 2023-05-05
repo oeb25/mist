@@ -1,7 +1,7 @@
 mod item_context;
 pub mod typecheck;
 
-use derive_more::Display;
+use derive_more::{Display, From};
 use derive_new::new;
 use mist_syntax::{
     ast::{
@@ -9,6 +9,7 @@ use mist_syntax::{
         operators::{BinaryOp, UnaryOp},
         AttrFlags, HasAttrs, HasName, Spanned,
     },
+    ptr::AstPtr,
     SourceSpan,
 };
 use tracing::error;
@@ -76,7 +77,7 @@ pub struct SourceProgram {
 #[salsa::tracked]
 pub struct Program {
     #[return_ref]
-    pub program: mist_syntax::ast::SourceFile,
+    pub source: SourceProgram,
     #[return_ref]
     pub items: Vec<ItemId>,
     #[return_ref]
@@ -89,52 +90,40 @@ pub fn parse_program(db: &dyn crate::Db, source: SourceProgram) -> Program {
     let items = program
         .items()
         .map(|item| match item {
-            ast::Item::Const(node) => ItemId::new(db, ItemData::Const { ast: node }),
-            ast::Item::Fn(node) => ItemId::new(db, ItemData::Fn { ast: node }),
-            ast::Item::Struct(node) => ItemId::new(db, ItemData::Struct { ast: node }),
-            ast::Item::TypeInvariant(node) => {
-                ItemId::new(db, ItemData::TypeInvariant { ast: node })
-            }
-            ast::Item::Macro(node) => ItemId::new(db, ItemData::Macro { ast: node }),
+            ast::Item::Const(node) => ItemId::new(db, AstPtr::new(&node).into()),
+            ast::Item::Fn(node) => ItemId::new(db, AstPtr::new(&node).into()),
+            ast::Item::Struct(node) => ItemId::new(db, AstPtr::new(&node).into()),
+            ast::Item::TypeInvariant(node) => ItemId::new(db, AstPtr::new(&node).into()),
+            ast::Item::Macro(node) => ItemId::new(db, AstPtr::new(&node).into()),
         })
         .collect();
-    Program::new(db, program, items, errors)
+    Program::new(db, source, items, errors)
+}
+
+impl Program {
+    pub fn expensive_compute_root(&self, db: &dyn crate::Db) -> ast::SourceFile {
+        mist_syntax::parse(self.source(db).text(db)).0
+    }
 }
 
 #[salsa::tracked]
 pub fn item(db: &dyn crate::Db, program: Program, item_id: ItemId) -> Option<Item> {
+    let root = program.expensive_compute_root(db);
+
     match item_id.data(db) {
         ItemData::Const { .. } => None,
-        ItemData::Fn { ast: f } => {
+        ItemData::Fn { ast } => {
+            let f = ast.to_node(root.syntax());
             let name = if let Some(name) = f.name() {
                 name
             } else {
                 todo!()
             };
             let attrs = f.attr_flags();
-            let param_list = f
-                .param_list()
-                .map(|param_list| {
-                    param_list
-                        .params()
-                        .map(|param| -> Param<Ident, Option<mist_syntax::ast::Type>> {
-                            Param {
-                                is_ghost: param.is_ghost(),
-                                name: param
-                                    .name()
-                                    .map(Ident::from)
-                                    .expect("param did not have a name"),
-                                ty: param.ty(),
-                            }
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            let ret_ty = f.ret();
 
             if !f.is_ghost() && f.body().is_none() {
                 let err = TypeCheckError {
-                    input: program.program(db).to_string(),
+                    input: program.source(db).text(db).to_string(),
                     span: f
                         .semicolon_token()
                         .map(|t| t.span())
@@ -148,21 +137,26 @@ pub fn item(db: &dyn crate::Db, program: Program, item_id: ItemId) -> Option<Ite
 
             Some(Item::Function(Function::new(
                 db,
-                f.clone(),
+                AstPtr::new(&f),
                 name.into(),
                 attrs,
-                param_list,
-                ret_ty,
             )))
         }
-        ItemData::Struct { ast: s } => {
+        ItemData::Struct { ast } => {
+            let s = ast.to_node(root.syntax());
             let name = Ident::from(s.name().unwrap());
-            let data = TypeDeclData::Struct(Struct::new(db, s.clone(), name.clone()));
+            let data =
+                TypeDeclData::Struct(Struct::new(db, program, AstPtr::new(&s), name.clone()));
             Some(Item::Type(TypeDecl::new(db, name, data)))
         }
-        ItemData::TypeInvariant { ast: i } => {
+        ItemData::TypeInvariant { ast } => {
+            let i = ast.to_node(root.syntax());
             let name = Ident::from(i.name().unwrap());
-            Some(Item::TypeInvariant(TypeInvariant::new(db, i.clone(), name)))
+            Some(Item::TypeInvariant(TypeInvariant::new(
+                db,
+                AstPtr::new(&i),
+                name,
+            )))
         }
         ItemData::Macro { .. } => None,
     }
@@ -183,16 +177,18 @@ pub fn item_lower(
     );
     let _enter = span.enter();
 
+    let root = program.expensive_compute_root(db);
+
     match item {
         Item::Type(ty_decl) => match &ty_decl.data(db) {
             TypeDeclData::Struct(_) => {
-                let checker = TypeChecker::init(db, program, item_id, None);
+                let checker = TypeChecker::init(db, program, &root, item_id, None);
                 Some(checker.into())
             }
         },
         Item::TypeInvariant(ty_inv) => {
-            let mut checker = TypeChecker::init(db, program, item_id, None);
-            if let Some(ast_body) = ty_inv.node(db).block_expr() {
+            let mut checker = TypeChecker::init(db, program, &root, item_id, None);
+            if let Some(ast_body) = ty_inv.body(db, &root) {
                 let body = checker.check_block(&ast_body, |f| f);
                 let ret = checker.bool().ghost();
                 checker.expect_ty(ty_inv.name(db).span(), ret, body.return_ty);
@@ -203,22 +199,21 @@ pub fn item_lower(
             Some(checker.into())
         }
         Item::Function(function) => {
-            let mut checker = TypeChecker::init(db, program, item_id, Some(function));
-            let ast_body = function.syntax(db).body();
+            let mut checker = TypeChecker::init(db, program, &root, item_id, Some(function));
+            let ast_body = function.body(db, &root);
             let body = ast_body
                 .as_ref()
                 .map(|ast_body| checker.check_block(ast_body, |f| f));
             let is_ghost = function.attrs(db).is_ghost();
             if let Some(body) = body {
-                if let Some(ret) = function.ret(db) {
+                if let Some(ret) = function.ret(db, &root) {
                     let ret = checker
                         .find_type_src(&ret)
                         .with_ghost(is_ghost)
                         .ts(&mut checker);
                     checker.expect_ty(
                         function
-                            .syntax(db)
-                            .ret()
+                            .ret(db, &root)
                             .map(|ret| ret.span())
                             .unwrap_or_else(|| function.name(db).span()),
                         checker.cx[ret].ty,
@@ -233,7 +228,7 @@ pub fn item_lower(
                 }
                 checker.set_body_expr_from_block(body, ast_body.unwrap());
             }
-            if let Some(ret) = function.ret(db) {
+            if let Some(ret) = function.ret(db, &root) {
                 let ret_ty = checker.find_type_src(&ret);
                 checker.set_return_ty(ret_ty);
             }
@@ -244,8 +239,8 @@ pub fn item_lower(
 
 #[salsa::tracked]
 pub fn struct_fields(db: &dyn crate::Db, s: Struct) -> Vec<Field> {
-    s.node(db)
-        .struct_fields()
+    let root = s.program(db).expensive_compute_root(db);
+    s.fields(db, &root)
         .map(|f| {
             let is_ghost = f.is_ghost();
             let name = f.name().unwrap();
@@ -253,7 +248,7 @@ pub fn struct_fields(db: &dyn crate::Db, s: Struct) -> Vec<Field> {
                 parent: FieldParent::Struct(s),
                 name: name.into(),
                 is_ghost,
-                ty: f.ty(),
+                ty: f.ty().as_ref().map(AstPtr::new),
             }
         })
         .collect()
@@ -266,27 +261,27 @@ pub struct ItemId {
 }
 
 impl ItemId {
-    pub fn name(&self, db: &dyn crate::Db) -> Option<ast::Name> {
-        self.data(db).name()
+    pub fn name(&self, db: &dyn crate::Db, root: &mist_syntax::SyntaxNode) -> Option<ast::Name> {
+        self.data(db).name(root)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, From)]
 pub enum ItemData {
-    Const { ast: ast::Const },
-    Fn { ast: ast::Fn },
-    Struct { ast: ast::Struct },
-    TypeInvariant { ast: ast::TypeInvariant },
-    Macro { ast: ast::Macro },
+    Const { ast: AstPtr<ast::Const> },
+    Fn { ast: AstPtr<ast::Fn> },
+    Struct { ast: AstPtr<ast::Struct> },
+    TypeInvariant { ast: AstPtr<ast::TypeInvariant> },
+    Macro { ast: AstPtr<ast::Macro> },
 }
 impl ItemData {
-    fn name(&self) -> Option<ast::Name> {
+    fn name(&self, root: &mist_syntax::SyntaxNode) -> Option<ast::Name> {
         match self {
-            ItemData::Const { ast } => ast.name(),
-            ItemData::Fn { ast } => ast.name(),
-            ItemData::Struct { ast } => ast.name(),
-            ItemData::TypeInvariant { ast } => ast.name(),
-            ItemData::Macro { ast } => ast.name(),
+            ItemData::Const { ast } => ast.to_node(root).name(),
+            ItemData::Fn { ast } => ast.to_node(root).name(),
+            ItemData::Struct { ast } => ast.to_node(root).name(),
+            ItemData::TypeInvariant { ast } => ast.to_node(root).name(),
+            ItemData::Macro { ast } => ast.to_node(root).name(),
         }
     }
 }
@@ -323,13 +318,53 @@ pub enum TypeDeclData {
 #[salsa::tracked]
 pub struct Function {
     #[return_ref]
-    pub syntax: mist_syntax::ast::Fn,
+    syntax: AstPtr<ast::Fn>,
     #[return_ref]
     pub name: Ident,
     pub attrs: AttrFlags,
-    #[return_ref]
-    pub param_list: ParamList<Ident, Option<mist_syntax::ast::Type>>,
-    pub ret: Option<mist_syntax::ast::Type>,
+}
+
+impl Function {
+    pub fn body(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> Option<ast::BlockExpr> {
+        self.syntax(db).to_node(root.syntax()).body()
+    }
+    pub fn param_list(
+        &self,
+        db: &dyn crate::Db,
+        root: &ast::SourceFile,
+    ) -> impl Iterator<Item = Param<Ident, Option<ast::Type>>> + '_ {
+        self.syntax(db)
+            .to_node(root.syntax())
+            .param_list()
+            .into_iter()
+            .flat_map(|param_list| {
+                param_list
+                    .params()
+                    .map(|param| -> Param<Ident, Option<ast::Type>> {
+                        Param {
+                            is_ghost: param.is_ghost(),
+                            name: param
+                                .name()
+                                .map(Ident::from)
+                                .expect("param did not have a name"),
+                            ty: param.ty(),
+                        }
+                    })
+            })
+    }
+    pub fn ret(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> Option<ast::Type> {
+        self.syntax(db).to_node(root.syntax()).ret()
+    }
+    pub fn conditions(
+        &self,
+        db: &dyn crate::Db,
+        root: &ast::SourceFile,
+    ) -> impl Iterator<Item = ast::Condition> {
+        self.syntax(db).to_node(root.syntax()).conditions()
+    }
+    pub fn decreases(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> Option<ast::Decreases> {
+        self.syntax(db).to_node(root.syntax()).decreases()
+    }
 }
 
 #[salsa::interned]
@@ -377,58 +412,23 @@ impl From<&'_ VariableRef> for VariableIdx {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ParamList<I, T = TypeSrcId> {
-    pub params: Vec<Param<I, T>>,
-}
-
-impl<I, T> ParamList<I, T> {
-    pub fn map<O>(&self, mut f: impl FnMut(&I) -> O) -> ParamList<O, T>
-    where
-        T: Clone,
-    {
-        ParamList {
-            params: self
-                .params
-                .iter()
-                .map(|param| Param {
-                    is_ghost: param.is_ghost,
-                    name: f(&param.name),
-                    ty: param.ty.clone(),
-                })
-                .collect(),
-        }
-    }
-}
-
-impl<I, T> Default for ParamList<I, T> {
-    fn default() -> Self {
-        Self {
-            params: Default::default(),
-        }
-    }
-}
-
-impl<I, T> FromIterator<Param<I, T>> for ParamList<I, T> {
-    fn from_iter<Iter: IntoIterator<Item = Param<I, T>>>(iter: Iter) -> Self {
-        ParamList {
-            params: iter.into_iter().collect(),
-        }
-    }
-}
-
-impl<I, T> std::ops::Deref for ParamList<I, T> {
-    type Target = [Param<I, T>];
-
-    fn deref(&self) -> &Self::Target {
-        &self.params
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Param<I, T = TypeSrcId> {
     pub is_ghost: bool,
     pub name: I,
     pub ty: T,
+}
+
+impl<I, T> Param<I, T> {
+    pub fn map_var<J>(&self, f: impl FnOnce(&I) -> J) -> Param<J, T>
+    where
+        T: Clone,
+    {
+        Param {
+            is_ghost: self.is_ghost,
+            name: f(&self.name),
+            ty: self.ty.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -503,7 +503,7 @@ pub enum ExprData {
     },
     Quantifier {
         quantifier: Quantifier,
-        params: ParamList<VariableIdx>,
+        params: Vec<Param<VariableIdx>>,
         expr: ExprIdx,
     },
     Result,
@@ -652,7 +652,7 @@ pub enum TypeData<T = TypeId> {
     Function {
         attrs: AttrFlags,
         name: Option<Ident>,
-        params: ParamList<Ident>,
+        params: Vec<Param<Ident>>,
         return_ty: T,
     },
     Range(T),
@@ -722,9 +722,20 @@ impl TypeData<TypeSrcId> {
 
 #[salsa::interned]
 pub struct Struct {
+    program: Program,
     #[return_ref]
-    node: mist_syntax::ast::Struct,
+    node: AstPtr<ast::Struct>,
     pub name: Ident,
+}
+
+impl Struct {
+    pub fn fields(
+        &self,
+        db: &dyn crate::Db,
+        root: &ast::SourceFile,
+    ) -> impl Iterator<Item = ast::StructField> + '_ {
+        self.node(db).to_node(root.syntax()).struct_fields()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -738,12 +749,24 @@ pub struct Field {
     pub parent: FieldParent,
     pub name: Ident,
     pub is_ghost: bool,
-    pub ty: Option<mist_syntax::ast::Type>,
+    ty: Option<AstPtr<ast::Type>>,
+}
+
+impl Field {
+    pub fn ty(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> Option<ast::Type> {
+        self.ty.as_ref().map(|ty| ty.to_node(root.syntax()))
+    }
 }
 
 #[salsa::interned]
 pub struct TypeInvariant {
     #[return_ref]
-    node: mist_syntax::ast::TypeInvariant,
+    node: AstPtr<ast::TypeInvariant>,
     pub name: Ident,
+}
+
+impl TypeInvariant {
+    pub fn body(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> Option<ast::BlockExpr> {
+        self.node(db).to_node(root.syntax()).block_expr()
+    }
 }

@@ -29,6 +29,8 @@ impl Cfg {
             .entry(bid)
             .or_insert_with(|| self.graph.add_node(bid))
     }
+    /// Construct a graph where the nodes and edge labes are replaced for
+    /// serializations for their value
     pub fn pretty(
         &self,
         db: &dyn crate::Db,
@@ -104,8 +106,53 @@ impl Cfg {
         }
         PostdominanceFrontier { relation }
     }
+    /// Construct the DOT represenation of the CFG
     pub fn dot(&self, db: &dyn crate::Db, cx: &hir::ItemContext, body: &Body) -> String {
         petgraph::dot::Dot::new(&self.pretty(db, cx, body)).to_string()
+    }
+    /// Perform a DFS over all the reachable nodes from `entry`
+    pub fn visit_dfs(&self, entry: BlockId, mut f: impl FnMut(BlockId)) {
+        let mut dfs = petgraph::visit::Dfs::new(&self.graph, self.nodes[entry]);
+        while let Some(b) = dfs.next(&self.graph) {
+            f(*self.graph.node_weight(b).unwrap());
+        }
+    }
+    /// Perform a reverse post-order over all the reachable nodes from `entry`
+    pub fn visit_reverse_post_order(&self, entry: BlockId, mut f: impl FnMut(BlockId)) {
+        let mut dfs = petgraph::visit::DfsPostOrder::new(&self.graph, self.nodes[entry]);
+        let mut order = vec![];
+        while let Some(n) = dfs.next(&self.graph) {
+            order.push(n);
+        }
+        for n in order.into_iter().rev() {
+            f(*self.graph.node_weight(n).unwrap());
+        }
+    }
+    /// Perform a post-order over all the reachable nodes from `entry`
+    pub fn direct_predecessors(&self, bid: BlockId) -> impl Iterator<Item = BlockId> + '_ {
+        self.graph
+            .neighbors_directed(self.nodes[bid], Direction::Incoming)
+            .map(|n| *self.graph.node_weight(n).unwrap())
+    }
+
+    pub fn scc(&self) -> impl Iterator<Item = StronglyConnectedComponent> + '_ {
+        petgraph::algo::tarjan_scc(&self.graph)
+            .into_iter()
+            .filter_map(|nodes| {
+                if nodes.len() == 1 {
+                    return None;
+                }
+
+                let blocks = nodes
+                    .into_iter()
+                    .map(|n| *self.graph.node_weight(n).unwrap())
+                    .collect_vec();
+                Some(StronglyConnectedComponent {
+                    entry: *blocks.last().unwrap(),
+                    exit: *blocks.last().unwrap(),
+                    blocks,
+                })
+            })
     }
 }
 
@@ -196,6 +243,13 @@ impl Postdominators {
     pub fn get(&self, index: BlockId) -> Option<BlockId> {
         self.relation.get(index).copied()
     }
+    pub fn merge(&mut self, other: &Postdominators) {
+        for (k, v) in other.relation.iter() {
+            if self.relation.insert(k, *v).is_some() {
+                todo!();
+            }
+        }
+    }
 }
 
 impl std::ops::Index<BlockId> for Postdominators {
@@ -210,12 +264,40 @@ impl std::ops::Index<BlockId> for Postdominators {
 pub struct PostdominanceFrontier {
     relation: ArenaMap<BlockId, Vec<BlockId>>,
 }
+impl PostdominanceFrontier {
+    pub fn merge(&mut self, other: &PostdominanceFrontier) {
+        for (k, v) in other.relation.iter() {
+            if self.relation.insert(k, v.clone()).is_some() {}
+        }
+    }
+}
 
 impl std::ops::Index<BlockId> for PostdominanceFrontier {
     type Output = [BlockId];
 
     fn index(&self, index: BlockId) -> &Self::Output {
         &self.relation[index]
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StronglyConnectedComponent {
+    entry: BlockId,
+    exit: BlockId,
+    blocks: Vec<BlockId>,
+}
+
+impl StronglyConnectedComponent {
+    pub fn entry(&self) -> BlockId {
+        self.entry
+    }
+
+    pub fn exit(&self) -> BlockId {
+        self.exit
+    }
+
+    pub fn blocks(&self) -> &[BlockId] {
+        self.blocks.as_ref()
     }
 }
 

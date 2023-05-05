@@ -1,0 +1,10 @@
+struct S { count: int }
+
+fn lose_acc(x: &mut S) {
+  let done = false;
+  while !done {
+    done = true;
+    assert x.count == x.count;
+  }
+  assert false;
+}

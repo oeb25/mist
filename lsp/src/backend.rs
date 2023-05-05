@@ -6,7 +6,10 @@ use std::{
 use dashmap::DashMap;
 use itertools::Itertools;
 use miette::IntoDiagnostic;
-use mist_core::hir::{Program, SourceProgram};
+use mist_core::{
+    hir::{Program, SourceProgram},
+    salsa::{ParallelDatabase, Snapshot},
+};
 use mist_syntax::SourceSpan;
 use mist_viper_backend::gen::ViperHints;
 use tower_lsp::jsonrpc::Result;
@@ -18,12 +21,9 @@ use tracing::{error, info};
 use crate::highlighting::{TokenModifier, TokenType};
 use crate::hover::HoverElement;
 
-#[derive(Debug)]
 pub struct Backend {
     client: Client,
-    // TODO: ATM we can't store a DB since it contains types which are not
-    // Send+Sync. To fix this, we should get rid of those :)
-    // db: crate::db::Database,
+    db: Arc<Mutex<crate::db::Database>>,
     files: DashMap<Url, Arc<String>>,
     working_dir: PathBuf,
     viper_server: Arc<Mutex<Option<viperserver::ViperServer>>>,
@@ -138,6 +138,7 @@ impl Backend {
 
         Ok(Self {
             client,
+            db: Default::default(),
             files: Default::default(),
             working_dir: lsp_dir.canonicalize().into_diagnostic()?,
             viper_server: Default::default(),
@@ -200,11 +201,11 @@ impl Backend {
         &self,
         params: SemanticTokensParams,
     ) -> Result<Option<SemanticTokensResult>> {
-        let db = self.db();
-        let Some(source) = self.source_program(&db, params.text_document.uri) else {
+        let db = &*self.db();
+        let Some(source) = self.source_program(db, params.text_document.uri) else {
             return Err(tower_lsp::jsonrpc::Error::invalid_request());
         };
-        let tokens = crate::highlighting::semantic_tokens(&db, source);
+        let tokens = crate::highlighting::semantic_tokens(db, source);
         Ok(Some(SemanticTokensResult::Partial(
             SemanticTokensPartialResult {
                 data: tokens.to_vec(),
@@ -212,14 +213,14 @@ impl Backend {
         )))
     }
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
-        let db = self.db();
-        let Some(source) = self.source_program(&db, params.text_document.uri) else {
+        let db = &*self.db();
+        let Some(source) = self.source_program(db, params.text_document.uri) else {
             return Err(tower_lsp::jsonrpc::Error::invalid_request());
         };
-        let inlay_hints = crate::highlighting::inlay_hints(&db, source);
+        let inlay_hints = crate::highlighting::inlay_hints(db, source);
 
-        let program = mist_core::hir::parse_program(&db, source);
-        let hints = mist_viper_backend::gen::viper_file::accumulated::<ViperHints>(&db, program);
+        let program = mist_core::hir::parse_program(db, source);
+        let hints = mist_viper_backend::gen::viper_file::accumulated::<ViperHints>(db, program);
 
         Ok(Some(
             inlay_hints
@@ -230,7 +231,7 @@ impl Backend {
                         .into_iter()
                         .map(|hint| crate::highlighting::InlayHint {
                             position: mist_core::util::Position::from_byte_offset(
-                                source.text(&db),
+                                source.text(db),
                                 hint.span.end(),
                             ),
                             label: hint.viper,
@@ -244,20 +245,20 @@ impl Backend {
         ))
     }
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let db = self.db();
+        let db = &*self.db();
         let TextDocumentPositionParams {
             text_document,
             position,
         } = params.text_document_position_params;
-        let Some(source) = self.source_program(&db, text_document.uri) else {
+        let Some(source) = self.source_program(db, text_document.uri) else {
             return Err(tower_lsp::jsonrpc::Error::invalid_request());
         };
-        let src = source.text(&db);
+        let src = source.text(db);
         let pos = mist_core::util::Position::new(position.line, position.character);
         let Some(byte_offset) = pos.to_byte_offset(src) else {
             return Ok(None);
         };
-        let Some(hover) = crate::hover::hover(&db, source, byte_offset) else { return Ok(None); };
+        let Some(hover) = crate::hover::hover(db, source, byte_offset) else { return Ok(None); };
         Ok(Some(Hover {
             contents: HoverContents::Array(
                 hover
@@ -279,33 +280,27 @@ impl Backend {
         &self,
         params: GotoDeclarationParams,
     ) -> Result<Option<GotoDeclarationResponse>> {
-        let db = self.db();
-        let result = self.definition_span(&db, params.text_document_position_params)?;
+        let result = self.definition_span(&*self.db(), params.text_document_position_params)?;
         Ok(result.map(|link| GotoDeclarationResponse::Link(vec![link])))
     }
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        let db = self.db();
-        let result = self.definition_span(&db, params.text_document_position_params)?;
+        let db = &*self.db();
+        let result = self.definition_span(db, params.text_document_position_params)?;
         Ok(result.map(|link| GotoDeclarationResponse::Link(vec![link])))
     }
 }
 
 impl Backend {
-    pub fn db(&self) -> impl crate::Db {
-        crate::db::Database::default()
+    fn db(&self) -> Snapshot<crate::db::Database> {
+        self.db.lock().unwrap().snapshot()
     }
 
     fn source_program(&self, db: &dyn crate::Db, uri: Url) -> Option<SourceProgram> {
         let text = self.files.get(&uri)?;
         Some(SourceProgram::new(db, text.to_string()))
-    }
-
-    fn program(&self, db: &dyn crate::Db, uri: Url) -> Option<Program> {
-        let source = self.source_program(db, uri)?;
-        Some(mist_core::hir::parse_program(db, source))
     }
 
     async fn update_text(&self, uri: Url, source: String, version: i32) -> Result<()> {
@@ -320,16 +315,19 @@ impl Backend {
         let viperserver_ref = Arc::clone(&self.viper_server);
         let task_uri = uri.clone();
 
-        let join_handle = tokio::task::spawn_local(async move {
+        let db_arc = Arc::clone(&self.db);
+        let join_handle = tokio::task::spawn(async move {
+            let db = db_arc.lock().unwrap().snapshot();
             let uri = task_uri;
-            let db = crate::db::Database::default();
 
-            let source = mist_core::hir::SourceProgram::new(&db, text.to_string());
-            let program = mist_core::hir::parse_program(&db, source);
+            let source = mist_core::hir::SourceProgram::new(&*db, text.to_string());
+            let program = mist_core::hir::parse_program(&*db, source);
 
-            let errors = mist_cli::accumulated_errors(&db, program)
+            let errors = mist_cli::accumulated_errors(&*db, program)
                 .flat_map(|e| miette_to_diagnostic(&text, e.inner_diagnostic().unwrap()))
                 .collect_vec();
+
+            drop(db);
 
             if errors.is_empty() {
                 client
@@ -351,7 +349,6 @@ impl Backend {
                 let verification_start = std::time::Instant::now();
 
                 let verify_file = crate::viper::VerifyFile {
-                    db: &db,
                     program,
                     viperserver_jar: &viperserver_jar,
                     viperserver: &viperserver,
@@ -359,7 +356,7 @@ impl Backend {
                     mist_src_path: uri.as_str().into(),
                     mist_src: &text,
                 };
-                let errors = match verify_file.run().await {
+                let errors = match verify_file.run(&db_arc).await {
                     Ok(errors) => errors,
                     Err(err) => vec![err],
                 };

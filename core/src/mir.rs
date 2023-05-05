@@ -2,7 +2,7 @@ pub mod analysis;
 mod lower;
 pub mod serialize;
 
-use derive_more::Display;
+use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Either;
 use la_arena::{Arena, ArenaMap, Idx};
@@ -82,6 +82,47 @@ impl Terminator {
             Terminator::Call { target, .. } => target.iter().copied().collect(),
         }
     }
+
+    fn places_referenced(&self) -> impl Iterator<Item = Place> + '_ {
+        match self {
+            Terminator::Return
+            | Terminator::Goto(_)
+            | Terminator::Quantify(_, _, _)
+            | Terminator::QuantifyEnd(_) => Either::Left(None.into_iter()),
+            Terminator::Switch(op, _) => Either::Left(op.place().into_iter()),
+            Terminator::Call { args, .. } => {
+                Either::Right(args.iter().filter_map(|arg| arg.place()))
+            }
+        }
+    }
+
+    fn places_written_to(&self) -> impl Iterator<Item = Place> + '_ {
+        match self {
+            Terminator::Call { destination, .. } => Either::Left([*destination].into_iter()),
+            Terminator::Return
+            | Terminator::Goto(_)
+            | Terminator::Quantify(_, _, _)
+            | Terminator::QuantifyEnd(_)
+            | Terminator::Switch(_, _) => Either::Right([].into_iter()),
+        }
+    }
+
+    fn places(&self) -> impl Iterator<Item = Place> + '_ {
+        match self {
+            Terminator::Return
+            | Terminator::Goto(_)
+            | Terminator::Quantify(_, _, _)
+            | Terminator::QuantifyEnd(_) => Either::Left(None.into_iter()),
+            Terminator::Switch(op, _) => Either::Left(op.place().into_iter()),
+            Terminator::Call {
+                args, destination, ..
+            } => Either::Right(
+                args.iter()
+                    .filter_map(|arg| arg.place())
+                    .chain([*destination]),
+            ),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -128,10 +169,19 @@ impl SwitchTargets {
             self.otherwise,
         )
     }
+    pub fn targets(&self) -> (impl Iterator<Item = BlockId> + '_, BlockId) {
+        (self.targets.iter().map(|(_, b)| *b), self.otherwise)
+    }
 
     pub fn has_values(&self) -> bool {
         !self.values.is_empty()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Folding {
+    Fold { consume: Vec<Place>, into: Place },
+    Unfold { consume: Place, into: Vec<Place> },
 }
 
 pub type InstructionId = Idx<Instruction>;
@@ -139,6 +189,8 @@ pub type InstructionId = Idx<Instruction>;
 pub enum Instruction {
     Assign(Place, MExpr),
     Assertion(AssertionKind, MExpr),
+    Folding(Folding),
+    PlaceMention(Place),
 }
 
 pub type SlotId = Idx<Slot>;
@@ -160,18 +212,37 @@ impl Slot {
     }
 }
 
-pub type PlaceId = Idx<Place>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Place {
     pub slot: SlotId,
     pub projection: ProjectionList,
+}
+impl Place {
+    fn has_projection(&self, b: &Body) -> bool {
+        !b[self.projection].is_empty()
+    }
+
+    pub fn without_projection(&self) -> Place {
+        self.replace_projection(Projection::empty())
+    }
+
+    pub fn replace_projection(&self, projection: ProjectionList) -> Place {
+        Place {
+            slot: self.slot,
+            projection,
+        }
+    }
+
+    pub fn parent(&self, b: &Body) -> Place {
+        self.replace_projection(b.projection_parent(self.projection))
+    }
 }
 
 impl From<SlotId> for Place {
     fn from(slot: SlotId) -> Self {
         Place {
             slot,
-            projection: ProjectionList::from_raw(0.into()),
+            projection: Projection::empty(),
         }
     }
 }
@@ -180,6 +251,13 @@ pub type ProjectionList = Idx<Vec<Projection>>;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Projection {
     Field(Field, hir::TypeId),
+    Index(SlotId, hir::TypeId),
+}
+impl Projection {
+    /// Construct an empty [`ProjectionList`]
+    pub fn empty() -> ProjectionList {
+        ProjectionList::from_raw(0.into())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -307,6 +385,30 @@ impl Body {
         self.result_slot
     }
 
+    pub fn entry_blocks(&self) -> impl Iterator<Item = BlockId> + '_ {
+        self.requires()
+            .iter()
+            .chain(self.invariants())
+            .chain(self.ensures())
+            .copied()
+            .chain(self.body_block())
+            .chain(
+                self.block_invariants
+                    .iter()
+                    .flat_map(|(_, invs)| invs)
+                    .copied(),
+            )
+    }
+
+    fn exit_blocks(&self) -> impl Iterator<Item = BlockId> + '_ {
+        self.blocks
+            .iter()
+            .filter_map(|(bid, b)| match &b.terminator {
+                Some(t) => t.targets().is_empty().then_some(bid),
+                None => Some(bid),
+            })
+    }
+
     pub fn body_block(&self) -> Option<BlockId> {
         self.body_block
     }
@@ -381,6 +483,7 @@ impl Body {
         } else {
             match self[place.projection].last().unwrap() {
                 Projection::Field(_, ty) => *ty,
+                Projection::Index(_, ty) => *ty,
             }
         }
     }
@@ -394,7 +497,115 @@ impl Body {
     }
 
     pub fn block_invariants(&self, block: BlockId) -> &[BlockId] {
-        &self.block_invariants[block]
+        self.block_invariants
+            .get(block)
+            .map(|invs| invs.as_slice())
+            .unwrap_or_else(|| &[])
+    }
+
+    /// Returns a iterator over all [`ProjectionList`]'s leading to this projection.
+    ///
+    /// For `a.b.c` the iterator will produce `[a, a.b, a.b.c]` in that order.
+    pub fn projection_path_iter(
+        &self,
+        projection: ProjectionList,
+    ) -> impl Iterator<Item = ProjectionList> + '_ {
+        let mut entries = vec![projection];
+        let mut current = projection;
+
+        loop {
+            let next = self.projection_parent(current);
+            if next == current {
+                return entries.into_iter().rev();
+            }
+            entries.push(next);
+            current = next;
+        }
+    }
+    pub fn projection_parent(&self, projection: ProjectionList) -> ProjectionList {
+        let list = &self[projection];
+        let search_for = if list.is_empty() {
+            return projection;
+        } else {
+            &list[0..list.len() - 1]
+        };
+        self.projections
+            .iter()
+            .find(|(_, proj)| proj == &search_for)
+            .unwrap()
+            .0
+    }
+
+    fn intersperse_instructions(
+        &mut self,
+        from: BlockId,
+        into: BlockId,
+        folding: impl Iterator<Item = Instruction>,
+    ) {
+        match &self.blocks[from].terminator {
+            Some(term) => match term {
+                Terminator::Goto(next) => {
+                    assert_eq!(*next, into);
+                    self.blocks[from]
+                        .instructions
+                        .extend(folding.map(|inst| self.instructions.alloc(inst)));
+                }
+                Terminator::Return => todo!(),
+                Terminator::Quantify(_, _, _) => todo!(),
+                Terminator::QuantifyEnd(_) => todo!(),
+                Terminator::Switch(_, _) => todo!(),
+                Terminator::Call {
+                    func,
+                    args,
+                    destination,
+                    target,
+                } => todo!(),
+            },
+            None => todo!(),
+        }
+    }
+
+    fn slots_referenced<'a>(&'a self, blocks: &'a [BlockId]) -> impl Iterator<Item = SlotId> + 'a {
+        blocks.iter().flat_map(|bid| {
+            self[*bid]
+                .instructions()
+                .iter()
+                .flat_map(|inst| self[inst].places().map(|p| p.slot))
+                .chain(
+                    self[*bid]
+                        .terminator()
+                        .into_iter()
+                        .flat_map(|term| term.places().map(|p| p.slot)),
+                )
+        })
+    }
+
+    pub fn preceding_blocks(&self, bid: BlockId) -> impl Iterator<Item = BlockId> + '_ {
+        self.blocks
+            .iter()
+            .filter_map(move |(nbid, b)| b.terminator()?.targets().contains(&bid).then_some(nbid))
+    }
+    pub fn succeeding_blocks(&self, bid: BlockId) -> impl Iterator<Item = BlockId> + '_ {
+        self.blocks[bid]
+            .terminator()
+            .into_iter()
+            .flat_map(|t| t.targets())
+    }
+}
+
+impl Body {
+    fn insert_instruction_before(&mut self, loc: BodyLocation, inst: Instruction) -> InstructionId {
+        let insert_idx = match loc.inner {
+            BlockLocation::Instruction(inst) => self[loc.block]
+                .instructions()
+                .iter()
+                .position(|&i| i == inst)
+                .unwrap(),
+            BlockLocation::Terminator => self[loc.block].instructions().len(),
+        };
+        let id = self.instructions.alloc(inst);
+        self.blocks[loc.block].instructions.insert(insert_idx, id);
+        id
     }
 }
 
@@ -466,6 +677,66 @@ impl std::ops::Index<&'_ FunctionId> for Body {
 
     fn index(&self, index: &'_ FunctionId) -> &Self::Output {
         &self.functions[*index]
+    }
+}
+
+#[derive(new, Debug, Clone, Copy, PartialEq, Eq, Hash, From)]
+pub struct BodyLocation {
+    pub block: BlockId,
+    pub inner: BlockLocation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, From)]
+pub enum BlockLocation {
+    Instruction(InstructionId),
+    Terminator,
+}
+
+impl Instruction {
+    pub fn places(&self) -> impl Iterator<Item = Place> + '_ {
+        match self {
+            Instruction::Assign(target, expr) => Either::Left(Either::Left(Either::Left(
+                [*target].into_iter().chain(expr.places()),
+            ))),
+            Instruction::Assertion(_, expr) => {
+                Either::Left(Either::Left(Either::Right(expr.places())))
+            }
+            Instruction::PlaceMention(p) => Either::Left(Either::Right([*p].into_iter())),
+            Instruction::Folding(folding) => match folding {
+                Folding::Fold { consume, into } => {
+                    Either::Right(Either::Left(consume.iter().copied().chain([*into])))
+                }
+                Folding::Unfold { consume, into } => Either::Right(Either::Right(
+                    [*consume].into_iter().chain(into.iter().copied()),
+                )),
+            },
+        }
+    }
+
+    fn places_referenced(&self) -> impl Iterator<Item = Place> + '_ {
+        match self {
+            Instruction::Assign(_, expr) | Instruction::Assertion(_, expr) => {
+                Either::Left(Either::Left(expr.places()))
+            }
+            Instruction::PlaceMention(p) => Either::Left(Either::Right([*p].into_iter())),
+            Instruction::Folding(folding) => match folding {
+                Folding::Fold { consume, into } => {
+                    Either::Right(Either::Left(consume.iter().copied().chain([*into])))
+                }
+                Folding::Unfold { consume, into } => Either::Right(Either::Right(
+                    [*consume].into_iter().chain(into.iter().copied()),
+                )),
+            },
+        }
+    }
+
+    fn places_written_to(&self) -> impl Iterator<Item = Place> + '_ {
+        match self {
+            Instruction::Assign(target, _) => Either::Left([*target].into_iter()),
+            Instruction::Assertion(_, _)
+            | Instruction::PlaceMention(_)
+            | Instruction::Folding(_) => Either::Right([].into_iter()),
+        }
     }
 }
 

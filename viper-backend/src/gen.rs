@@ -31,7 +31,10 @@ pub fn viper_file(
     for &item_id in program.items(db) {
         let Some(item) = hir::item(db, program, item_id) else { continue };
         let Some((cx, _source_map)) = hir::item_lower(db, program, item_id, item) else { continue };
-        let (mir, _mir_source_map) = mir::lower_item(db, cx.clone());
+        let (mut mir, _mir_source_map) = mir::lower_item(db, cx.clone());
+        for entry in mir.entry_blocks().collect_vec() {
+            mir::analysis::isorecursive::IsorecursivePass::new(&cx, &mut mir).run(entry);
+        }
         match internal_viper_item(db, cx, &mut lowerer, item, &mir) {
             Ok(items) => {
                 for item in items {
@@ -102,7 +105,23 @@ fn internal_viper_item(
             let formal_args = mir
                 .params()
                 .iter()
-                .map(|s| lower.slot_to_decl(*s))
+                .map(|&s| {
+                    // TODO
+                    let bid = mir::BlockId::from_raw(0.into());
+
+                    let refe = lower.place_to_ref(bid, s.into());
+                    let conds = lower.ty_to_condition(bid, refe, mir.slot_ty(s));
+                    if let Some(cond) = conds.0 {
+                        pres.push(cond);
+                    }
+                    if is_method {
+                        if let Some(cond) = conds.1 {
+                            posts.push(cond);
+                        }
+                    }
+
+                    lower.slot_to_decl(s)
+                })
                 .collect();
 
             for &pre in mir.requires() {
@@ -357,8 +376,8 @@ mod write_impl {
                 Exp::Literal(l) => w!(w, "{l}"),
                 Exp::AccessPredicate(acc) => match acc {
                     silvers::expression::AccessPredicate::Field(f) => w!(w, "acc(", f, ")"),
-                    silvers::expression::AccessPredicate::Predicate(_) => {
-                        w!(w, " // TODO: AccessPredicate::Predicate")
+                    silvers::expression::AccessPredicate::Predicate(p) => {
+                        w!(w, p)
                     }
                 },
                 Exp::Perm(perm) => w!(w, perm),
@@ -391,7 +410,7 @@ mod write_impl {
                         w.indent(|w| w!(w, els, ")"));
                     })
                 }
-                Exp::Unfolding { .. } => w!(w, "// TODO: Unfolding"),
+                Exp::Unfolding { acc, body } => w!(w, "(unfolding ", acc, " in ", body, ")"),
                 Exp::Applying { .. } => w!(w, "// TODO: Applying"),
                 Exp::Old(_) => w!(w, "// TODO: Old"),
                 Exp::Let {
@@ -462,7 +481,7 @@ mod write_impl {
                     SeqExp::Take { s, n } => w!(w, s, "[", "..", n, "]"),
                     SeqExp::Drop { s, n } => w!(w, s, "[", n, "..", "]"),
                     SeqExp::Contains { .. } => w!(w, "// TODO: Contains"),
-                    SeqExp::Update { .. } => w!(w, "// TODO: Update"),
+                    SeqExp::Update { s, idx, elem } => w!(w, s, "[", idx, " := ", elem, "]"),
                     SeqExp::Length { s } => w!(w, "|", s, "|"),
                 },
                 Exp::Set(_) => w!(w, "// TODO: Set"),
@@ -475,9 +494,9 @@ mod write_impl {
     impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for PermExp<E> {
         fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
             match elem {
-                PermExp::Wildcard => w!(w, "*"),
+                PermExp::Wildcard => w!(w, "wildcard"),
                 PermExp::Full => w!(w, "write"),
-                PermExp::No => w!(w, " // TODO: PermExp::No"),
+                PermExp::No => w!(w, "none"),
                 PermExp::Epsilon => w!(w, " // TODO: PermExp::Epsilon"),
                 PermExp::Bin { op, left, right } => {
                     w!(w, "(", left, " {op} ", right, ")")
@@ -494,7 +513,7 @@ mod write_impl {
                 Stmt::LocalVarAssign { lhs, rhs } => {
                     w!(w, lhs, " := ", rhs);
                 }
-                Stmt::FieldAssign { .. } => w!(w, "// TODO: FieldAssign"),
+                Stmt::FieldAssign { lhs, rhs } => w!(w, lhs, " := ", rhs),
                 Stmt::MethodCall {
                     method_name,
                     args,
@@ -555,8 +574,17 @@ mod write_impl {
                     w.indent(|w| w!(w, body));
                     w!(w, "}}");
                 }
-                Stmt::Label(_) => w!(w, "// TODO: Label"),
-                Stmt::Goto { .. } => w!(w, "// TODO: Goto"),
+                Stmt::Label(l) => {
+                    let name = &l.name;
+                    wln!(w, "label {name}");
+                    w.indent(|w| {
+                        for e in &l.invs {
+                            wln!(w, "invariant");
+                            w.indent(|w| wln!(w, e));
+                        }
+                    });
+                }
+                Stmt::Goto { target } => w!(w, "goto {target}"),
                 Stmt::LocalVarDeclStmt { .. } => w!(w, "// TODO: LocalVarDeclStmt"),
                 Stmt::Quasihavoc { .. } => w!(w, "// TODO: Quasihavoc"),
                 Stmt::Quasihavocall { .. } => w!(w, "// TODO: Quasihavocall"),
@@ -591,14 +619,24 @@ mod write_impl {
     }
 
     impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for PredicateAccessPredicate<E> {
-        fn emit(_elem: &Self, w: &mut ViperWriter<Cx>) {
-            w!(w, "// TODO: PredicateAccessPredicate");
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
+            w!(w, "acc(", &elem.loc, ", ", &elem.perm, ")");
         }
     }
 
     impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for PredicateAccess<E> {
-        fn emit(_elem: &Self, w: &mut ViperWriter<Cx>) {
-            w!(w, "// TODO: PredicateAccess");
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
+            let name = &elem.predicate_name;
+            w!(w, "{name}(");
+            let mut first = true;
+            for arg in &elem.args {
+                if !first {
+                    w!(w, ", ");
+                }
+                first = false;
+                w!(w, arg);
+            }
+            w!(w, ")");
         }
     }
 

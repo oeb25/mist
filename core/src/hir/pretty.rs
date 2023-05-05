@@ -1,7 +1,7 @@
 use itertools::Itertools;
 
 use super::{
-    pretty, Expr, ExprData, ExprIdx, Ident, Literal, ParamList, TypeData, TypeId, TypeSrcId,
+    pretty, Expr, ExprData, ExprIdx, Ident, Literal, Param, TypeData, TypeId, TypeSrcId,
     VariableIdx,
 };
 
@@ -32,13 +32,12 @@ pub fn params(
     pp: &impl PrettyPrint,
     db: &dyn crate::Db,
     strip_ghost: bool,
-    params: &ParamList<Ident>,
+    params: impl IntoIterator<Item = Param<Ident>>,
 ) -> String {
     format!(
         "({})",
         params
-            .params
-            .iter()
+            .into_iter()
             .map(|param| {
                 let ty = pp_strip_ghost(pp, strip_ghost, pp.resolve_src_ty(param.ty));
                 format!("{}: {}", param.name, pp_ty(pp, db, ty))
@@ -81,7 +80,7 @@ pub fn ty(pp: &impl PrettyPrint, db: &dyn crate::Db, ty: TypeId) -> String {
                 .as_ref()
                 .map(|name| format!(" {name}"))
                 .unwrap_or_default();
-            let params = pretty::params(pp, db, is_ghost, &params);
+            let params = pp_params(pp, db, is_ghost, params);
             let ret = if let TypeData::Void = pp.resolve_ty(pp_strip_ghost(pp, true, return_ty)) {
                 String::new()
             } else {
@@ -159,7 +158,14 @@ pub fn expr(pp: &impl PrettyPrint, db: &dyn crate::Db, expr: ExprIdx) -> String 
             expr,
         } => format!(
             "{quantifier}{} {{ {} }}",
-            pp_params(pp, db, true, &params.map(|var| pp.resolve_var(*var))),
+            pp_params(
+                pp,
+                db,
+                true,
+                params
+                    .iter()
+                    .map(|param| param.map_var(|var| pp.resolve_var(*var)))
+            ),
             pp_expr(pp, db, *expr)
         ),
         ExprData::Result => "result".to_string(),
