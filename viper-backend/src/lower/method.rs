@@ -11,9 +11,9 @@ use silvers::{
         SeqExp,
     },
     program::{AnyLocalVarDecl, Field},
-    statement::{Seqn, Stmt},
+    statement::{Label, Seqn, Stmt},
 };
-use tracing::{info, warn};
+use tracing::warn;
 
 use crate::{gen::VExprId, lower::pure::PureLowerResult};
 
@@ -36,6 +36,9 @@ impl BodyLower<'_> {
 
     fn final_block(&mut self, bid: mir::BlockId) -> Result<Seqn<VExprId>, ViperLowerError> {
         let mut result = self.block(bid, vec![], None)?;
+        result
+            .ss
+            .push(Stmt::Label(Label::new("end".to_string(), vec![])));
 
         let mut slots_seen = IdxSet::default();
 
@@ -93,7 +96,12 @@ impl BodyLower<'_> {
 
         match self.body[block].terminator() {
             Some(t) => match t {
-                mir::Terminator::Return => Ok(Seqn::new(insts, vec![])),
+                mir::Terminator::Return => {
+                    insts.push(Stmt::Goto {
+                        target: "end".to_string(),
+                    });
+                    Ok(Seqn::new(insts, vec![]))
+                }
                 &mir::Terminator::Goto(b) => {
                     if self.should_continue(b, stop_at) {
                         self.block(b, insts, stop_at)
@@ -164,9 +172,20 @@ impl BodyLower<'_> {
                             .collect::<Result<_, _>>()?;
 
                         insts.push(Stmt::While { cond, invs, body });
+
+                        if self.should_continue(next, stop_at) {
+                            self.block(next, insts, stop_at)
+                        } else {
+                            Ok(Seqn::new(insts, vec![]))
+                        }
                     } else {
+                        let mut diverged = false;
                         let otherwise = self.block(otherwise, vec![], Some(next))?;
                         let if_stmt = values.try_fold(otherwise, |els, (value, target)| {
+                            if target == next {
+                                diverged = true;
+                            }
+
                             let thn = self.block(target, vec![], Some(next))?;
 
                             let cond = match value {
@@ -178,12 +197,12 @@ impl BodyLower<'_> {
                         })?;
 
                         insts.push(Stmt::Seqn(if_stmt));
-                    }
 
-                    if self.should_continue(next, stop_at) {
-                        self.block(next, insts, stop_at)
-                    } else {
-                        Ok(Seqn::new(insts, vec![]))
+                        if self.should_continue(next, stop_at) && !diverged {
+                            self.block(next, insts, stop_at)
+                        } else {
+                            Ok(Seqn::new(insts, vec![]))
+                        }
                     }
                 }
                 mir::Terminator::Call {

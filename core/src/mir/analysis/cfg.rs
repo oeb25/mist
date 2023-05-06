@@ -178,7 +178,7 @@ fn frontiers(g: &Graph<BlockId, Terminator>, e: NodeIndex) -> HashMap<NodeIndex,
                         if let Some(r) = dominators.immediate_dominator(runner) {
                             runner = r;
                         } else {
-                            warn!("node has no frontier");
+                            warn!("node {} has no frontier", g.node_weight(node).unwrap());
                             break;
                         }
                     }

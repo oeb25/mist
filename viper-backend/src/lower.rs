@@ -250,21 +250,15 @@ impl<'a> BodyLower<'a> {
                 // VTy::internal_type().into()
                 VTy::int().into()
             }
-            hir::TypeData::Ghost(inner) => {
-                // TODO: Should we do anything special about ghost?
-                self.lower_type(*inner)
-            }
-            &hir::TypeData::Ref { is_mut, inner } => {
-                // TODO: We should indicate some predicate on the ref
-                ViperType {
-                    vty: VTy::ref_(),
-                    is_mut,
-                    is_ref: true,
-                    optional: false,
-                    inner: Some(Box::new(self.lower_type(inner))),
-                    strukt: None,
-                }
-            }
+            hir::TypeData::Ghost(inner) => self.lower_type(*inner),
+            &hir::TypeData::Ref { is_mut, inner } => ViperType {
+                vty: VTy::ref_(),
+                is_mut,
+                is_ref: true,
+                optional: false,
+                inner: Some(Box::new(self.lower_type(inner))),
+                strukt: None,
+            },
             hir::TypeData::List(inner) => VTy::Seq {
                 element_type: Box::new(self.lower_type(*inner).vty),
             }
