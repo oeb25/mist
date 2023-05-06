@@ -1,5 +1,5 @@
 fn simple() -> int
-    ens (forall(x: Bool) (x == x)) == true
+    ens (forall(x: bool) (x == x)) == true
 {
     12
 }
