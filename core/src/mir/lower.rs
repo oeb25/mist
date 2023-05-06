@@ -503,15 +503,17 @@ impl MirLower<'_> {
                         todo!()
                     }
                 } else {
-                    MirErrors::push(
-                        self.db,
-                        MirError::NotYetImplemented {
-                            item_id: self.cx.item_id(),
-                            msg: "missing field".to_string(),
-                            expr,
-                            span: None,
-                        },
-                    );
+                    if !self.cx.expr_ty(*base).is_error(self.cx) {
+                        MirErrors::push(
+                            self.db,
+                            MirError::NotYetImplemented {
+                                item_id: self.cx.item_id(),
+                                msg: "missing field".to_string(),
+                                expr,
+                                span: None,
+                            },
+                        );
+                    }
                     bid
                 }
             }

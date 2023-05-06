@@ -204,6 +204,9 @@ impl TypeId {
     pub fn is_ghost(self, cx: &ItemContext) -> bool {
         matches!(cx[self], TypeData::Ghost(_))
     }
+    pub fn is_error(self, cx: &ItemContext) -> bool {
+        matches!(cx[self], TypeData::Error)
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]

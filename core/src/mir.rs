@@ -105,9 +105,13 @@ impl Terminator {
             | Terminator::Quantify(_, _, _)
             | Terminator::QuantifyEnd(_) => Either::Left(None.into_iter()),
             Terminator::Switch(op, _) => Either::Left(op.place().into_iter()),
-            Terminator::Call { args, .. } => {
-                Either::Right(args.iter().filter_map(|arg| arg.place()))
-            }
+            Terminator::Call {
+                args, destination, ..
+            } => Either::Right(
+                [*destination]
+                    .into_iter()
+                    .chain(args.iter().filter_map(|arg| arg.place())),
+            ),
         }
     }
 
@@ -258,8 +262,8 @@ impl Place {
         }
     }
 
-    pub fn parent(&self, b: &Body) -> Place {
-        self.replace_projection(b.projection_parent(self.projection))
+    pub fn parent(&self, b: &Body) -> Option<Place> {
+        Some(self.replace_projection(b.projection_parent(self.projection)?))
     }
 }
 
@@ -539,26 +543,31 @@ impl Body {
         let mut current = projection;
 
         loop {
-            let next = self.projection_parent(current);
-            if next == current {
-                return entries.into_iter().rev();
+            match self.projection_parent(current) {
+                Some(next) => {
+                    entries.push(next);
+                    current = next;
+                }
+                None => {
+                    return entries.into_iter().rev();
+                }
             }
-            entries.push(next);
-            current = next;
         }
     }
-    pub fn projection_parent(&self, projection: ProjectionList) -> ProjectionList {
+    pub fn projection_parent(&self, projection: ProjectionList) -> Option<ProjectionList> {
         let list = &self[projection];
         let search_for = if list.is_empty() {
-            return projection;
+            return None;
         } else {
             &list[0..list.len() - 1]
         };
-        self.projections
-            .iter()
-            .find(|(_, proj)| proj == &search_for)
-            .unwrap()
-            .0
+        Some(
+            self.projections
+                .iter()
+                .find(|(_, proj)| proj == &search_for)
+                .unwrap()
+                .0,
+        )
     }
 
     fn intersperse_instructions(
@@ -579,12 +588,17 @@ impl Body {
                 Terminator::Quantify(_, _, _) => todo!(),
                 Terminator::QuantifyEnd(_) => todo!(),
                 Terminator::Switch(_, _) => todo!(),
-                Terminator::Call {
-                    func,
-                    args,
-                    destination,
-                    target,
-                } => todo!(),
+                Terminator::Call { target, .. } => {
+                    assert_eq!(*target, Some(into));
+                    let middle = self.blocks.alloc(Block {
+                        instructions: folding.map(|inst| self.instructions.alloc(inst)).collect(),
+                        terminator: Some(Terminator::Goto(into)),
+                    });
+                    match &mut self.blocks[from].terminator {
+                        Some(Terminator::Call { target, .. }) => *target = Some(middle),
+                        _ => unreachable!(),
+                    }
+                }
             },
             None => todo!(),
         }
@@ -740,8 +754,11 @@ impl Instruction {
 
     fn places_referenced(&self) -> impl Iterator<Item = Place> + '_ {
         match self {
-            Instruction::Assign(_, expr) | Instruction::Assertion(_, expr) => {
-                Either::Left(Either::Left(expr.places()))
+            Instruction::Assign(target, expr) => {
+                Either::Left(Either::Left(Some(*target).into_iter().chain(expr.places())))
+            }
+            Instruction::Assertion(_, expr) => {
+                Either::Left(Either::Left(None.into_iter().chain(expr.places())))
             }
             Instruction::PlaceMention(p) => Either::Left(Either::Right([*p].into_iter())),
             Instruction::Folding(folding) => match folding {

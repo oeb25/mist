@@ -69,7 +69,7 @@ impl FoldingTree {
 
         let mut last = None;
         for p in body.projection_path_iter(place.projection) {
-            if let Some(prev) = last.take() {
+            if let Some(prev) = last.replace(p) {
                 let place = place.replace_projection(prev);
                 match self.node(place) {
                     (prev_loc, FoldingNode::Folded) => {
@@ -83,8 +83,7 @@ impl FoldingTree {
                         });
                         self.nodes
                             .insert(place, (loc, FoldingNode::Unfolded { children: vec![] }));
-                        let parent_place =
-                            place.replace_projection(body.projection_parent(place.projection));
+                        let Some(parent_place) = place.parent(body) else { continue };
                         if let Some((_, FoldingNode::Unfolded { children })) =
                             self.nodes.get_mut(&parent_place)
                         {
@@ -96,8 +95,6 @@ impl FoldingTree {
                     (_, FoldingNode::Unfolded { .. }) => {}
                 }
             }
-
-            last = Some(p);
         }
 
         let folding_start = foldings.len();

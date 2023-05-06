@@ -534,16 +534,21 @@ impl BodyLower<'_> {
         let ty = self.lower_type(ty);
         if let Some(st) = ty.strukt {
             let perm = self.alloc(source, PermExp::Full);
-            return (
-                Some(self.alloc(
-                    source,
-                    AccessPredicate::Predicate(PredicateAccessPredicate::new(
-                        PredicateAccess::new(st.name(self.db).to_string(), vec![place]),
-                        perm,
-                    )),
+            let pred = self.alloc(
+                source,
+                AccessPredicate::Predicate(PredicateAccessPredicate::new(
+                    PredicateAccess::new(st.name(self.db).to_string(), vec![place]),
+                    perm,
                 )),
-                None,
             );
+            let pred = if ty.optional {
+                let null = self.alloc(source, Exp::null());
+                let cond = self.alloc(source, Exp::bin(place, BinOp::NeCmp, null));
+                self.alloc(source, Exp::bin(cond, BinOp::Implies, pred))
+            } else {
+                pred
+            };
+            return (Some(pred), None);
         }
         if let Some(inner) = ty.inner {
             if ty.is_ref {

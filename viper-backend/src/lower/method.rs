@@ -253,14 +253,12 @@ impl BodyLower<'_> {
                 let rhs = self.expr(inst, x)?;
                 match &self.body[s.projection] {
                     [] => {
-                        info!("lowering without projection (1)");
                         insts.push(Stmt::LocalVarAssign {
                             lhs: self.place_for_assignment(*s),
                             rhs,
                         });
                     }
                     [Projection::Field(f, ty)] => {
-                        info!("lowering with projection (2)");
                         insts.push(Stmt::FieldAssign {
                             lhs: FieldAccess::new(
                                 self.place_to_ref(inst, s.slot.into()),
@@ -275,7 +273,7 @@ impl BodyLower<'_> {
                     }
                     [Projection::Index(index, _)] => {
                         let idx = self.place_to_ref(inst, (*index).into());
-                        let seq = self.place_to_ref(inst, s.parent(self.body));
+                        let seq = self.place_to_ref(inst, s.parent(self.body).unwrap());
                         let new_rhs = self.alloc(
                             inst,
                             SeqExp::Update {
@@ -289,7 +287,7 @@ impl BodyLower<'_> {
                     }
                     [Projection::Field(f, ty), Projection::Index(index, _)] => {
                         let idx = self.place_to_ref(inst, (*index).into());
-                        let seq = self.place_to_ref(inst, s.parent(self.body));
+                        let seq = self.place_to_ref(inst, s.parent(self.body).unwrap());
                         let new_rhs = self.alloc(
                             inst,
                             SeqExp::Update {
