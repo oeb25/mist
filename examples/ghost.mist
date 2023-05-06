@@ -114,3 +114,8 @@ fn ghost_arg(x: int, ghost y: int) -> int {
 fn call_ghost_arg(y: ghost int) -> int {
     ghost_arg(12, y)
 }
+
+fn ghost_void() {
+    let x: ghost bool = true;
+    if x {}
+}

@@ -1,0 +1,6 @@
+struct T { ghost b: bool }
+fn f(t: &mut T) {
+    if true {
+        assert t.b == t.b;
+    }
+}

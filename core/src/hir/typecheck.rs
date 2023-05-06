@@ -855,7 +855,9 @@ impl<'a> TypeChecker<'a> {
                             {
                                 (
                                     Some(field.clone()),
-                                    self.expect_find_type(&field.ty(self.db, self.root)),
+                                    self.expect_find_type(&field.ty(self.db, self.root))
+                                        .with_ghost(field.is_ghost)
+                                        .ty(self),
                                 )
                             } else {
                                 return self.expr_error(
@@ -1140,6 +1142,16 @@ impl<'a> TypeChecker<'a> {
     fn unify_inner(&mut self, expected: impl Typed, actual: impl Typed) -> Option<TypeId> {
         let expected = expected.ty(self);
         let actual = actual.ty(self);
+
+        {
+            let expected_no_ghost = expected.tc_strip_ghost(self);
+            let actual_no_ghost = actual.tc_strip_ghost(self);
+            if self.ty_data(expected_no_ghost).is_void() && self.ty_data(actual_no_ghost).is_void()
+            {
+                return Some(expected);
+            }
+        }
+
         Some(match (self.ty_data(expected), self.ty_data(actual)) {
             (TypeData::Error, _) | (_, TypeData::Error) => expected,
             (TypeData::Void, TypeData::Void) => expected,

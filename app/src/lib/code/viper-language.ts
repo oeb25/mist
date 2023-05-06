@@ -50,6 +50,7 @@ monaco.languages.setMonarchTokensProvider(VIPER_ID, {
   ],
 
   keywords: [
+    "field",
     "predicate",
     "function",
     "method",
@@ -67,6 +68,9 @@ monaco.languages.setMonarchTokensProvider(VIPER_ID, {
     "exists",
     "while",
     "invariant",
+    "acc",
+    "write",
+    "wildcard",
   ],
   operators: [
     "-",
