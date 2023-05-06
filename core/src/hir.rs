@@ -14,7 +14,11 @@ use mist_syntax::{
 };
 use tracing::error;
 
-use crate::{hir::typecheck::Typed, TypeCheckErrors};
+use crate::{
+    hir::typecheck::Typed,
+    util::{impl_idx, IdxWrap},
+    TypeCheckErrors,
+};
 
 pub use item_context::{ItemContext, ItemSourceMap};
 use typecheck::{TypeCheckError, TypeCheckErrorKind, TypeChecker};
@@ -370,7 +374,7 @@ pub struct Variable {
     #[id]
     pub name: VariableId,
 }
-pub type VariableIdx = la_arena::Idx<Variable>;
+impl_idx!(VariableIdx, Variable, default_debug);
 #[derive(new, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VariableRef {
     idx: VariableIdx,
@@ -445,7 +449,7 @@ pub enum Decreases {
     Inferred,
 }
 
-pub type ExprIdx = la_arena::Idx<Expr>;
+impl_idx!(ExprIdx, Expr, default_debug);
 #[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Expr {
     pub ty: TypeId,
@@ -600,7 +604,7 @@ pub enum AssertionKind {
     Exhale,
 }
 
-pub type TypeSrcId = la_arena::Idx<TypeSrc>;
+impl_idx!(TypeSrcId, TypeSrc, default_debug);
 #[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TypeSrc {
     pub data: Option<TypeData<TypeSrcId>>,
@@ -609,7 +613,7 @@ pub struct TypeSrc {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TypeId(TypeDataIdx);
-pub type TypeDataIdx = la_arena::Idx<TypeData>;
+impl_idx!(TypeDataIdx, TypeData, default_debug);
 
 impl ena::unify::UnifyKey for TypeId {
     type Value = TypeData;

@@ -1,14 +1,13 @@
-use la_arena::ArenaMap;
 use petgraph::{algo::dominators::Dominators, visit::IntoNodeIdentifiers, Direction};
 use tracing::warn;
 
-use crate::mir::Terminator;
+use crate::{mir::Terminator, util::IdxMap};
 
 use super::*;
 
 #[derive(Debug, Default)]
 pub struct Cfg {
-    nodes: ArenaMap<BlockId, NodeIndex>,
+    nodes: IdxMap<BlockId, NodeIndex>,
     graph: Graph<BlockId, Terminator>,
 }
 
@@ -64,10 +63,10 @@ impl Cfg {
         })
     }
     /// Computes the dominators for each block reachable from `entry`
-    pub fn dominators(&self, entry: BlockId) -> ArenaMap<BlockId, BlockId> {
+    pub fn dominators(&self, entry: BlockId) -> IdxMap<BlockId, BlockId> {
         let dominators = petgraph::algo::dominators::simple_fast(&self.graph, self.nodes[entry]);
 
-        let mut result = ArenaMap::with_capacity(self.graph.node_count());
+        let mut result = IdxMap::with_capacity(self.graph.node_count());
         for &n in self.graph.node_weights() {
             let Some(d) = dominators.immediate_dominator(self.nodes[n]) else { continue };
             result.insert(n, *self.graph.node_weight(d).unwrap());
@@ -83,7 +82,7 @@ impl Cfg {
             self.exit_nodes_for(entry).next().unwrap(),
         );
 
-        let mut relation = ArenaMap::with_capacity(reverse_graph.node_count());
+        let mut relation = IdxMap::with_capacity(reverse_graph.node_count());
         for &n in reverse_graph.node_weights() {
             let Some(d) = dominators.immediate_dominator(self.nodes[n]) else { continue };
             relation.insert(n, *reverse_graph.node_weight(d).unwrap());
@@ -95,7 +94,7 @@ impl Cfg {
         let mut reverse_graph = self.graph.clone();
         reverse_graph.reverse();
         let f = frontiers(&reverse_graph, self.exit_nodes_for(entry).next().unwrap());
-        let mut relation = ArenaMap::new();
+        let mut relation = IdxMap::new();
         for (n, rest) in f.into_iter().sorted() {
             relation.insert(
                 *reverse_graph.node_weight(n).unwrap(),
@@ -236,7 +235,7 @@ impl<'a> CfgBuilder<'a> {
 
 #[derive(Debug, Default, Clone)]
 pub struct Postdominators {
-    relation: ArenaMap<BlockId, BlockId>,
+    relation: IdxMap<BlockId, BlockId>,
 }
 
 impl Postdominators {
@@ -262,7 +261,7 @@ impl std::ops::Index<BlockId> for Postdominators {
 
 #[derive(Debug, Default, Clone)]
 pub struct PostdominanceFrontier {
-    relation: ArenaMap<BlockId, Vec<BlockId>>,
+    relation: IdxMap<BlockId, Vec<BlockId>>,
 }
 impl PostdominanceFrontier {
     pub fn merge(&mut self, other: &PostdominanceFrontier) {

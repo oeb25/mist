@@ -1,4 +1,4 @@
-use crate::{mir, util::ArenaSet};
+use crate::{mir, util::IdxSet};
 
 use super::monotone::{self, mono_analysis, MonotoneFramework};
 
@@ -13,7 +13,7 @@ impl Liveness {
 pub struct LivenessAnalysis;
 
 impl MonotoneFramework for LivenessAnalysis {
-    type Domain = ArenaSet<mir::SlotId>;
+    type Domain = IdxSet<mir::SlotId>;
 
     type Direction = monotone::Backward;
 

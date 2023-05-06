@@ -3,12 +3,13 @@ use std::{
     fmt,
 };
 
-use la_arena::{ArenaMap, Idx};
-
-use crate::{mir, util::ArenaSet};
+use crate::{
+    mir,
+    util::{IdxMap, IdxSet, IdxWrap},
+};
 
 pub struct AnalysisResults<A: MonotoneFramework> {
-    facts: ArenaMap<mir::BlockId, A::Domain>,
+    facts: IdxMap<mir::BlockId, A::Domain>,
     semantic_calls: usize,
 }
 
@@ -35,7 +36,7 @@ pub trait Direction {
     fn semantic<A: MonotoneFramework>(
         a: &A,
         body: &mir::Body,
-        facts: &mut ArenaMap<mir::BlockId, A::Domain>,
+        facts: &mut IdxMap<mir::BlockId, A::Domain>,
         bid: mir::BlockId,
     ) -> Progress;
     fn next(body: &mir::Body, bid: mir::BlockId, f: impl FnMut(mir::BlockId));
@@ -54,7 +55,7 @@ impl Direction for Forward {
     fn semantic<A: MonotoneFramework>(
         a: &A,
         body: &mir::Body,
-        facts: &mut ArenaMap<mir::BlockId, A::Domain>,
+        facts: &mut IdxMap<mir::BlockId, A::Domain>,
         bid: mir::BlockId,
     ) -> Progress {
         let mut progress = Progress::No;
@@ -92,7 +93,7 @@ impl Direction for Backward {
     fn semantic<A: MonotoneFramework>(
         a: &A,
         body: &mir::Body,
-        facts: &mut ArenaMap<mir::BlockId, A::Domain>,
+        facts: &mut IdxMap<mir::BlockId, A::Domain>,
         bid: mir::BlockId,
     ) -> Progress {
         let mut progress = Progress::No;
@@ -195,7 +196,7 @@ pub fn mono_analysis<A: MonotoneFramework, W: Worklist>(
 
     let bot = A::Domain::bottom();
 
-    let mut facts: ArenaMap<mir::BlockId, A::Domain> = ArenaMap::default();
+    let mut facts: IdxMap<mir::BlockId, A::Domain> = IdxMap::default();
     for (bid, _) in body.blocks.iter() {
         facts.insert(bid, bot.clone());
         worklist.insert(bid);
@@ -323,8 +324,9 @@ where
     }
 }
 
-impl<K, V> Lattice for ArenaMap<Idx<K>, V>
+impl<K, V> Lattice for IdxMap<K, V>
 where
+    K: IdxWrap,
     V: Lattice + Clone,
 {
     fn bottom() -> Self {
@@ -371,7 +373,7 @@ where
     }
 }
 
-impl<K> Lattice for ArenaSet<Idx<K>> {
+impl<K: IdxWrap> Lattice for IdxSet<K> {
     fn bottom() -> Self {
         Self::default()
     }

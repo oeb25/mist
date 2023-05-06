@@ -2,6 +2,8 @@ pub mod analysis;
 mod lower;
 pub mod serialize;
 
+use std::fmt;
+
 use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Either;
@@ -13,11 +15,24 @@ use mist_syntax::{
 };
 use tracing::debug;
 
-use crate::hir::{self, AssertionKind, Field, Literal, Quantifier, Struct, TypeId, VariableIdx};
+use crate::{
+    hir::{self, AssertionKind, Field, Literal, Quantifier, Struct, TypeId, VariableIdx},
+    util::{impl_idx, IdxArena, IdxMap, IdxWrap},
+};
 
 pub use self::lower::{lower_item, lower_program};
 
-pub type BlockId = Idx<Block>;
+impl_idx!(BlockId, Block);
+impl fmt::Debug for BlockId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, ":B{}", self.0.into_raw())
+    }
+}
+impl fmt::Display for BlockId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, ":B{}", self.0.into_raw())
+    }
+}
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct Block {
     instructions: Vec<InstructionId>,
@@ -184,7 +199,7 @@ pub enum Folding {
     Unfold { consume: Place, into: Vec<Place> },
 }
 
-pub type InstructionId = Idx<Instruction>;
+impl_idx!(InstructionId, Instruction, default_debug);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Instruction {
     Assign(Place, MExpr),
@@ -193,7 +208,17 @@ pub enum Instruction {
     PlaceMention(Place),
 }
 
-pub type SlotId = Idx<Slot>;
+impl_idx!(SlotId, Slot);
+impl fmt::Debug for SlotId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "%{}", self.0.into_raw())
+    }
+}
+impl fmt::Display for SlotId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "%{}", self.0.into_raw())
+    }
+}
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub enum Slot {
     #[default]
@@ -247,7 +272,7 @@ impl From<SlotId> for Place {
     }
 }
 
-pub type ProjectionList = Idx<Vec<Projection>>;
+impl_idx!(ProjectionList, Vec<Projection>, default_debug);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Projection {
     Field(Field, hir::TypeId),
@@ -282,7 +307,7 @@ impl MExpr {
     }
 }
 
-pub type FunctionId = Idx<Function>;
+impl_idx!(FunctionId, Function, default_debug);
 #[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Function {
     data: FunctionData,
@@ -322,23 +347,23 @@ pub struct Body {
     item_id: hir::ItemId,
 
     #[new(default)]
-    blocks: Arena<Block>,
+    blocks: IdxArena<BlockId>,
     #[new(default)]
-    instructions: Arena<Instruction>,
+    instructions: IdxArena<InstructionId>,
     #[new(default)]
-    slots: Arena<Slot>,
-    #[new(value = "{ let mut arena = Arena::new(); arena.alloc(vec![]); arena }")]
-    projections: Arena<Vec<Projection>>,
+    slots: IdxArena<SlotId>,
+    #[new(value = "{ let mut arena = IdxArena::default(); arena.alloc(vec![]); arena }")]
+    projections: IdxArena<ProjectionList>,
     #[new(default)]
-    functions: Arena<Function>,
+    functions: IdxArena<FunctionId>,
 
     #[new(default)]
     params: Vec<SlotId>,
 
     #[new(default)]
-    block_invariants: ArenaMap<BlockId, Vec<BlockId>>,
+    block_invariants: IdxMap<BlockId, Vec<BlockId>>,
     #[new(default)]
-    slot_type: ArenaMap<SlotId, TypeId>,
+    slot_type: IdxMap<SlotId, TypeId>,
 
     #[new(default)]
     requires: Vec<BlockId>,
@@ -355,11 +380,11 @@ pub struct Body {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct BodySourceMap {
-    pub expr_instr_map: ArenaMap<hir::ExprIdx, Vec<InstructionId>>,
-    expr_instr_map_back: ArenaMap<InstructionId, hir::ExprIdx>,
-    pub expr_block_map: ArenaMap<hir::ExprIdx, BlockId>,
-    expr_block_map_back: ArenaMap<BlockId, hir::ExprIdx>,
-    pub var_map: ArenaMap<VariableIdx, SlotId>,
+    pub expr_instr_map: IdxMap<hir::ExprIdx, Vec<InstructionId>>,
+    expr_instr_map_back: IdxMap<InstructionId, hir::ExprIdx>,
+    pub expr_block_map: IdxMap<hir::ExprIdx, BlockId>,
+    expr_block_map_back: IdxMap<BlockId, hir::ExprIdx>,
+    pub var_map: IdxMap<VariableIdx, SlotId>,
 }
 
 impl BodySourceMap {
@@ -413,15 +438,15 @@ impl Body {
         self.body_block
     }
 
-    pub fn requires(&self) -> &[Idx<Block>] {
+    pub fn requires(&self) -> &[BlockId] {
         self.requires.as_ref()
     }
 
-    pub fn ensures(&self) -> &[Idx<Block>] {
+    pub fn ensures(&self) -> &[BlockId] {
         self.ensures.as_ref()
     }
 
-    pub fn invariants(&self) -> &[Idx<Block>] {
+    pub fn invariants(&self) -> &[BlockId] {
         self.invariants.as_ref()
     }
 

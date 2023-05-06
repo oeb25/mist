@@ -1,8 +1,8 @@
 use itertools::Itertools;
-use la_arena::ArenaMap;
 use mist_core::{
     hir,
     mir::{self, Projection},
+    util::IdxSet,
 };
 use silvers::{
     ast::Declaration,
@@ -37,12 +37,12 @@ impl BodyLower<'_> {
     fn final_block(&mut self, bid: mir::BlockId) -> Result<Seqn<VExprId>, ViperLowerError> {
         let mut result = self.block(bid, vec![], None)?;
 
-        let mut slots_seen = ArenaMap::new();
+        let mut slots_seen = IdxSet::default();
 
         // TODO: This is quite excessive. Traversing the generated Seqn might be
         // better
         for s in self.body.slots() {
-            slots_seen.insert(s, ());
+            slots_seen.insert(s);
         }
 
         for to_remove in self
@@ -56,7 +56,7 @@ impl BodyLower<'_> {
             slots_seen.remove(to_remove);
         }
 
-        for (x, _) in slots_seen.iter() {
+        for x in slots_seen.iter() {
             let var = self.slot_to_decl(x);
             result
                 .scoped_seqn_declarations

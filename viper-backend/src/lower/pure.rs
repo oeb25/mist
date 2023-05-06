@@ -226,7 +226,7 @@ impl BodyLower<'_> {
                 mir::Terminator::Switch(test, switch) => {
                     let Some(next) = self.postdominators.get(block) else {
                         return Err(ViperLowerError::NotYetImplemented {
-                            msg: format!("block :B{} did not have a postdominator", block.into_raw()),
+                            msg: format!("block {block} did not have a postdominator"),
                             item_id: self.body.item_id(),
                             block_or_inst: Some(block.into()),
                             span: None,
@@ -269,7 +269,7 @@ impl BodyLower<'_> {
                             )),
                             (PureLowerResult::Empty { .. }, _) => {
                                 Err(ViperLowerError::NotYetImplemented {
-                                    msg: format!("divergent branches: :B{} is empty, and was told to stop at :B{}", otherwise.into_raw(), block.into_raw()),
+                                    msg: format!("divergent branches: {otherwise} is empty, and was told to stop at {block}"),
                                     item_id: self.body.item_id(),
                                     block_or_inst: Some(otherwise.into()),
                                     span: None,

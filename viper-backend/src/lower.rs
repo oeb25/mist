@@ -1,12 +1,12 @@
 use std::{cmp::Ordering, collections::HashMap};
 
 use derive_new::new;
-use la_arena::{Arena, ArenaMap};
 
 use miette::Diagnostic;
 use mist_core::{
     hir,
     mir::{self, analysis::cfg, BlockOrInstruction},
+    util::{IdxArena, IdxMap, IdxWrap},
 };
 use mist_syntax::{
     ast::operators::{ArithOp, BinaryOp, CmpOp, LogicOp},
@@ -102,7 +102,7 @@ impl ViperLowerer {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ViperBody {
-    arena: Arena<VExpr>,
+    arena: IdxArena<VExprId>,
 }
 
 impl std::ops::Index<VExprId> for ViperBody {
@@ -116,9 +116,9 @@ impl std::ops::Index<VExprId> for ViperBody {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ViperSourceMap {
     pub inst_expr: HashMap<(hir::ItemId, mir::InstructionId), VExprId>,
-    pub inst_expr_back: ArenaMap<VExprId, (hir::ItemId, mir::InstructionId)>,
+    pub inst_expr_back: IdxMap<VExprId, (hir::ItemId, mir::InstructionId)>,
     pub block_expr: HashMap<(hir::ItemId, mir::BlockId), VExprId>,
-    pub block_expr_back: ArenaMap<VExprId, (hir::ItemId, mir::BlockId)>,
+    pub block_expr_back: IdxMap<VExprId, (hir::ItemId, mir::BlockId)>,
 }
 
 impl ViperSourceMap {
@@ -203,9 +203,9 @@ pub struct BodyLower<'a> {
     cfg: cfg::Cfg,
     postdominance_frontier: cfg::PostdominanceFrontier,
     postdominators: cfg::Postdominators,
-    var_refs: ArenaMap<mir::SlotId, VExprId>,
-    inlined: ArenaMap<VExprId, VExprId>,
-    internally_bound_slots: ArenaMap<mir::SlotId, ()>,
+    var_refs: IdxMap<mir::SlotId, VExprId>,
+    inlined: IdxMap<VExprId, VExprId>,
+    internally_bound_slots: IdxMap<mir::SlotId, ()>,
 }
 
 impl<'a> BodyLower<'a> {

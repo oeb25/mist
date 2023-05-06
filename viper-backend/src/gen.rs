@@ -3,8 +3,10 @@ use std::{collections::HashMap, fmt::Write};
 use derive_more::From;
 use derive_new::new;
 use itertools::Itertools;
-use la_arena::ArenaMap;
-use mist_core::{hir, mir};
+use mist_core::{
+    hir, mir,
+    util::{impl_idx, IdxMap, IdxWrap},
+};
 use mist_syntax::{ast::Spanned, SourceSpan};
 use silvers::{
     expression::{AbstractLocalVar, Exp, LocationAccess, QuantifierExp, ResourceAccess, SeqExp},
@@ -211,7 +213,7 @@ pub struct ViperHints(ViperHint);
 
 type VExprData = Exp<VExprId>;
 
-pub type VExprId = la_arena::Idx<VExpr>;
+impl_idx!(VExprId, VExpr, default_debug);
 #[derive(new, Debug, Clone, PartialEq, Eq, Hash, derive_more::Deref)]
 pub struct VExpr {
     data: VExprData,
@@ -232,7 +234,7 @@ pub struct ViperWriter<Cx> {
 #[derive(Debug, Default)]
 pub struct ViperOutput {
     pub buf: String,
-    pub expr_map: ArenaMap<VExprId, SourceSpan>,
+    pub expr_map: IdxMap<VExprId, SourceSpan>,
     pub expr_map_back: HashMap<SourceSpan, VExprId>,
 }
 

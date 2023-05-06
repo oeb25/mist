@@ -1,13 +1,12 @@
 use std::collections::HashMap;
 
 use derive_new::new;
-use la_arena::ArenaMap;
 use tracing::warn;
 
 use crate::{
     hir::ItemContext,
     mir::{BlockId, BlockLocation, Body, BodyLocation, Folding, Instruction, Place},
-    util::ArenaSet,
+    util::{IdxMap, IdxSet},
 };
 
 use super::{cfg::Cfg, liveness};
@@ -17,34 +16,13 @@ pub struct IsorecursivePass<'a> {
     cx: &'a ItemContext,
     body: &'a mut Body,
     #[new(default)]
-    constraints: ArenaMap<BlockId, Constraint>,
+    constraints: IdxMap<BlockId, Constraint>,
 }
 
-#[derive(new, Default, Clone, PartialEq, Eq)]
+#[derive(new, Debug, Default, Clone, PartialEq, Eq)]
 struct Constraint {
     entry: FoldingTree,
     exit: FoldingTree,
-}
-
-impl std::fmt::Debug for Constraint {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        struct ArenaMapDebug<'a, K, V>(&'a ArenaMap<K, V>);
-        impl<K, V> std::fmt::Debug for ArenaMapDebug<'_, la_arena::Idx<K>, V>
-        where
-            V: std::fmt::Debug,
-        {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.debug_map()
-                    .entries(self.0.iter().map(|(k, v)| (k.into_raw(), v)))
-                    .finish()
-            }
-        }
-
-        f.debug_struct("Constraint")
-            .field("entry", &self.entry)
-            .field("exit", &self.exit)
-            .finish()
-    }
 }
 
 /// A folding happening within a block
@@ -193,7 +171,7 @@ impl IsorecursivePass<'_> {
         let cfg = Cfg::compute(self.body);
 
         for scc in cfg.scc() {
-            let mut seen = ArenaSet::default();
+            let mut seen = IdxSet::default();
             for s in self.body.slots_referenced(scc.blocks()) {
                 if result.entry(scc.entry()).contains_idx(s) {
                     seen.insert(s);
@@ -271,11 +249,11 @@ impl IsorecursivePass<'_> {
                 transition_exit.compute_transition_into(self.body, &self.constraints[into].entry);
 
             warn!(
-                    "need to resolve transition from {:?} into {:?} with foldings {internal_foldings:?} (:B{} -> :B{})",
+                    "need to resolve transition from {:?} into {:?} with foldings {internal_foldings:?} ({} -> {})",
                     self.constraints[from],
                     self.constraints[into],
-                    from.into_raw(),
-                    into.into_raw(),
+                    from,
+                    into,
                 );
 
             self.body.intersperse_instructions(

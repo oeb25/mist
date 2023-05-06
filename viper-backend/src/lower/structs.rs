@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use mist_core::{hir, mir::BlockId};
+use mist_core::{hir, mir::BlockId, util::IdxWrap};
 use silvers::{
     expression::{AbstractLocalVar, BinOp, Exp, FieldAccess, LocalVar, PermExp},
     program::{Field, Predicate},

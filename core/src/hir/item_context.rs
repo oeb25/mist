@@ -1,14 +1,16 @@
 use std::collections::HashMap;
 
 use derive_new::new;
-use la_arena::{Arena, ArenaMap};
 use mist_syntax::{
     ast::{self, Spanned},
     ptr::AstPtr,
     SourceSpan,
 };
 
-use crate::VariableDeclaration;
+use crate::{
+    util::{IdxArena, IdxMap, IdxWrap},
+    VariableDeclaration,
+};
 
 use super::{
     Condition, Decreases, Expr, ExprIdx, Field, Ident, ItemId, Param, Struct, TypeData,
@@ -21,16 +23,16 @@ pub struct ItemContext {
     #[new(default)]
     pub(super) function_context: Option<FunctionContext>,
     #[new(default)]
-    pub(super) declarations: Trace<Variable, VariableDeclaration>,
+    pub(super) declarations: Trace<VariableIdx, VariableDeclaration>,
     #[new(default)]
-    pub(super) var_types: ArenaMap<VariableIdx, TypeSrcId>,
+    pub(super) var_types: IdxMap<VariableIdx, TypeSrcId>,
     #[new(default)]
-    pub(super) expr_arena: Arena<Expr>,
+    pub(super) expr_arena: IdxArena<ExprIdx>,
     #[new(default)]
-    pub(super) ty_src_arena: Arena<TypeSrc>,
+    pub(super) ty_src_arena: IdxArena<TypeSrcId>,
 
     #[new(default)]
-    pub(super) ty_table: ArenaMap<TypeDataIdx, TypeData>,
+    pub(super) ty_table: IdxMap<TypeDataIdx, TypeData>,
     #[new(default)]
     pub(super) named_types: HashMap<String, TypeId>,
     #[new(default)]
@@ -207,8 +209,8 @@ impl TypeId {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ItemSourceMap {
     pub(super) expr_map: HashMap<SpanOrAstPtr<ast::Expr>, ExprIdx>,
-    pub(super) expr_map_back: ArenaMap<ExprIdx, SpanOrAstPtr<ast::Expr>>,
-    pub(super) ty_src_map: ArenaMap<TypeSrcId, SpanOrAstPtr<ast::Type>>,
+    pub(super) expr_map_back: IdxMap<ExprIdx, SpanOrAstPtr<ast::Expr>>,
+    pub(super) ty_src_map: IdxMap<TypeSrcId, SpanOrAstPtr<ast::Type>>,
     pub(super) ty_src_map_back: HashMap<SpanOrAstPtr<ast::Type>, TypeSrcId>,
 }
 
@@ -234,12 +236,12 @@ impl std::ops::Index<TypeSrcId> for ItemSourceMap {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(super) struct Trace<T, V> {
-    pub arena: Arena<T>,
-    pub map: ArenaMap<la_arena::Idx<T>, V>,
+pub(super) struct Trace<IDX: IdxWrap, V> {
+    pub arena: IdxArena<IDX>,
+    pub map: IdxMap<IDX, V>,
 }
 
-impl<T, V> Trace<T, V> {
+impl<IDX: IdxWrap, V> Trace<IDX, V> {
     pub fn new() -> Self {
         Trace {
             arena: Default::default(),
@@ -247,13 +249,13 @@ impl<T, V> Trace<T, V> {
         }
     }
 
-    pub fn alloc(&mut self, value: V, data: T) -> la_arena::Idx<T> {
+    pub fn alloc(&mut self, value: V, data: IDX::Inner) -> IDX {
         let id = self.arena.alloc(data);
         self.map.insert(id, value);
         id
     }
 }
-impl<T, V> Default for Trace<T, V> {
+impl<IDX: IdxWrap, V> Default for Trace<IDX, V> {
     fn default() -> Self {
         Self::new()
     }

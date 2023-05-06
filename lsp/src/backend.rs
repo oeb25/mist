@@ -10,7 +10,7 @@ use mist_core::{
     hir::SourceProgram,
     salsa::{ParallelDatabase, Snapshot},
 };
-use mist_syntax::{ast::Spanned, AstNode, SourceSpan};
+use mist_syntax::{ast::Spanned, SourceSpan};
 use mist_viper_backend::gen::ViperHints;
 use tower_lsp::{
     jsonrpc::Result,

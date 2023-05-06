@@ -177,8 +177,8 @@ impl Serializer<'_> {
 
     fn slot(&mut self, s: SlotId) {
         match &self.body.slots[s] {
-            Slot::Temp => w!(self, Cyan, "%{}", s.into_raw()),
-            Slot::Var(v) => w!(self, Cyan, "%{}_{}", s.into_raw(), self.cx.var_ident(*v)),
+            Slot::Temp => w!(self, Cyan, "{s}"),
+            Slot::Var(v) => w!(self, Cyan, "{s}_{}", self.cx.var_ident(*v)),
             Slot::Result => w!(self, Magenta, "%result"),
         }
     }
@@ -290,7 +290,7 @@ impl Serializer<'_> {
 
     fn block_id(&mut self, bid: Option<BlockId>) {
         if let Some(bid) = bid {
-            w!(self, Green, ":B{}", bid.into_raw())
+            w!(self, Green, "{bid}")
         } else {
             w!(self, Green, ":B!")
         }

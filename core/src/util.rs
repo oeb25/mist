@@ -1,6 +1,6 @@
 use std::fmt;
 
-use la_arena::{ArenaMap, Idx};
+use la_arena::{Arena, ArenaMap, Idx};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Position {
@@ -57,16 +57,156 @@ impl std::fmt::Display for Position {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ArenaSet<IDX>(ArenaMap<IDX, ()>);
+pub trait IdxWrap: Clone + Copy + fmt::Debug {
+    type Inner: fmt::Debug + Clone + PartialEq + Eq + std::hash::Hash;
+    fn into_idx(self) -> Idx<Self::Inner>;
+    fn from_idx(idx: Idx<Self::Inner>) -> Self;
+    fn into_raw(self) -> la_arena::RawIdx {
+        self.into_idx().into_raw()
+    }
+    fn from_raw(raw: la_arena::RawIdx) -> Self {
+        Self::from_idx(Idx::from_raw(raw))
+    }
+}
 
-impl<V> Default for ArenaSet<Idx<V>> {
+#[macro_export]
+macro_rules! impl_idx_ {
+    ($name:ident, $inner:ty) => {
+        #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+        pub struct $name(::la_arena::Idx<$inner>);
+        impl $crate::util::IdxWrap for $name {
+            type Inner = $inner;
+
+            fn into_idx(self) -> ::la_arena::Idx<Self::Inner> {
+                self.0
+            }
+
+            fn from_idx(idx: ::la_arena::Idx<Self::Inner>) -> Self {
+                Self(idx)
+            }
+        }
+    };
+    ($name:ident, $inner:ty, default_debug) => {
+        $crate::util::impl_idx!($name, $inner);
+        impl ::std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                f.debug_tuple(stringify!($inner))
+                    .field(&self.0.into_raw())
+                    .finish()
+            }
+        }
+    };
+}
+pub use impl_idx_ as impl_idx;
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct IdxArena<IDX: IdxWrap>(Arena<IDX::Inner>);
+
+impl<IDX: IdxWrap> Default for IdxArena<IDX> {
     fn default() -> Self {
         Self(Default::default())
     }
 }
 
-impl<V> fmt::Debug for ArenaSet<Idx<V>> {
+impl<IDX: IdxWrap> fmt::Debug for IdxArena<IDX>
+where
+    IDX::Inner: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_map().entries(self.iter()).finish()
+    }
+}
+
+impl<IDX: IdxWrap> IdxArena<IDX> {
+    pub fn alloc(&mut self, v: IDX::Inner) -> IDX {
+        IDX::from_idx(self.0.alloc(v))
+    }
+    pub fn iter(&self) -> impl Iterator<Item = (IDX, &IDX::Inner)> {
+        self.0.iter().map(|(idx, v)| (IDX::from_idx(idx), v))
+    }
+}
+
+impl<IDX: IdxWrap> std::ops::Index<IDX> for IdxArena<IDX> {
+    type Output = IDX::Inner;
+
+    fn index(&self, index: IDX) -> &Self::Output {
+        &self.0[index.into_idx()]
+    }
+}
+impl<IDX: IdxWrap> std::ops::IndexMut<IDX> for IdxArena<IDX> {
+    fn index_mut(&mut self, index: IDX) -> &mut Self::Output {
+        &mut self.0[index.into_idx()]
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct IdxMap<IDX: IdxWrap, V>(ArenaMap<Idx<IDX::Inner>, V>);
+
+impl<IDX: IdxWrap, V> Default for IdxMap<IDX, V> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<IDX: IdxWrap, V: fmt::Debug> fmt::Debug for IdxMap<IDX, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_map().entries(self.iter()).finish()
+    }
+}
+
+impl<IDX: IdxWrap, V> IdxMap<IDX, V> {
+    pub fn new() -> Self {
+        Default::default()
+    }
+    pub fn with_capacity(capacity: usize) -> Self {
+        IdxMap(ArenaMap::with_capacity(capacity))
+    }
+    pub fn get(&self, idx: IDX) -> Option<&V> {
+        self.0.get(idx.into_idx())
+    }
+    pub fn get_mut(&mut self, idx: IDX) -> Option<&mut V> {
+        self.0.get_mut(idx.into_idx())
+    }
+    pub fn insert(&mut self, idx: IDX, value: V) -> Option<V> {
+        self.0.insert(idx.into_idx(), value)
+    }
+    pub fn remove(&mut self, idx: IDX) -> Option<V> {
+        self.0.remove(idx.into_idx())
+    }
+    pub fn contains_idx(&self, idx: IDX) -> bool {
+        self.0.contains_idx(idx.into_idx())
+    }
+    pub fn iter(&self) -> impl Iterator<Item = (IDX, &V)> {
+        self.0.iter().map(|(idx, v)| (IDX::from_idx(idx), v))
+    }
+    pub fn entry(&mut self, idx: IDX) -> la_arena::Entry<Idx<IDX::Inner>, V> {
+        self.0.entry(idx.into_idx())
+    }
+}
+
+impl<IDX: IdxWrap, V> std::ops::Index<IDX> for IdxMap<IDX, V> {
+    type Output = V;
+
+    fn index(&self, index: IDX) -> &Self::Output {
+        &self.0[index.into_idx()]
+    }
+}
+impl<IDX: IdxWrap, V> std::ops::IndexMut<IDX> for IdxMap<IDX, V> {
+    fn index_mut(&mut self, index: IDX) -> &mut Self::Output {
+        &mut self.0[index.into_idx()]
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct IdxSet<IDX: IdxWrap>(IdxMap<IDX, ()>);
+
+impl<V: IdxWrap> Default for IdxSet<V> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<V: IdxWrap + fmt::Debug> fmt::Debug for IdxSet<V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_set()
             .entries(self.0.iter().map(|(k, ())| k))
@@ -74,17 +214,17 @@ impl<V> fmt::Debug for ArenaSet<Idx<V>> {
     }
 }
 
-impl<V> ArenaSet<Idx<V>> {
-    pub fn insert(&mut self, idx: Idx<V>) -> bool {
+impl<V: IdxWrap> IdxSet<V> {
+    pub fn insert(&mut self, idx: V) -> bool {
         self.0.insert(idx, ()).is_some()
     }
-    pub fn remove(&mut self, idx: Idx<V>) -> bool {
+    pub fn remove(&mut self, idx: V) -> bool {
         self.0.remove(idx).is_some()
     }
-    pub fn contains_idx(&self, idx: Idx<V>) -> bool {
+    pub fn contains_idx(&self, idx: V) -> bool {
         self.0.contains_idx(idx)
     }
-    pub fn iter(&self) -> impl Iterator<Item = Idx<V>> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = V> + '_ {
         self.0.iter().map(|(idx, _)| idx)
     }
 }
