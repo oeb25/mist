@@ -296,8 +296,8 @@ mod write_impl {
     use silvers::{
         ast::Declaration,
         expression::{
-            FieldAccess, FieldAccessPredicate, LocalVar, PermExp, PredicateAccess,
-            PredicateAccessPredicate,
+            FieldAccess, FieldAccessPredicate, LocalVar, MagicWand, OldExp, PermExp,
+            PredicateAccess, PredicateAccessPredicate,
         },
         program::{AnyLocalVarDecl, LocalVarDecl, Method, Program},
         statement::{Seqn, Stmt},
@@ -415,8 +415,11 @@ mod write_impl {
                     })
                 }
                 Exp::Unfolding { acc, body } => w!(w, "(unfolding ", acc, " in ", body, ")"),
-                Exp::Applying { .. } => w!(w, "// TODO: Applying"),
-                Exp::Old(_) => w!(w, "// TODO: Old"),
+                Exp::Applying { wand, body } => w!(w, "(applying ", wand, " in ", body, ")"),
+                Exp::Old(old) => match old {
+                    OldExp::Old { exp } => w!(w, "old(", exp, ")"),
+                    OldExp::Labelled { exp, old_label } => w!(w, "old[{old_label}](", exp, ")"),
+                },
                 Exp::Let {
                     variable,
                     exp,
@@ -480,7 +483,7 @@ mod write_impl {
                         w!(w, ")");
                     }
                     SeqExp::Range { .. } => w!(w, "// TODO: Range"),
-                    SeqExp::Append { .. } => w!(w, "// TODO: Append"),
+                    SeqExp::Append { left, right } => w!(w, "(", left, " ++ ", right, ")"),
                     SeqExp::Index { s, idx } => w!(w, s, "[", idx, "]"),
                     SeqExp::Take { s, n } => w!(w, s, "[", "..", n, "]"),
                     SeqExp::Drop { s, n } => w!(w, s, "[", n, "..", "]"),
@@ -513,7 +516,18 @@ mod write_impl {
     impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for Stmt<E> {
         fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
             match elem {
-                Stmt::NewStmt { .. } => w!(w, "// TODO: NewStmt"),
+                Stmt::NewStmt { lhs, fields } => {
+                    w!(w, lhs, " := new(");
+                    let mut first = true;
+                    for f in fields {
+                        if !first {
+                            w!(w, ", ");
+                        }
+                        first = false;
+                        w!(w, f);
+                    }
+                    w!(w, ")");
+                }
                 Stmt::LocalVarAssign { lhs, rhs } => {
                     w!(w, lhs, " := ", rhs);
                 }
@@ -552,7 +566,7 @@ mod write_impl {
                 Stmt::Fold { acc } => w!(w, "fold ", acc),
                 Stmt::Unfold { acc } => w!(w, "unfold ", acc),
                 Stmt::Package { .. } => w!(w, "// TODO: Package"),
-                Stmt::Apply { .. } => w!(w, "// TODO: Apply"),
+                Stmt::Apply { exp } => w!(w, "apply ", exp),
                 Stmt::Seqn(s) => {
                     wln!(w, "{{");
                     w.indent(|w| w!(w, s));
@@ -594,6 +608,12 @@ mod write_impl {
                 Stmt::Quasihavocall { .. } => w!(w, "// TODO: Quasihavocall"),
                 Stmt::Expression(_) => w!(w, "// TODO: Expression"),
             }
+        }
+    }
+
+    impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for MagicWand<E> {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
+            w!(w, &elem.left, " --* ", &elem.right)
         }
     }
 
