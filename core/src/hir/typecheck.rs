@@ -559,10 +559,9 @@ impl<'a> TypeChecker<'a> {
                     let return_ty = self.return_ty();
                     self.expect_ty(expr_span, return_ty, self.expr_ty(expr_idx));
 
-                    // TODO: These properly should not be Error
-                    Expr::new(self.error_ty(), ExprData::Return(Some(expr_idx)))
+                    Expr::new(self.new_free(), ExprData::Return(Some(expr_idx)))
                 } else {
-                    Expr::new(self.error_ty(), ExprData::Return(None))
+                    Expr::new(self.new_free(), ExprData::Return(None))
                 }
             }
             ast::Expr::BinExpr(it) => {
