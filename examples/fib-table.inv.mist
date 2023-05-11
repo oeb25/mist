@@ -2,19 +2,16 @@ struct FibTable {
   values: [int]
 }
 
+invariant FibTable {
+  forall(i) if 0 <= i && i < self.values.len {
+    self.values[i] == fib(i)
+  } else { true }
+}
+
 fn compute_up_to(t: &mut FibTable, n: int)
-  req forall(i) if 0 <= i && i < t.values.len {
-        t.values[i] == fib(i)
-      } else { true }
-  ens t.values.len >= n,
-      forall(i) if 0 <= i && i < n {
-        t.values[i] == fib(i)
-      } else { true }
+  ens t.values.len >= n
 {
   while t.values.len < n
-    inv forall(j) if 0 <= j && j < t.values.len {
-          t.values[j] == fib(j)
-        } else { true }
     dec n - t.values.len
   {
     if t.values.len < 2 {

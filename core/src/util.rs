@@ -121,6 +121,9 @@ impl<IDX: IdxWrap> IdxArena<IDX> {
     pub fn alloc(&mut self, v: IDX::Inner) -> IDX {
         IDX::from_idx(self.0.alloc(v))
     }
+    pub fn idxs(&self) -> impl Iterator<Item = IDX> + '_ {
+        self.0.iter().map(|(idx, _)| IDX::from_idx(idx))
+    }
     pub fn iter(&self) -> impl Iterator<Item = (IDX, &IDX::Inner)> {
         self.0.iter().map(|(idx, v)| (IDX::from_idx(idx), v))
     }

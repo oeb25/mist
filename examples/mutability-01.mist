@@ -15,7 +15,7 @@ pure fn mut_age(a: bool, p: &mut Person) -> &mut int
 fn birthday(p: &mut Person)
 //   ens p.age == p'.age + 1
 {
-  let age = mut_age(p);
+  let age = mut_age(true, p);
   age = age + 1;
 }
 

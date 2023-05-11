@@ -1,0 +1,7 @@
+struct S {
+  f: int
+}
+
+fn fun(t: &mut S) -> int {
+    t.f
+}

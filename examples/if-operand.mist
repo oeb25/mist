@@ -1,0 +1,14 @@
+pure fn g() -> int
+    ens result == 4
+{
+  1 + if false { 2 } else { 3 }
+}
+
+// pure fn count_votes(x: int) -> int {
+//   if true {
+//     0
+//   } else {
+//     count_votes(1) +
+//       if true { 1 } else { 0 }
+//   }
+// }

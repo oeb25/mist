@@ -1,0 +1,20 @@
+struct P { x: int }
+
+fn f(x: &mut P) {
+    if true {
+        assert x.x > 0;
+    } else {
+        f(x);
+    };
+    let x = x;
+}
+
+fn g(x: &mut P) {
+    g(x);
+    x.x = 1;
+}
+
+fn h(x: &mut P) {
+    let x = x;
+    let z = x.x;
+}

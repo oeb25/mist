@@ -1,9 +1,14 @@
+use std::fmt;
+
 use petgraph::{algo::dominators::Dominators, visit::IntoNodeIdentifiers, Direction};
 use tracing::warn;
 
 use crate::{mir::Terminator, util::IdxMap};
 
-use super::*;
+use super::{
+    monotone::{AnalysisResults, MonotoneFramework},
+    *,
+};
 
 #[derive(Debug, Default)]
 pub struct Cfg {
@@ -37,11 +42,28 @@ impl Cfg {
         body: &Body,
     ) -> Graph<String, String> {
         let fmt_node =
-            |n: &BlockId| serialize::serialize_block(serialize::Color::No, db, cx, body, *n);
-        self.graph.map(
-            |_idx, n| fmt_node(n),
-            |_idx, e| serialize::serialize_terminator(serialize::Color::No, db, cx, body, e),
-        )
+            |n: BlockId| serialize::serialize_block(serialize::Color::No, db, Some(cx), body, n);
+        self.map_graph(fmt_node, |e| {
+            serialize::serialize_terminator(serialize::Color::No, Some(cx), body, e)
+        })
+    }
+    pub fn analysis_dot<A: MonotoneFramework>(
+        &self,
+        result: &AnalysisResults<A>,
+        fmt: impl Fn(&A::Domain) -> String,
+    ) -> String
+    where
+        A::Domain: fmt::Debug,
+    {
+        let g = self.map_graph(|bid| fmt(result.value_at(bid)), |_| "");
+        petgraph::dot::Dot::new(&g).to_string()
+    }
+    pub fn map_graph<V, E>(
+        &self,
+        mut f: impl FnMut(BlockId) -> V,
+        mut g: impl FnMut(&Terminator) -> E,
+    ) -> Graph<V, E> {
+        self.graph.map(|_, &bid| f(bid), |_, term| g(term))
     }
     #[allow(dead_code)]
     fn exit_nodes(&self) -> impl Iterator<Item = NodeIndex> + '_ {
@@ -304,7 +326,7 @@ impl StronglyConnectedComponent {
 /// [imgcat](https://iterm2.com/documentation-images.html)
 ///
 /// `dot -T png | imgcat`
-pub fn dot_imgcat(dot: String) {
+pub fn dot_imgcat(dot: &str) {
     use std::{
         io::Write,
         process::{Command, Stdio},

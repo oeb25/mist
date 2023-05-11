@@ -4,6 +4,7 @@ use itertools::Itertools;
 use miette::Diagnostic;
 use rowan::{Checkpoint, GreenNodeBuilder};
 use thiserror::Error;
+use tracing::error;
 
 use crate::{
     ast::{AttrFlags, SourceFile},
@@ -468,10 +469,17 @@ impl<'src> Parser<'src> {
             this.expect_control(T!['{']);
 
             let mut trailing = None;
+            let mut last_span = None;
 
             loop {
+                if last_span == Some(this.current_span()) {
+                    error!("parser did not progress. breaking block body");
+                    break;
+                }
+                last_span = Some(this.current_span());
+
                 match this.current() {
-                    Some(R_CURLY) => {
+                    Some(T!['}']) => {
                         this.bump();
                         break;
                     }
@@ -666,8 +674,10 @@ impl<'src> Parser<'src> {
                 self.start_node(RETURN_EXPR, |this| {
                     this.bump();
 
-                    this.expr(Location::NONE);
-                    this.semicolon();
+                    match this.current() {
+                        Some(t) if is_start_of_expr(t) => this.expr(Location::NONE),
+                        _ => {}
+                    }
                 });
             }
             Some(T![result]) => self.start_node(RESULT_EXPR, |this| this.bump()),
@@ -1059,6 +1069,7 @@ fn is_start_of_expr(token: SyntaxKind) -> bool {
             | T![&]
             | T![!]
             | T![-]
+            | T!['{']
             | T!['(']
             | T!['[']
             | INT_NUMBER,

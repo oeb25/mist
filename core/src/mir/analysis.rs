@@ -25,13 +25,20 @@ where
 
 impl MExpr {
     pub fn all_slot_usages(&self) -> impl IntoIterator<Item = SlotId> + '_ {
-        self.all_operands().into_iter().filter_map(|op| op.slot())
+        match self {
+            MExpr::Struct(_, fields) => fields.iter().filter_map(|f| f.1.slot()).collect(),
+            MExpr::Use(s) => s.slot().into_iter().collect(),
+            MExpr::BinaryOp(_, l, r) => l.slot().into_iter().chain(r.slot()).collect(),
+            MExpr::Ref(_, p) => vec![p.slot],
+            MExpr::UnaryOp(_, o) => o.slot().into_iter().collect(),
+        }
     }
     pub fn all_operands(&self) -> impl IntoIterator<Item = &Operand> {
         match self {
             MExpr::Struct(_, fields) => fields.iter().map(|f| &f.1).collect(),
             MExpr::Use(s) => vec![s],
             MExpr::BinaryOp(_, l, r) => vec![l, r],
+            MExpr::Ref(_, _) => vec![],
             MExpr::UnaryOp(_, o) => vec![o],
         }
     }

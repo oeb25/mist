@@ -1,0 +1,54 @@
+struct ProjectionElement {
+    field_idx: int,
+}
+
+struct ProjectionList {
+    elements: [ProjectionElement],
+}
+
+struct Place {
+    slot: int,
+    projection: ProjectionList,
+}
+
+struct FoldingNode {
+    p: Place,
+    folded: bool,
+    children: [FoldingNode],
+}
+
+// TODO: We need to add the correct access to children:
+//   (forall i: Int, j: Int :: 0 <= i && i < j && j < |this.children| ==> this.children[i] != this.children[j]) &&
+//   (forall i: Int :: 0 <= i && i < |this.children| ==> acc(FoldingNode(this.children[i]), write))
+
+
+struct Folding {
+    do_fold: bool,
+    place: Place,
+}
+
+fn ft_leafs(t: &mut FoldingNode) -> [Place] {
+    let res = if t.folded {
+        [t.p]
+    } else {
+        let leafs = [];
+
+        let i = 0;
+        while i < t.children.len {
+            leafs = leafs + ft_leafs(&mut t.children[i]);
+            let t = t;
+        }
+
+        leafs
+    };
+    let t = t;
+    res
+}
+
+fn ft_require(t: &mut FoldingNode, p: Place) -> [Folding] {
+    let foldings = [];
+
+    let last: ?ProjectionList = null;
+
+    foldings
+}

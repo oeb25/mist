@@ -1,18 +1,18 @@
 use hir::ItemSourceMap;
-use mist_syntax::ast::operators::BinaryOp;
+use mist_syntax::ast::operators::{ArithOp, BinaryOp, CmpOp};
 use tracing::debug;
 
 use crate::{
     hir::{
         self, pretty, AssertionKind, ExprData, ExprIdx, IfExpr, ItemContext, Program, Statement,
-        StatementData, TypeId, VariableIdx,
+        StatementData, TypeData, TypeId, VariableIdx,
     },
     mir::{MirError, MirErrors, Operand},
 };
 
 use super::{
-    BlockId, Body, BodySourceMap, Function, FunctionData, FunctionId, Instruction, InstructionId,
-    MExpr, Place, Projection, RangeKind, Slot, SlotId, SwitchTargets, Terminator,
+    BlockId, Body, BodySourceMap, BorrowKind, Function, FunctionData, FunctionId, Instruction,
+    InstructionId, MExpr, Place, Projection, RangeKind, Slot, SlotId, SwitchTargets, Terminator,
 };
 
 #[salsa::tracked]
@@ -223,6 +223,7 @@ enum Placement<'a> {
     Assign(Place),
     IntoOperand(TypeId, &'a mut Option<Operand>),
     Assertion(AssertionKind),
+    IntoPlace(TypeId, &'a mut Option<Place>),
 }
 
 impl MirLower<'_> {
@@ -234,10 +235,34 @@ impl MirLower<'_> {
             }
             Placement::IntoOperand(ty, u) => match &expr {
                 MExpr::Use(op) => *u = Some(op.clone()),
-                MExpr::Struct(_, _) | MExpr::BinaryOp(_, _, _) | MExpr::UnaryOp(_, _) => {
+                // TODO: Maybe something different should happen for ref
+                MExpr::Ref(_, _)
+                | MExpr::Struct(_, _)
+                | MExpr::BinaryOp(_, _, _)
+                | MExpr::UnaryOp(_, _) => {
                     let tmp = self.alloc_tmp(ty);
                     self.alloc_instruction(source, bid, Instruction::Assign(tmp, expr));
                     *u = Some(Operand::Move(tmp));
+                }
+            },
+            Placement::IntoPlace(ty, u) => match &expr {
+                MExpr::Use(op) => {
+                    if let Some(place) = op.place() {
+                        *u = Some(place)
+                    } else {
+                        let tmp = self.alloc_tmp(ty);
+                        self.alloc_instruction(source, bid, Instruction::Assign(tmp, expr));
+                        *u = Some(tmp);
+                    }
+                }
+                // TODO: Maybe something different should happen for ref
+                MExpr::Ref(_, _)
+                | MExpr::Struct(_, _)
+                | MExpr::BinaryOp(_, _, _)
+                | MExpr::UnaryOp(_, _) => {
+                    let tmp = self.alloc_tmp(ty);
+                    self.alloc_instruction(source, bid, Instruction::Assign(tmp, expr));
+                    *u = Some(tmp);
                 }
             },
             Placement::Assertion(kind) => {
@@ -267,6 +292,11 @@ impl MirLower<'_> {
             Placement::IntoOperand(ty, into) => {
                 let tmp = self.alloc_tmp(ty);
                 *into = Some(Operand::Move(tmp));
+                (tmp, target.unwrap_or_else(|| self.alloc_block(None)), None)
+            }
+            Placement::IntoPlace(ty, into) => {
+                let tmp = self.alloc_tmp(ty);
+                *into = Some(tmp);
                 (tmp, target.unwrap_or_else(|| self.alloc_block(None)), None)
             }
             Placement::Assertion(kind) => {
@@ -333,8 +363,29 @@ impl MirLower<'_> {
                 assert_ne!(bid, cond_block);
                 self.body.blocks[bid].set_terminator(Terminator::Goto(cond_block));
 
-                let cond_slot = self.alloc_expr(*expr);
-                bid = self.expr(*expr, cond_block, None, Placement::Assign(cond_slot));
+                bid = cond_block;
+                let cond_place = self.expr_into_place(*expr, &mut bid, None);
+
+                let cond_inv_bid = {
+                    let cond_inv_bid = self.alloc_block(None);
+                    let mut end_bid = cond_inv_bid;
+                    let inv_result = self.expr_into_operand(*expr, &mut end_bid, None);
+                    let bool_ty = self.body.place_ty(cond_place);
+                    let some_place = self.alloc_place(Slot::Temp, bool_ty);
+                    self.alloc_instruction(
+                        Some(*expr),
+                        end_bid,
+                        Instruction::Assign(
+                            some_place,
+                            MExpr::BinaryOp(
+                                BinaryOp::CmpOp(CmpOp::Eq { negated: false }),
+                                inv_result,
+                                Operand::Copy(cond_place),
+                            ),
+                        ),
+                    );
+                    cond_inv_bid
+                };
 
                 let invariants: Vec<_> = invariants
                     .iter()
@@ -345,6 +396,7 @@ impl MirLower<'_> {
                         self.expr(*inv, inv_block, None, Placement::Assign(inv_result));
                         inv_block
                     })
+                    .chain([cond_inv_bid])
                     .collect();
 
                 self.body.block_invariants.insert(bid, invariants);
@@ -357,7 +409,7 @@ impl MirLower<'_> {
                 assert_ne!(body_bid_last, cond_block);
                 self.body.blocks[body_bid_last].set_terminator(Terminator::Goto(cond_block));
                 self.body.blocks[bid].set_terminator(Terminator::Switch(
-                    Operand::Copy(cond_slot),
+                    Operand::Copy(cond_place),
                     SwitchTargets::new([(1, body_bid)], exit_bid),
                 ));
 
@@ -449,6 +501,25 @@ impl MirLower<'_> {
             Placement::IntoOperand(self.cx.expr_ty(expr), &mut tmp),
         );
         tmp.unwrap_or_else(|| Operand::Move(self.alloc_expr(expr)))
+    }
+
+    fn expr_into_place(
+        &mut self,
+        expr: ExprIdx,
+        bid: &mut BlockId,
+        target: Option<BlockId>,
+    ) -> Place {
+        let mut tmp = None;
+        *bid = self.expr(
+            expr,
+            *bid,
+            target,
+            Placement::IntoPlace(self.cx.expr_ty(expr), &mut tmp),
+        );
+        tmp.unwrap_or_else(|| {
+            let ty = self.cx.expr_ty(expr);
+            self.alloc_place(Slot::Temp, ty)
+        })
     }
     fn expr(
         &mut self,
@@ -558,30 +629,45 @@ impl MirLower<'_> {
                 bid
             }
             &ExprData::Bin { lhs, op, rhs } => {
-                if let BinaryOp::Assignment = op {
-                    let (mut bid, left) = self.lhs_expr(lhs, bid, None);
-                    let right = self.expr_into_operand(rhs, &mut bid, None);
+                match op {
+                    BinaryOp::Assignment => {
+                        let (mut bid, left) = self.lhs_expr(lhs, bid, None);
+                        let right = self.expr_into_operand(rhs, &mut bid, None);
 
-                    self.assign(bid, Some(expr), left, MExpr::Use(right));
-                    // TODO: dest is unused? should we do anything?
-                    bid
-                } else {
-                    let left = self.expr_into_operand(lhs, &mut bid, None);
-                    let right = self.expr_into_operand(rhs, &mut bid, None);
-                    self.put(bid, dest, Some(expr), MExpr::BinaryOp(op, left, right));
-                    bid
+                        self.assign(bid, Some(expr), left, MExpr::Use(right));
+                        // TODO: dest is unused? should we do anything?
+                        bid
+                    }
+                    BinaryOp::ArithOp(ArithOp::Add)
+                        if matches!(
+                            self.cx.ty_data(self.cx.expr_ty(lhs).strip_ghost(self.cx)),
+                            TypeData::List(_),
+                        ) =>
+                    {
+                        let left = self.expr_into_operand(lhs, &mut bid, None);
+                        let right = self.expr_into_operand(rhs, &mut bid, None);
+                        let func = self.alloc_function(Function::new(FunctionData::ListConcat));
+                        self.put_call(expr, func, vec![left, right], dest, bid, target)
+                    }
+                    _ => {
+                        let left = self.expr_into_operand(lhs, &mut bid, None);
+                        let right = self.expr_into_operand(rhs, &mut bid, None);
+                        self.put(bid, dest, Some(expr), MExpr::BinaryOp(op, left, right));
+                        bid
+                    }
                 }
             }
-            ExprData::Ref { .. } => {
-                MirErrors::push(
-                    self.db,
-                    MirError::NotYetImplemented {
-                        item_id: self.cx.item_id(),
-                        msg: "lower ref".to_string(),
-                        expr,
-                        span: None,
-                    },
-                );
+            ExprData::Ref {
+                is_mut,
+                expr: inner,
+            } => {
+                let bk = if *is_mut {
+                    BorrowKind::Mutable
+                } else {
+                    BorrowKind::Shared
+                };
+                let p = self.expr_into_place(*inner, &mut bid, None);
+                self.put(bid, dest, Some(expr), MExpr::Ref(bk, p));
                 bid
             }
             &ExprData::Index { base, index } => {
@@ -735,6 +821,11 @@ impl MirLower<'_> {
             Placement::IntoOperand(ty, o) => {
                 let tmp = self.alloc_tmp(ty);
                 *o = Some(Operand::Move(tmp));
+                (Placement::Assign(tmp), Placement::Assign(tmp))
+            }
+            Placement::IntoPlace(ty, o) => {
+                let tmp = self.alloc_tmp(ty);
+                *o = Some(tmp);
                 (Placement::Assign(tmp), Placement::Assign(tmp))
             }
             Placement::Assertion(kind) => (Placement::Assertion(kind), Placement::Assertion(kind)),

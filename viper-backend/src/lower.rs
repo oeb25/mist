@@ -201,7 +201,6 @@ pub struct BodyLower<'a> {
     source_map: &'a mut ViperSourceMap,
     is_method: bool,
     cfg: cfg::Cfg,
-    postdominance_frontier: cfg::PostdominanceFrontier,
     postdominators: cfg::Postdominators,
     var_refs: IdxMap<mir::SlotId, VExprId>,
     inlined: IdxMap<VExprId, VExprId>,
@@ -226,7 +225,6 @@ impl<'a> BodyLower<'a> {
             viper_body,
             source_map,
             cfg,
-            postdominance_frontier: Default::default(),
             postdominators: Default::default(),
             var_refs: Default::default(),
             inlined: Default::default(),
@@ -288,7 +286,14 @@ impl<'a> BodyLower<'a> {
                     strukt: Some(*s),
                 },
             },
-            hir::TypeData::Null => todo!("lower_type(Null)"),
+            hir::TypeData::Null => ViperType {
+                vty: VTy::ref_(),
+                optional: true,
+                is_mut: false,
+                inner: None,
+                is_ref: false,
+                strukt: None,
+            },
             hir::TypeData::Function { .. } => todo!("lower_type(Function)"),
             hir::TypeData::Range(inner) => VTy::Domain {
                 domain_name: "Range".to_string(),
@@ -383,6 +388,11 @@ impl BodyLower<'_> {
                 args.iter()
                     .map(|s| self.operand_to_ref(source, s))
                     .collect(),
+            )
+            .into(),
+            mir::FunctionData::ListConcat => SeqExp::new_append(
+                self.operand_to_ref(source, &args[0]),
+                self.operand_to_ref(source, &args[1]),
             )
             .into(),
         })
@@ -495,6 +505,16 @@ impl BodyLower<'_> {
             mir::MExpr::Use(s) => {
                 let item_id = self.body.item_id();
                 let id = self.operand_to_ref(inst, s);
+                self.source_map.inst_expr.insert((item_id, inst), id);
+                self.source_map.inst_expr_back.insert(id, (item_id, inst));
+                return Ok(id);
+            }
+            mir::MExpr::Ref(bk, p) => {
+                // TODO: Perhaps we should do something different depending on this?
+                let _ = bk;
+
+                let item_id = self.body.item_id();
+                let id = self.place_to_ref(inst, *p);
                 self.source_map.inst_expr.insert((item_id, inst), id);
                 self.source_map.inst_expr_back.insert(id, (item_id, inst));
                 return Ok(id);

@@ -1,0 +1,9 @@
+struct S {
+  f: int
+}
+
+fn fun(t: &mut S) -> int
+    req t.f != 0
+{
+    t.f
+}

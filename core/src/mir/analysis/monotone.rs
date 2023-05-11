@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    mir,
+    hir, mir,
     util::{IdxMap, IdxSet, IdxWrap},
 };
 
@@ -36,6 +36,12 @@ pub trait Direction {
     fn semantic<A: MonotoneFramework>(
         a: &A,
         body: &mir::Body,
+        prev: &mut A::Domain,
+        bid: mir::BlockId,
+    );
+    fn semantics<A: MonotoneFramework>(
+        a: &A,
+        body: &mir::Body,
         facts: &mut IdxMap<mir::BlockId, A::Domain>,
         bid: mir::BlockId,
     ) -> Progress;
@@ -55,6 +61,20 @@ impl Direction for Forward {
     fn semantic<A: MonotoneFramework>(
         a: &A,
         body: &mir::Body,
+        prev: &mut A::Domain,
+        bid: mir::BlockId,
+    ) {
+        for &inst in body[bid].instructions() {
+            a.instruction_semantic(body, inst, prev);
+        }
+        if let Some(term) = body[bid].terminator() {
+            a.terminator_semantic(body, term, prev);
+        }
+    }
+
+    fn semantics<A: MonotoneFramework>(
+        a: &A,
+        body: &mir::Body,
         facts: &mut IdxMap<mir::BlockId, A::Domain>,
         bid: mir::BlockId,
     ) -> Progress {
@@ -62,15 +82,10 @@ impl Direction for Forward {
 
         for d in body.preceding_blocks(bid) {
             let mut prev = facts[d].clone();
-            for &inst in body[d].instructions() {
-                a.instruction_semantic(body, inst, &mut prev);
-            }
-            if let Some(term) = body[d].terminator() {
-                a.terminator_semantic(body, term, &mut prev);
-            }
-            if !facts[bid].contains(&prev) {
+            Self::semantic(a, body, &mut prev, bid);
+            if !facts[bid].contains(body, &prev) {
                 progress = Progress::Yes;
-                facts[bid].lub_extend(&prev);
+                facts[bid].lub_extend(body, &prev);
             }
         }
 
@@ -93,6 +108,20 @@ impl Direction for Backward {
     fn semantic<A: MonotoneFramework>(
         a: &A,
         body: &mir::Body,
+        prev: &mut A::Domain,
+        bid: mir::BlockId,
+    ) {
+        if let Some(term) = body[bid].terminator() {
+            a.terminator_semantic(body, term, prev);
+        }
+        for &inst in body[bid].instructions().iter().rev() {
+            a.instruction_semantic(body, inst, prev);
+        }
+    }
+
+    fn semantics<A: MonotoneFramework>(
+        a: &A,
+        body: &mir::Body,
         facts: &mut IdxMap<mir::BlockId, A::Domain>,
         bid: mir::BlockId,
     ) -> Progress {
@@ -100,15 +129,10 @@ impl Direction for Backward {
 
         for d in body.succeeding_blocks(bid) {
             let mut prev = facts[d].clone();
-            if let Some(term) = body[d].terminator() {
-                a.terminator_semantic(body, term, &mut prev);
-            }
-            for &inst in body[d].instructions().iter().rev() {
-                a.instruction_semantic(body, inst, &mut prev);
-            }
-            if !facts[bid].contains(&prev) {
+            Self::semantic(a, body, &mut prev, bid);
+            if !facts[bid].contains(body, &prev) {
                 progress = Progress::Yes;
-                facts[bid].lub_extend(&prev);
+                facts[bid].lub_extend(body, &prev);
             }
         }
 
@@ -116,14 +140,14 @@ impl Direction for Backward {
     }
 
     fn next(body: &mir::Body, bid: mir::BlockId, mut f: impl FnMut(mir::BlockId)) {
-        for b in body.succeeding_blocks(bid) {
+        for b in body.preceding_blocks(bid) {
             f(b);
         }
     }
 }
 
 pub trait MonotoneFramework {
-    type Domain: Lattice;
+    type Domain: Lattice<mir::Body> + fmt::Debug;
     type Direction: Direction;
     fn instruction_semantic(
         &self,
@@ -137,19 +161,19 @@ pub trait MonotoneFramework {
         terminator: &mir::Terminator,
         prev: &mut Self::Domain,
     );
-    fn initial(&self, body: &mir::Body) -> Self::Domain;
+    fn initial(&self, cx: &hir::ItemContext, body: &mir::Body) -> Self::Domain;
     fn debug(&self, item: &Self::Domain) {
         let _ = item;
     }
 }
 
-pub trait Lattice: Sized + Clone {
-    fn bottom() -> Self;
-    fn lub_extend(&mut self, other: &Self) {
-        *self = self.lub(other);
+pub trait Lattice<Ctx>: Sized + Clone {
+    fn bottom(ctx: &Ctx) -> Self;
+    fn lub_extend(&mut self, ctx: &Ctx, other: &Self) {
+        *self = self.lub(ctx, other);
     }
-    fn lub(&self, other: &Self) -> Self;
-    fn contains(&self, other: &Self) -> bool;
+    fn lub(&self, _ctx: &Ctx, other: &Self) -> Self;
+    fn contains(&self, _ctx: &Ctx, other: &Self) -> bool;
 }
 
 pub trait Worklist {
@@ -190,11 +214,12 @@ impl Worklist for LiFo {
 
 pub fn mono_analysis<A: MonotoneFramework, W: Worklist>(
     a: A,
+    cx: &hir::ItemContext,
     body: &mir::Body,
 ) -> AnalysisResults<A> {
     let mut worklist = W::empty();
 
-    let bot = A::Domain::bottom();
+    let bot = A::Domain::bottom(body);
 
     let mut facts: IdxMap<mir::BlockId, A::Domain> = IdxMap::default();
     for (bid, _) in body.blocks.iter() {
@@ -202,9 +227,11 @@ pub fn mono_analysis<A: MonotoneFramework, W: Worklist>(
         worklist.insert(bid);
     }
 
-    let initial = a.initial(body);
+    let initial = a.initial(cx, body);
     A::Direction::initial_blocks(body, |bid| {
-        facts.insert(bid, initial.clone());
+        let mut prev = initial.clone();
+        A::Direction::semantic(&a, body, &mut prev, bid);
+        facts.insert(bid, prev);
     });
 
     let mut calls = 0;
@@ -212,11 +239,9 @@ pub fn mono_analysis<A: MonotoneFramework, W: Worklist>(
     while let Some(n) = worklist.extract() {
         calls += 1;
 
-        match A::Direction::semantic(&a, body, &mut facts, n) {
+        match A::Direction::semantics(&a, body, &mut facts, n) {
             Progress::No => {}
-            Progress::Yes => {
-                A::Direction::next(body, n, |b| worklist.insert(b));
-            }
+            Progress::Yes => A::Direction::next(body, n, |b| worklist.insert(b)),
         }
     }
 
@@ -234,72 +259,80 @@ where
     where
         A: MonotoneFramework<Direction = Backward>,
     {
-        &self.facts[bid]
+        self.value_at(bid)
     }
     pub fn exit(&self, bid: mir::BlockId) -> &A::Domain
     where
         A: MonotoneFramework<Direction = Forward>,
     {
+        self.value_at(bid)
+    }
+    /// Returns the value computed as the given block. Depending on the
+    /// direction of the analysis, the value will be placed differently on the
+    /// graph:
+    /// - [`Forward`]: value at **exit** of the node is returned,
+    /// - [`Backward`]: value to **entry** of the node is returned.
+    pub fn value_at(&self, bid: mir::BlockId) -> &A::Domain {
         &self.facts[bid]
     }
 }
 
-impl Lattice for () {
-    fn bottom() -> Self {}
+impl<Ctx> Lattice<Ctx> for () {
+    fn bottom(_ctx: &Ctx) -> Self {}
 
-    fn lub(&self, _other: &Self) -> Self {}
+    fn lub(&self, _ctx: &Ctx, _other: &Self) -> Self {}
 
-    fn contains(&self, _other: &Self) -> bool {
+    fn contains(&self, _ctx: &Ctx, _other: &Self) -> bool {
         true
     }
 }
 
-impl<T> Lattice for HashSet<T>
+impl<Ctx, T> Lattice<Ctx> for HashSet<T>
 where
     T: std::hash::Hash + PartialEq + Eq + Clone,
 {
-    fn bottom() -> Self {
+    fn bottom(_ctx: &Ctx) -> Self {
         Self::default()
     }
 
-    fn lub_extend(&mut self, other: &Self) {
+    fn lub_extend(&mut self, _ctx: &Ctx, other: &Self) {
         self.extend(other.iter().cloned());
     }
 
-    fn lub(&self, other: &Self) -> Self {
+    fn lub(&self, _ctx: &Ctx, other: &Self) -> Self {
         self.union(other).cloned().collect()
     }
 
-    fn contains(&self, other: &Self) -> bool {
-        other.is_subset(self)
+    fn contains(&self, _ctx: &Ctx, other: &Self) -> bool {
+        self.is_superset(other)
     }
 }
 
-impl<K, V> Lattice for HashMap<K, V>
+impl<Ctx, K, V> Lattice<Ctx> for HashMap<K, V>
 where
     K: std::hash::Hash + PartialEq + Eq + Clone,
-    V: Lattice + Clone,
+    V: Lattice<Ctx> + Clone,
 {
-    fn bottom() -> Self {
+    fn bottom(_ctx: &Ctx) -> Self {
         Self::default()
     }
 
-    fn lub_extend(&mut self, other: &Self) {
+    fn lub_extend(&mut self, ctx: &Ctx, other: &Self) {
         for (k, b) in other {
             if let Some(a) = self.get_mut(k) {
-                a.lub_extend(b);
+                a.lub_extend(ctx, b);
             } else {
                 self.insert(k.clone(), b.clone());
             }
         }
     }
 
-    fn lub(&self, other: &Self) -> Self {
+    fn lub(&self, ctx: &Ctx, other: &Self) -> Self {
         let mut result = Self::default();
 
         for (k, a) in self {
             if let Some(b) = other.get(k) {
-                result.insert(k.clone(), a.lub(b));
+                result.insert(k.clone(), a.lub(ctx, b));
             } else {
                 result.insert(k.clone(), a.clone());
             }
@@ -313,10 +346,10 @@ where
         result
     }
 
-    fn contains(&self, other: &Self) -> bool {
+    fn contains(&self, ctx: &Ctx, other: &Self) -> bool {
         other.iter().all(|(k, a)| {
             if let Some(b) = self.get(k) {
-                b.contains(a)
+                b.contains(ctx, a)
             } else {
                 false
             }
@@ -324,31 +357,31 @@ where
     }
 }
 
-impl<K, V> Lattice for IdxMap<K, V>
+impl<Ctx, K, V> Lattice<Ctx> for IdxMap<K, V>
 where
     K: IdxWrap,
-    V: Lattice + Clone,
+    V: Lattice<Ctx> + Clone,
 {
-    fn bottom() -> Self {
+    fn bottom(_ctx: &Ctx) -> Self {
         Self::default()
     }
 
-    fn lub_extend(&mut self, other: &Self) {
+    fn lub_extend(&mut self, ctx: &Ctx, other: &Self) {
         for (k, b) in other.iter() {
             if let Some(a) = self.get_mut(k) {
-                a.lub_extend(b);
+                a.lub_extend(ctx, b);
             } else {
                 self.insert(k, b.clone());
             }
         }
     }
 
-    fn lub(&self, other: &Self) -> Self {
+    fn lub(&self, ctx: &Ctx, other: &Self) -> Self {
         let mut result = Self::default();
 
         for (k, a) in self.iter() {
             if let Some(b) = other.get(k) {
-                result.insert(k, a.lub(b));
+                result.insert(k, a.lub(ctx, b));
             } else {
                 result.insert(k, a.clone());
             }
@@ -362,10 +395,10 @@ where
         result
     }
 
-    fn contains(&self, other: &Self) -> bool {
+    fn contains(&self, ctx: &Ctx, other: &Self) -> bool {
         other.iter().all(|(k, a)| {
             if let Some(b) = self.get(k) {
-                b.contains(a)
+                b.contains(ctx, a)
             } else {
                 false
             }
@@ -373,18 +406,18 @@ where
     }
 }
 
-impl<K: IdxWrap> Lattice for IdxSet<K> {
-    fn bottom() -> Self {
+impl<Ctx, K: IdxWrap> Lattice<Ctx> for IdxSet<K> {
+    fn bottom(_ctx: &Ctx) -> Self {
         Self::default()
     }
 
-    fn lub_extend(&mut self, other: &Self) {
+    fn lub_extend(&mut self, _ctx: &Ctx, other: &Self) {
         for k in other.iter() {
             self.insert(k);
         }
     }
 
-    fn lub(&self, other: &Self) -> Self {
+    fn lub(&self, _ctx: &Ctx, other: &Self) -> Self {
         let mut result = Self::default();
 
         for k in self.iter() {
@@ -397,7 +430,7 @@ impl<K: IdxWrap> Lattice for IdxSet<K> {
         result
     }
 
-    fn contains(&self, other: &Self) -> bool {
+    fn contains(&self, _ctx: &Ctx, other: &Self) -> bool {
         other.iter().all(|k| self.contains_idx(k))
     }
 }

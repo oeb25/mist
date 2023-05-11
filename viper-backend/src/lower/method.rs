@@ -21,12 +21,6 @@ use super::{BodyLower, ViperLowerError};
 
 impl BodyLower<'_> {
     pub fn method_lower(&mut self, entry: mir::BlockId) -> Result<Seqn<VExprId>, ViperLowerError> {
-        // self.postdominance_frontier = self.cfg.postdominance_frontier(entry);
-        self.postdominance_frontier = Default::default();
-        for bid in self.body.entry_blocks() {
-            self.postdominance_frontier
-                .merge(&self.cfg.postdominance_frontier(bid));
-        }
         self.postdominators = Default::default();
         for bid in self.body.entry_blocks() {
             self.postdominators.merge(&self.cfg.postdominators(bid));
@@ -109,8 +103,13 @@ impl BodyLower<'_> {
                         Ok(Seqn::new(insts, vec![]))
                     }
                 }
-                mir::Terminator::Quantify(q, over, b) => {
-                    todo!();
+                mir::Terminator::Quantify(_q, _over, _b) => {
+                    Err(ViperLowerError::NotYetImplemented {
+                        msg: "lower quantifier in method".to_string(),
+                        item_id: self.cx.item_id(),
+                        block_or_inst: Some(block.into()),
+                        span: None,
+                    })
                 }
                 mir::Terminator::QuantifyEnd(_) => {
                     todo!();
@@ -140,7 +139,8 @@ impl BodyLower<'_> {
                             cond
                         };
 
-                        let liveness = mir::analysis::liveness::Liveness::compute(self.body);
+                        let liveness =
+                            mir::analysis::liveness::Liveness::compute(self.cx, self.body);
 
                         let access_invs = liveness
                             .entry(block)

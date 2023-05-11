@@ -93,8 +93,32 @@ impl Terminator {
             Terminator::Goto(b) => vec![*b],
             Terminator::Quantify(_, _, b) => vec![*b],
             Terminator::QuantifyEnd(b) => vec![*b],
-            Terminator::Switch(_, switch) => switch.targets.values().copied().collect(),
+            Terminator::Switch(_, switch) => switch
+                .targets
+                .values()
+                .copied()
+                .chain([switch.otherwise])
+                .collect(),
             Terminator::Call { target, .. } => target.iter().copied().collect(),
+        }
+    }
+    pub fn map_targets_mut(&mut self, mut f: impl FnMut(BlockId) -> BlockId) {
+        match self {
+            Terminator::Return => {}
+            Terminator::Goto(b) | Terminator::Quantify(_, _, b) | Terminator::QuantifyEnd(b) => {
+                *b = f(*b)
+            }
+            Terminator::Switch(_, switch) => {
+                for (_, t) in switch.targets.iter_mut() {
+                    *t = f(*t);
+                }
+                switch.otherwise = f(switch.otherwise)
+            }
+            Terminator::Call { target, .. } => {
+                if let Some(b) = target {
+                    *b = f(*b)
+                }
+            }
         }
     }
 
@@ -105,13 +129,9 @@ impl Terminator {
             | Terminator::Quantify(_, _, _)
             | Terminator::QuantifyEnd(_) => Either::Left(None.into_iter()),
             Terminator::Switch(op, _) => Either::Left(op.place().into_iter()),
-            Terminator::Call {
-                args, destination, ..
-            } => Either::Right(
-                [*destination]
-                    .into_iter()
-                    .chain(args.iter().filter_map(|arg| arg.place())),
-            ),
+            Terminator::Call { args, .. } => {
+                Either::Right(args.iter().filter_map(|arg| arg.place()))
+            }
         }
     }
 
@@ -289,22 +309,30 @@ impl Projection {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BorrowKind {
+    Shared,
+    Mutable,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MExpr {
     Struct(Struct, Vec<(Field, Operand)>),
     Use(Operand),
+    Ref(BorrowKind, Place),
     BinaryOp(BinaryOp, Operand, Operand),
     UnaryOp(UnaryOp, Operand),
 }
 impl MExpr {
     #[allow(dead_code)]
-    fn map_slots(&self, mut map: impl FnMut(&Operand) -> Operand) -> MExpr {
+    fn map_operand(&self, mut map: impl FnMut(&Operand) -> Operand) -> MExpr {
         match self {
             MExpr::Struct(st, fields) => MExpr::Struct(
                 *st,
                 fields.iter().map(|(f, o)| (f.clone(), map(o))).collect(),
             ),
             MExpr::Use(o) => MExpr::Use(map(o)),
+            MExpr::Ref(bk, o) => MExpr::Ref(*bk, o.clone()),
             MExpr::BinaryOp(op, l, r) => MExpr::BinaryOp(*op, map(l), map(r)),
             MExpr::UnaryOp(op, o) => MExpr::UnaryOp(*op, map(o)),
         }
@@ -324,6 +352,7 @@ pub enum FunctionData {
     RangeIndex,
     Range(RangeKind),
     List,
+    ListConcat,
 }
 
 impl std::ops::Deref for Function {
@@ -570,38 +599,65 @@ impl Body {
         )
     }
 
+    fn intersperse_block(&mut self, from: BlockId, into: BlockId, middle: BlockId) {
+        let Some(t) = &mut self.blocks[from].terminator else { return };
+        t.map_targets_mut(|b| if b == into { middle } else { b });
+    }
     fn intersperse_instructions(
         &mut self,
         from: BlockId,
         into: BlockId,
         folding: impl Iterator<Item = Instruction>,
     ) {
-        match &self.blocks[from].terminator {
-            Some(term) => match term {
-                Terminator::Goto(next) => {
-                    assert_eq!(*next, into);
-                    self.blocks[from]
-                        .instructions
-                        .extend(folding.map(|inst| self.instructions.alloc(inst)));
-                }
-                Terminator::Return => todo!(),
-                Terminator::Quantify(_, _, _) => todo!(),
-                Terminator::QuantifyEnd(_) => todo!(),
-                Terminator::Switch(_, _) => todo!(),
-                Terminator::Call { target, .. } => {
-                    assert_eq!(*target, Some(into));
-                    let middle = self.blocks.alloc(Block {
-                        instructions: folding.map(|inst| self.instructions.alloc(inst)).collect(),
-                        terminator: Some(Terminator::Goto(into)),
-                    });
-                    match &mut self.blocks[from].terminator {
-                        Some(Terminator::Call { target, .. }) => *target = Some(middle),
-                        _ => unreachable!(),
-                    }
-                }
-            },
-            None => todo!(),
-        }
+        let middle = self.blocks.alloc(Block {
+            instructions: folding.map(|inst| self.instructions.alloc(inst)).collect(),
+            terminator: Some(Terminator::Goto(into)),
+        });
+        self.intersperse_block(from, into, middle);
+        // TODO: It might be useful to append to a current block instead of
+        // creating a new everytime:
+
+        // match &self.blocks[from].terminator {
+        //     Some(term) => match term {
+        //         Terminator::Goto(next) => {
+        //             assert_eq!(*next, into);
+        //             self.blocks[from]
+        //                 .instructions
+        //                 .extend(folding.map(|inst| self.instructions.alloc(inst)));
+        //         }
+        //         Terminator::Return => todo!(),
+        //         Terminator::Quantify(_, _, _) => todo!(),
+        //         Terminator::QuantifyEnd(_) => todo!(),
+        //         Terminator::Switch(_, targets) => {
+        //             if into == targets.otherwise {
+        //             } else {
+        //                 for (_, next_bid) in targets.targets.iter_mut() {
+        //                     if into == *next_bid {
+        //                         let middle = self.blocks.alloc(Block {
+        //                             instructions: folding
+        //                                 .map(|inst| self.instructions.alloc(inst))
+        //                                 .collect(),
+        //                             terminator: Some(Terminator::Goto(into)),
+        //                         });
+        //                         *next_bid = middle;
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //         Terminator::Call { target, .. } => {
+        //             assert_eq!(*target, Some(into));
+        //             let middle = self.blocks.alloc(Block {
+        //                 instructions: folding.map(|inst| self.instructions.alloc(inst)).collect(),
+        //                 terminator: Some(Terminator::Goto(into)),
+        //             });
+        //             match &mut self.blocks[from].terminator {
+        //                 Some(Terminator::Call { target, .. }) => *target = Some(middle),
+        //                 _ => unreachable!(),
+        //             }
+        //         }
+        //     },
+        //     None => todo!(),
+        // }
     }
 
     fn slots_referenced<'a>(&'a self, blocks: &'a [BlockId]) -> impl Iterator<Item = SlotId> + 'a {
@@ -754,8 +810,10 @@ impl Instruction {
 
     fn places_referenced(&self) -> impl Iterator<Item = Place> + '_ {
         match self {
-            Instruction::Assign(target, expr) => {
-                Either::Left(Either::Left(Some(*target).into_iter().chain(expr.places())))
+            Instruction::Assign(_, expr) => {
+                // TODO: Perhaps the targets parent should be part of the
+                // referenced as well?
+                Either::Left(Either::Left(None.into_iter().chain(expr.places())))
             }
             Instruction::Assertion(_, expr) => {
                 Either::Left(Either::Left(None.into_iter().chain(expr.places())))

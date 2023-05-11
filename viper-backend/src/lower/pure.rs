@@ -106,7 +106,6 @@ impl PureLowerResult {
 
 impl BodyLower<'_> {
     pub fn pure_lower(&mut self, entry: mir::BlockId) -> Result<VExprId, ViperLowerError> {
-        self.postdominance_frontier = self.cfg.postdominance_frontier(entry);
         self.postdominators = self.cfg.postdominators(entry);
         self.pure_final_block(entry)
     }
@@ -151,9 +150,9 @@ impl BodyLower<'_> {
     pub(super) fn pure_block(
         &mut self,
         block: mir::BlockId,
-        d: Option<mir::BlockId>,
+        stop_at: Option<mir::BlockId>,
     ) -> Result<PureLowerResult, ViperLowerError> {
-        if Some(block) == d {
+        if Some(block) == stop_at {
             todo!();
         }
 
@@ -211,16 +210,12 @@ impl BodyLower<'_> {
                     stopped_before: Some(*next),
                 },
                 &mir::Terminator::Goto(next) => {
-                    if let Some(d) = d {
-                        if self.postdominance_frontier[next].contains(&d) {
-                            self.pure_block(next, Some(d))?
-                        } else {
-                            PureLowerResult::Empty {
-                                stopped_before: Some(next),
-                            }
+                    if stop_at == Some(next) {
+                        PureLowerResult::Empty {
+                            stopped_before: Some(next),
                         }
                     } else {
-                        self.pure_block(next, None)?
+                        self.pure_block(next, stop_at)?
                     }
                 }
                 mir::Terminator::Switch(test, switch) => {
@@ -234,9 +229,9 @@ impl BodyLower<'_> {
                     };
 
                     let (mut values, otherwise) = switch.values();
-                    let otherwise_result = self.pure_block(otherwise, Some(block))?;
+                    let otherwise_result = self.pure_block(otherwise, Some(next))?;
                     let cont = values.try_fold(otherwise_result, |els, (value, target)| {
-                        match (els, self.pure_block(target, Some(block))?) {
+                        match (els, self.pure_block(target, Some(next))?) {
                             (
                                 PureLowerResult::UnassignedExpression(els, els_slot, _),
                                 PureLowerResult::UnassignedExpression(thn, thn_slot, _),
@@ -283,7 +278,7 @@ impl BodyLower<'_> {
                         PureLowerResult::Empty { .. } => todo!(),
                     };
 
-                    self.conditional_continue(d, next, block, slot, exp, next)?
+                    self.conditional_continue(stop_at, next, block, slot, exp)?
                 }
                 mir::Terminator::Call {
                     func,
@@ -296,12 +291,11 @@ impl BodyLower<'_> {
 
                     if let Some(target) = *target {
                         self.conditional_continue(
-                            d,
+                            stop_at,
                             target,
                             block,
                             *destination,
                             f_application,
-                            target,
                         )?
                     } else {
                         todo!()
@@ -318,62 +312,65 @@ impl BodyLower<'_> {
             .iter()
             .copied()
             .try_rfold(start, |acc, inst| {
-                Ok(match &self.body[inst] {
-                    mir::Instruction::Assign(x, e) => {
-                        let exp = self.expr(inst, e)?;
-                        acc.wrap_in_assignment(self, inst, *x, exp)?
-                    }
-                    mir::Instruction::Assertion(_, _) | mir::Instruction::PlaceMention(_) => acc,
-                    mir::Instruction::Folding(folding) => {
-                        let unfolding_place = match folding {
-                            mir::Folding::Fold { .. } => return Ok(acc),
-                            mir::Folding::Unfold { consume, .. } => *consume,
-                        };
-                        if let Some(s) = self.cx.ty_struct(self.body.place_ty(unfolding_place)) {
-                            acc.map_exp(|exp| {
-                                let place_ref = self.place_to_ref(inst, unfolding_place);
-                                let pred_acc = PredicateAccessPredicate::new(
-                                    PredicateAccess::new(
-                                        s.name(self.db).to_string(),
-                                        vec![place_ref],
-                                    ),
-                                    self.alloc(inst, PermExp::Wildcard),
-                                );
-
-                                self.alloc(inst, Exp::new_unfolding(pred_acc, exp))
-                            })
-                        } else {
-                            warn!(
-                                "no struct found for {:?}",
-                                self.cx[self.body.place_ty(unfolding_place)]
-                            );
-                            acc
-                        }
-                    }
-                })
+                self.pure_wrap_with_instruction(inst, acc)
             })
+    }
+
+    pub(super) fn pure_wrap_with_instruction(
+        &mut self,
+        inst: mir::InstructionId,
+        acc: PureLowerResult,
+    ) -> Result<PureLowerResult, ViperLowerError> {
+        Ok(match &self.body[inst] {
+            mir::Instruction::Assign(x, e) => {
+                let exp = self.expr(inst, e)?;
+                acc.wrap_in_assignment(self, inst, *x, exp)?
+            }
+            mir::Instruction::Assertion(_, _) | mir::Instruction::PlaceMention(_) => acc,
+            mir::Instruction::Folding(folding) => {
+                let unfolding_place = match folding {
+                    mir::Folding::Fold { .. } => return Ok(acc),
+                    mir::Folding::Unfold { consume, .. } => *consume,
+                };
+                if let Some(s) = self.cx.ty_struct(self.body.place_ty(unfolding_place)) {
+                    acc.map_exp(|exp| {
+                        let place_ref = self.place_to_ref(inst, unfolding_place);
+                        let pred_acc = PredicateAccessPredicate::new(
+                            PredicateAccess::new(s.name(self.db).to_string(), vec![place_ref]),
+                            self.alloc(inst, PermExp::Wildcard),
+                        );
+
+                        self.alloc(inst, Exp::new_unfolding(pred_acc, exp))
+                    })
+                } else {
+                    warn!(
+                        "no struct found for {:?}",
+                        self.cx[self.body.place_ty(unfolding_place)]
+                    );
+                    acc
+                }
+            }
+        })
     }
 
     fn conditional_continue(
         &mut self,
-        d: Option<mir::BlockId>,
+        stop_at: Option<mir::BlockId>,
         next: mir::BlockId,
         block: mir::BlockId,
         place: mir::Place,
         exp: VExprId,
-        stopped_before: mir::BlockId,
     ) -> Result<PureLowerResult, ViperLowerError> {
-        Ok(if let Some(d) = d {
-            if self.postdominance_frontier[next].contains(&d) {
-                self.pure_block(next, Some(d))?
-                    .wrap_in_assignment(self, block, place, exp)?
-            } else {
-                PureLowerResult::UnassignedExpression(exp, place, Some(stopped_before))
-            }
-        } else {
+        if stop_at != Some(next) {
             self.pure_block(next, None)?
-                .wrap_in_assignment(self, block, place, exp)?
-        })
+                .wrap_in_assignment(self, block, place, exp)
+        } else {
+            Ok(PureLowerResult::UnassignedExpression(
+                exp,
+                place,
+                Some(next),
+            ))
+        }
     }
 
     fn pure_final_block(&mut self, b: mir::BlockId) -> Result<VExprId, ViperLowerError> {

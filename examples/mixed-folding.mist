@@ -1,0 +1,8 @@
+struct List {
+    next: List,
+}
+
+fn f(l: List) {
+    let l = l;
+    l = l.next;
+}

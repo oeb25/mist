@@ -7,3 +7,13 @@ fn f(x: int) -> int
 
     -x
 }
+
+struct P { a: int }
+
+fn g(x: &mut P) -> int {
+    return x.a
+}
+
+fn q() {
+    let x = return;
+}

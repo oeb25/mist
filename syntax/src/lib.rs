@@ -11,8 +11,6 @@ mod parser;
 pub mod ptr;
 mod stmt;
 mod support;
-#[cfg(test)]
-mod tests;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Parse<T> {
@@ -75,3 +73,6 @@ pub type SyntaxToken = rowan::SyntaxToken<MistLanguage>;
 pub type SyntaxNode = rowan::SyntaxNode<MistLanguage>;
 pub type SyntaxNodeChildren = rowan::SyntaxNodeChildren<MistLanguage>;
 pub type SyntaxElement = rowan::SyntaxElement<MistLanguage>;
+
+#[cfg(test)]
+mod tests;

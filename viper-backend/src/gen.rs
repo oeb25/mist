@@ -36,9 +36,7 @@ pub fn viper_file(
         let Some(item) = hir::item(db, program, &root, item_id) else { continue };
         let Some((cx, _source_map)) = hir::item_lower(db, program, item_id, item) else { continue };
         let (mut mir, _mir_source_map) = mir::lower_item(db, cx.clone());
-        for entry in mir.entry_blocks().collect_vec() {
-            mir::analysis::isorecursive::IsorecursivePass::new(&cx, &mut mir).run(entry);
-        }
+        mir::analysis::isorecursive::IsorecursivePass::new(&cx, &mut mir).run();
         match internal_viper_item(db, cx, &mut lowerer, item, &mir) {
             Ok(items) => {
                 for item in items {
@@ -708,7 +706,10 @@ mod write_impl {
     }
 
     impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for Domain<E> {
-        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {}
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
+            let name = &elem.name;
+            wln!(w, "domain {name} {{\n  // TODO: Domains\n}}");
+        }
     }
 
     impl<Cx> ViperWrite<Cx> for Field {
@@ -821,7 +822,7 @@ mod write_impl {
     }
 
     impl<Cx> ViperWrite<Cx> for ExtensionMember {
-        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {}
+        fn emit(_elem: &Self, _w: &mut ViperWriter<Cx>) {}
     }
 
     impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for ViperItem<E> {

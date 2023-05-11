@@ -1,0 +1,41 @@
+struct FibTable {
+  values: [int]
+}
+
+pure ghost fn fib_table_inv(t: &FibTable) -> bool {
+  forall(i) if 0 <= i && i < t.values.len {
+    t.values[i] == fib(i)
+  } else { true }
+}
+
+fn compute_up_to(t: &mut FibTable, n: int)
+  req fib_table_inv(t)
+  ens t.values.len > n, fib_table_inv(t)
+{
+  while t.values.len <= n
+    inv fib_table_inv(t)
+    dec n - t.values.len
+  {
+    if t.values.len < 2 {
+      t.values = [1, 1];
+    } else {
+      t.values = t.values + [t.values[t.values.len - 1] + t.values[t.values.len - 2]];
+    }
+  }
+}
+
+fn fast_fib(t: &mut FibTable, n: int) -> int
+  req n >= 0,
+      fib_table_inv(t)
+  ens result == fib(n)
+{
+  compute_up_to(t, n);
+  t.values[n]
+}
+
+pure fn fib(n: int) -> int
+  req n >= 0
+  dec n
+{
+  if n < 2 { 1 } else { fib(n - 1) + fib(n - 2) }
+}

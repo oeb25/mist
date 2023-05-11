@@ -1292,7 +1292,8 @@ impl<'a> TypeChecker<'a> {
                 ty: if let Some(ty) = p.ty() {
                     self.find_type_src(&ty)
                 } else {
-                    self.unsourced_ty(self.error_ty())
+                    let t = self.new_free();
+                    self.unsourced_ty(t)
                 }
                 .with_ghost(p.is_ghost())
                 .ts(self),
@@ -1325,7 +1326,8 @@ impl<'a> TypeChecker<'a> {
                 let inner = if let Some(ty) = it.ty() {
                     self.find_type_src(&ty)
                 } else {
-                    todo!()
+                    let ty = self.new_free();
+                    self.unsourced_ty(ty)
                 };
                 let td = TypeData::Optional(inner);
                 let ty = td.canonical(&self.cx);
@@ -1362,16 +1364,8 @@ impl<'a> TypeChecker<'a> {
                 let inner = if let Some(ty) = t.ty() {
                     self.find_type_src(&ty)
                 } else {
-                    todo!()
-                    // let err = TypeCheckError {
-                    //     input: program.program(db).to_string(),
-                    //     span: t.span(),
-                    //     label: None,
-                    //     help: None,
-                    //     kind: TypeCheckErrorKind::UndefinedType("list of what".to_string()),
-                    // };
-                    // eprintln!("{:?}", miette::Error::new(err));
-                    // return Type::error(db);
+                    let ty = self.new_free();
+                    self.unsourced_ty(ty)
                 };
                 let td = TypeData::List(inner);
                 let ty = td.canonical(&self.cx);
@@ -1703,7 +1697,7 @@ impl hir::pretty::PrettyPrint for ItemContext {
         if self.ty_table.contains_idx(ty.0) {
             self.ty_table[ty.0].clone()
         } else {
-            error!("tried to get type id which was not in ItemContext: {ty:?}");
+            error!(?ty, "tried to get type id which was not in ItemContext");
             TypeData::Error
         }
     }

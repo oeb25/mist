@@ -25,7 +25,7 @@ ghost fn lemma_distinct_candidate_votes(
   high: int,
 ) req 0 <= low, low <= high, high <= votes.len
   ens if candidate_a != candidate_b {
-        count_votes(votes, candidate_a, low, high) + count_votes(votes, candidate_a, low, high)
+        count_votes(votes, candidate_a, low, high) + count_votes(votes, candidate_b, low, high)
           <= high - low
       } else { true }
   dec high
@@ -65,7 +65,7 @@ fn search_winner(votes: [int], ghost has_winner: bool, ghost winner: int) -> int
   assert votes[high - 1] == w,
          count_votes(votes, w, low, high - 1) == 0;
 
-  let ret = !false;
+  let ret = false;
 
   while !ret && high < votes.len
     inv 0 <= low, low <= high, high <= votes.len,
@@ -88,7 +88,7 @@ fn search_winner(votes: [int], ghost has_winner: bool, ghost winner: int) -> int
     } else {
       high = high + 1;
       lemma_distinct_candidate_votes(votes, w, winner, low, high);
-      lemma_split_vote_count(votes, w, winner, low, high);
+      lemma_split_vote_count(votes, winner, low, high, votes.len);
       if high == votes.len {
         ret = true;
         // return w;
@@ -101,6 +101,7 @@ fn search_winner(votes: [int], ghost has_winner: bool, ghost winner: int) -> int
       }
     }
   }
+  lemma_distinct_candidate_votes(votes, w, winner, low, votes.len);
 
   w
 }

@@ -48,6 +48,8 @@ enum Cli {
         #[clap(short, long)]
         cfg: bool,
         #[clap(short, long)]
+        liveness: bool,
+        #[clap(short, long)]
         isorecursive: bool,
         #[clap(short, long)]
         viper: bool,
@@ -66,6 +68,7 @@ async fn cli() -> Result<()> {
         Cli::Dump {
             mir: dump_mir,
             cfg: dump_cfg,
+            liveness: dump_liveness,
             isorecursive: dump_isorecursive,
             viper: dump_viper,
             file,
@@ -82,19 +85,45 @@ async fn cli() -> Result<()> {
                 let span = tracing::span!(Level::DEBUG, "dump", item = item.name(&db).to_string());
                 let _enter = span.enter();
                 if dump_mir {
-                    println!("{}", mir.serialize(mir::serialize::Color::Yes, &db, &cx));
+                    println!(
+                        "{}",
+                        mir.serialize(&db, Some(&cx), mir::serialize::Color::Yes)
+                    );
                 }
                 if dump_isorecursive {
-                    for entry in mir.entry_blocks().collect_vec() {
-                        mir::analysis::isorecursive::IsorecursivePass::new(&cx, &mut mir)
-                            .run(entry);
+                    mir::analysis::isorecursive::IsorecursivePass::new(&cx, &mut mir).run();
+                    if dump_mir {
+                        println!(
+                            "{}",
+                            mir.serialize(&db, Some(&cx), mir::serialize::Color::Yes)
+                        );
                     }
-                    println!("{}", mir.serialize(mir::serialize::Color::Yes, &db, &cx));
                 }
                 if dump_cfg {
                     let cfg = mir::analysis::cfg::Cfg::compute(&mir);
                     let dot = cfg.dot(&db, &cx, &mir);
-                    mir::analysis::cfg::dot_imgcat(dot);
+                    mir::analysis::cfg::dot_imgcat(&dot);
+
+                    if dump_liveness {
+                        mir::analysis::cfg::dot_imgcat(&cfg.analysis_dot(
+                            &mir::analysis::liveness::FoldingLiveness::compute(&cx, &mir),
+                            |x| {
+                                format!(
+                                    "{:?}",
+                                    x.leafs()
+                                        .map(|p| {
+                                            mir::serialize::serialize_place(
+                                                mir::serialize::Color::No,
+                                                Some(&cx),
+                                                &mir,
+                                                &p,
+                                            )
+                                        })
+                                        .collect::<std::collections::HashSet<_>>()
+                                )
+                            },
+                        ));
+                    }
                 }
                 if dump_viper {
                     match mist_viper_backend::gen::viper_item(&db, cx, item, &mir) {
@@ -107,7 +136,7 @@ async fn cli() -> Result<()> {
                                 println!("{}", output.buf);
                             }
                         }
-                        Err(err) => error!("{}", err),
+                        Err(err) => error!("{:?}", err),
                     }
                 }
             }
