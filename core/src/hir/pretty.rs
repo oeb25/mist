@@ -116,6 +116,7 @@ pub fn expr(pp: &impl PrettyPrint, db: &dyn crate::Db, expr: ExprIdx) -> String 
                 .map(|f| format!("{}: {}", f.name, pp_expr(pp, db, f.value)))
                 .format(", ")
         ),
+        ExprData::NotNull(it) => format!("{}!", pp_expr(pp, db, *it)),
         ExprData::Missing => "<missing>".to_string(),
         ExprData::If(it) => format!("if {}", pp_expr(pp, db, it.condition)),
         ExprData::Block(_block) => "<block>".to_string(),

@@ -966,6 +966,30 @@ impl<'a> TypeChecker<'a> {
                     },
                 )
             }
+            ast::Expr::NotNullExpr(it) => {
+                let inner = self.check(it.span(), it.base());
+
+                let inner_ty = self.expr_ty(inner).tc_strip_ghost(self);
+
+                let ty = match self.ty_data(inner_ty) {
+                    TypeData::Optional(inner_ty) => inner_ty
+                        .with_ghost(self.expr_ty(inner).tc_is_ghost(self))
+                        .ty(self),
+                    _ => {
+                        return self.expr_error(
+                            it.span(),
+                            None,
+                            None,
+                            TypeCheckErrorKind::NotYetImplemented(format!(
+                                "`!` on non-nullable type '{}'",
+                                self.pretty_ty(self.expr_ty(inner))
+                            )),
+                        )
+                    }
+                };
+
+                Expr::new(ty, ExprData::NotNull(inner))
+            }
             ast::Expr::StructExpr(it) => {
                 let name: Ident = if let Some(name) = it.name() {
                     name.into()
@@ -1039,9 +1063,12 @@ impl<'a> TypeChecker<'a> {
             ast::Expr::RefExpr(it) => {
                 let expr = self.check(it.span(), it.expr());
                 let is_mut = it.mut_token().is_some();
-                let inner = self.cx.expr_arena[expr].ty;
+                let inner = self.expr_ty(expr).ty(self).tc_strip_ghost(self);
 
-                let ty = self.ty_id(TypeData::Ref { is_mut, inner });
+                let ty = self
+                    .ty_id(TypeData::Ref { is_mut, inner })
+                    .with_ghost(self.expr_ty(expr).ty(self).tc_is_ghost(self))
+                    .ty(self);
 
                 Expr::new(ty, ExprData::Ref { is_mut, expr })
             }

@@ -249,6 +249,7 @@ pub(crate) const KINDS_SRC: KindsSrc<'_> = KindsSrc {
         "CALL_EXPR",
         "STRUCT_EXPR",
         "INDEX_EXPR",
+        "NOT_NULL_EXPR",
         "METHOD_CALL_EXPR",
         "FIELD_EXPR",
         "AWAIT_EXPR",

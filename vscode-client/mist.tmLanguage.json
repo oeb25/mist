@@ -5,6 +5,7 @@
     "expression": {
       "patterns": [
         { "include": "#function" },
+        { "include": "#invariant" },
         { "include": "#keywords" },
         { "include": "#primitive-type" },
         { "include": "#comment" },
@@ -16,7 +17,7 @@
       ]
     },
     "keywords": {
-      "match": "\\b(const|struct|return|mut|assume|fn|assert|let|if|else|ghost|pure|requires|req|ensures|ens|decreases|dec|invariant|inv|result|macro|forall|exists|while|true|false)\\b",
+      "match": "\\b(const|struct|return|mut|assume|fn|assert|let|self|in|if|else|ghost|pure|requires|req|ensures|ens|decreases|dec|invariant|inv|result|macro|forall|exists|while|true|false)\\b",
       "name": "keyword"
     },
     "primitive-type": {
@@ -28,6 +29,13 @@
       "captures": {
         "1": { "name": "keyword.other.fn.mist" },
         "2": { "name": "entity.name.function.mist" }
+      }
+    },
+    "invariant": {
+      "match": "\\b(invariant)\\s+([a-zA-Z0-9_]+)\\s+\\{",
+      "captures": {
+        "1": { "name": "keyword.other.invariant.mist" },
+        "2": { "name": "entity.name.type.mist" }
       }
     },
     "operator": {

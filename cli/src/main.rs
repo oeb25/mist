@@ -5,7 +5,6 @@ use futures_util::StreamExt;
 use itertools::Itertools;
 use miette::{bail, Context, IntoDiagnostic, Result};
 use mist_core::{hir, mir};
-use mist_syntax::ast;
 use mist_viper_backend::gen::ViperOutput;
 use tracing::{error, info, warn, Level};
 use tracing_subscriber::prelude::*;
@@ -152,9 +151,8 @@ async fn cli() -> Result<()> {
                 .wrap_err_with(|| format!("failed to read `{}`", file.display()))?;
             let source = hir::SourceProgram::new(&db, src.clone());
             let program = hir::parse_program(&db, source);
-            let parse = program.parse(&db);
 
-            dump_errors(&db, &file, &src, program, &parse.tree())?;
+            dump_errors(&db, &file, &src, program)?;
 
             let (viper_program, viper_body, viper_source_map) =
                 mist_viper_backend::gen::viper_file(&db, program)?;
@@ -228,9 +226,8 @@ fn dump_errors(
     path: &std::path::Path,
     src: &str,
     program: hir::Program,
-    root: &ast::SourceFile,
 ) -> Result<()> {
-    let errors = accumulated_errors(db, program, root).collect_vec();
+    let errors = accumulated_errors(db, program).collect_vec();
 
     if !errors.is_empty() {
         let num_errors = errors.len();

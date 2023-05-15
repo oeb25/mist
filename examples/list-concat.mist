@@ -1,3 +1,5 @@
-fn a(x: [int], y: [int]) -> [int] {
+fn a(x: [int], y: [int]) -> [int]
+  ens result.len == x.len + y.len
+{
     x + y
 }

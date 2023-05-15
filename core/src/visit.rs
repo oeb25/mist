@@ -464,6 +464,9 @@ where
                     self.walk_expr(visitor, elem)?;
                 }
             }
+            ExprData::NotNull(inner) => {
+                self.walk_expr(visitor, inner)?;
+            }
             ExprData::Quantifier { params, expr, .. } => {
                 self.walk_param_list(visitor, &params)?;
                 self.walk_expr(visitor, expr)?;

@@ -543,6 +543,7 @@ pub enum ExprData {
         rhs: Option<ExprIdx>,
     },
     Return(Option<ExprIdx>),
+    NotNull(ExprIdx),
 }
 #[derive(Debug, Display, Clone, PartialEq, Eq, Hash)]
 pub enum Literal {
@@ -784,7 +785,7 @@ pub struct Field {
 }
 
 impl Field {
-    pub fn ty(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> Option<ast::Type> {
+    pub fn ty(&self, _db: &dyn crate::Db, root: &ast::SourceFile) -> Option<ast::Type> {
         self.ty.as_ref().map(|ty| ty.to_node(root.syntax()))
     }
 }

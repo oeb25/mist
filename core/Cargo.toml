@@ -20,4 +20,6 @@ itertools = "0.10.5"
 derive_more = "0.99.17"
 petgraph = "0.6.3"
 owo-colors = "3.5.0"
+
+[dev-dependencies]
 proptest = "1.1.0"

@@ -365,6 +365,7 @@ pub enum SyntaxKind {
     CALL_EXPR,
     STRUCT_EXPR,
     INDEX_EXPR,
+    NOT_NULL_EXPR,
     METHOD_CALL_EXPR,
     FIELD_EXPR,
     AWAIT_EXPR,
@@ -2203,6 +2204,30 @@ impl AstNode for IndexExpr {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct NotNullExpr {
+    pub(crate) syntax: SyntaxNode,
+}
+impl NotNullExpr {
+    pub fn excl_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![!])
+    }
+}
+impl AstNode for NotNullExpr {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == NOT_NULL_EXPR
+    }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FieldExpr {
     pub(crate) syntax: SyntaxNode,
 }
@@ -2677,6 +2702,7 @@ pub enum Expr {
     CallExpr(CallExpr),
     ListExpr(ListExpr),
     IndexExpr(IndexExpr),
+    NotNullExpr(NotNullExpr),
     FieldExpr(FieldExpr),
     StructExpr(StructExpr),
     ParenExpr(ParenExpr),
@@ -2741,6 +2767,11 @@ impl From<IndexExpr> for Expr {
         Expr::IndexExpr(node)
     }
 }
+impl From<NotNullExpr> for Expr {
+    fn from(node: NotNullExpr) -> Expr {
+        Expr::NotNullExpr(node)
+    }
+}
 impl From<FieldExpr> for Expr {
     fn from(node: FieldExpr) -> Expr {
         Expr::FieldExpr(node)
@@ -2796,6 +2827,7 @@ impl AstNode for Expr {
                 | CALL_EXPR
                 | LIST_EXPR
                 | INDEX_EXPR
+                | NOT_NULL_EXPR
                 | FIELD_EXPR
                 | STRUCT_EXPR
                 | PAREN_EXPR
@@ -2819,6 +2851,7 @@ impl AstNode for Expr {
             CALL_EXPR => Expr::CallExpr(CallExpr { syntax }),
             LIST_EXPR => Expr::ListExpr(ListExpr { syntax }),
             INDEX_EXPR => Expr::IndexExpr(IndexExpr { syntax }),
+            NOT_NULL_EXPR => Expr::NotNullExpr(NotNullExpr { syntax }),
             FIELD_EXPR => Expr::FieldExpr(FieldExpr { syntax }),
             STRUCT_EXPR => Expr::StructExpr(StructExpr { syntax }),
             PAREN_EXPR => Expr::ParenExpr(ParenExpr { syntax }),
@@ -2844,6 +2877,7 @@ impl AstNode for Expr {
             Expr::CallExpr(it) => &it.syntax,
             Expr::ListExpr(it) => &it.syntax,
             Expr::IndexExpr(it) => &it.syntax,
+            Expr::NotNullExpr(it) => &it.syntax,
             Expr::FieldExpr(it) => &it.syntax,
             Expr::StructExpr(it) => &it.syntax,
             Expr::ParenExpr(it) => &it.syntax,
@@ -3198,6 +3232,11 @@ impl std::fmt::Display for ListExpr {
     }
 }
 impl std::fmt::Display for IndexExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for NotNullExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }

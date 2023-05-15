@@ -819,6 +819,9 @@ impl<'src> Parser<'src> {
                             this.expect_control(T![']']);
                         });
                     }
+                    T![!] => {
+                        self.start_node_at(lhs, NOT_NULL_EXPR, |this| this.bump());
+                    }
                     T![.] => {
                         self.start_node_at(lhs, FIELD_EXPR, |this| {
                             this.bump();
@@ -1108,7 +1111,7 @@ bitflags::bitflags! {
 fn prefix_binding_power(op: Option<SyntaxKind>) -> Option<(SyntaxKind, (), u8)> {
     let op = op?;
     match op {
-        T![&] | T![!] => Some((op, (), 8)),
+        T![&] | T![!] => Some((op, (), 27)),
         // T![+] |
         T![-] => Some((op, (), 9)),
         T![forall] | T![exists] => Some((op, (), 10)),
@@ -1119,10 +1122,10 @@ fn prefix_binding_power(op: Option<SyntaxKind>) -> Option<(SyntaxKind, (), u8)> 
 fn postfix_binding_power(op: Option<SyntaxKind>) -> Option<(SyntaxKind, u8, ())> {
     let op = op?;
     let (l, r) = match op {
-        // T![!] => (11, ()),
+        T![!] => (29, ()),
         T!['['] => (11, ()),
         T!['('] => (11, ()),
-        T![.] => (14, ()),
+        T![.] => (31, ()),
         _ => return None,
     };
 

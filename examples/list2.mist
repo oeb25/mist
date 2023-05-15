@@ -5,12 +5,15 @@ struct List {
 }
 
 invariant List {
-    (if self.next == null { self.content == [] } else { true }) &&
-    (if self.next != null { self.content == [self.elem] + self.next.content } else { true })
+    if self.next == null {
+        self.content == []
+    } else {
+        self.content == [self.elem] + self.next!.content
+    }
 }
 
-fn create() -> List
-    ensures result.content == []
-{
-    List { content: [] }
-}
+ghost fn create() -> List
+    ensures result.content == [];
+// {
+//     List { content: [] }
+// }

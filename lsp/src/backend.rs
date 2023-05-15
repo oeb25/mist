@@ -328,7 +328,7 @@ impl Backend {
             let program = mist_core::hir::parse_program(&*db, source);
             let parse = program.parse(&*db).clone();
 
-            let errors = mist_cli::accumulated_errors(&*db, program, &parse.tree())
+            let errors = mist_cli::accumulated_errors(&*db, program)
                 .flat_map(|e| miette_to_diagnostic(&text, e.inner_diagnostic().unwrap()))
                 .collect_vec();
 

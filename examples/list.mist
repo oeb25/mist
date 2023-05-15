@@ -19,7 +19,7 @@ ghost fn append(this: &mut List, e: int) {
         this.elem = e;
         this.next = n;
     } else {
-        append(&mut this.next, e);
+        append(&mut this.next!, e);
     }
 }
 

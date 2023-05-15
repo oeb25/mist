@@ -151,6 +151,7 @@ Expr =
 | CallExpr
 | ListExpr
 | IndexExpr
+| NotNullExpr
 | FieldExpr
 | StructExpr
 | ParenExpr
@@ -202,6 +203,9 @@ ListExpr =
 
 IndexExpr =
   base:Expr '[' index:Expr ']'
+
+NotNullExpr =
+  base:Expr '!'
 
 FieldExpr =
   Expr '.' field:Name

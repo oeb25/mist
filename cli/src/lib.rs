@@ -4,7 +4,7 @@ pub mod db;
 
 use miette::Diagnostic;
 use mist_core::{hir, mir, salsa, util::Position, TypeCheckError};
-use mist_syntax::{ast, ParseError, SourceSpan};
+use mist_syntax::{ParseError, SourceSpan};
 use mist_viper_backend::{
     gen::ViperOutput,
     lower::{ViperLowerError, ViperSourceMap},
@@ -48,11 +48,10 @@ impl MistError {
     }
 }
 
-pub fn accumulated_errors<'a>(
-    db: &'a dyn crate::Db,
+pub fn accumulated_errors(
+    db: &dyn crate::Db,
     program: hir::Program,
-    root: &'a ast::SourceFile,
-) -> impl Iterator<Item = MistError> + 'a {
+) -> impl Iterator<Item = MistError> + '_ {
     let parse_errors = program.parse(db).errors();
     let type_errors = mir::lower_program::accumulated::<mist_core::TypeCheckErrors>(db, program);
     let mir_errors = mir::lower_program::accumulated::<mir::MirErrors>(db, program);
@@ -77,19 +76,19 @@ pub fn accumulated_errors<'a>(
             MistError::TypeCheck(_) => {}
             MistError::Mir(err) => err.populate_spans(
                 |item_id, expr| {
-                    let item = hir::item(db, program, root, item_id).unwrap();
+                    let item = hir::intern_item(db, program, item_id).unwrap();
                     let (_cx, source_map) = hir::item_lower(db, program, item_id, item).unwrap();
                     Some(source_map.expr_span(expr))
                 },
                 |item_id, var| {
-                    let item = hir::item(db, program, root, item_id).unwrap();
+                    let item = hir::intern_item(db, program, item_id).unwrap();
                     let (cx, _source_map) = hir::item_lower(db, program, item_id, item).unwrap();
                     Some(cx.var_span(var))
                 },
             ),
             MistError::ViperLower(err) => {
                 err.populate_spans(|item_id, block_or_instr| {
-                    let item = hir::item(db, program, root, item_id).unwrap();
+                    let item = hir::intern_item(db, program, item_id).unwrap();
                     let (cx, source_map) = hir::item_lower(db, program, item_id, item).unwrap();
                     let (_mir, mir_source_span) = mir::lower_item(db, cx);
                     Some(source_map.expr_span(mir_source_span.trace_expr(block_or_instr).unwrap()))

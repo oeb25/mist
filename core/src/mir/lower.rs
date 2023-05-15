@@ -444,8 +444,8 @@ impl MirLower<'_> {
     fn lhs_expr(
         &mut self,
         expr: ExprIdx,
-        mut bid: BlockId,
-        target: Option<BlockId>,
+        bid: BlockId,
+        _target: Option<BlockId>,
     ) -> (BlockId, Place) {
         let expr_data = self.cx.expr(expr);
         match &expr_data.data {
@@ -453,10 +453,9 @@ impl MirLower<'_> {
             ExprData::Self_ => todo!(),
             ExprData::Ident(x) => (bid, self.var_place(x.idx())),
             ExprData::Block(_) => todo!(),
+            ExprData::NotNull(_) => todo!(),
             ExprData::Field {
-                expr: base,
-                field_name,
-                field,
+                expr: base, field, ..
             } => {
                 let (bid, place) = self.lhs_expr(*base, bid, None);
                 if let Some(f) = field {
@@ -622,6 +621,10 @@ impl MirLower<'_> {
                     }
                     bid
                 }
+            }
+            ExprData::NotNull(it) => {
+                // NOTE: It the MIR level `!` is a noop
+                self.expr(*it, bid, target, dest)
             }
             ExprData::Struct {
                 struct_declaration,

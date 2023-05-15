@@ -1,0 +1,6 @@
+struct P { x: int }
+fn f(p: ?P) -> int
+  req p != null
+{
+  p!.x
+}
