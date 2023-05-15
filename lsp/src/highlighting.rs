@@ -175,6 +175,18 @@ impl<'src> Visitor for Highlighter<'src> {
     ) -> ControlFlow<()> {
         self.push(vcx.cx.var_span(param.name), TT::Parameter, None);
 
+        if vcx.cx[param.ty].data.is_none() {
+            let span = vcx.cx.var_span(param.name);
+            let ty = vcx.cx.var_ty(param.name);
+            self.inlay_hints.push(InlayHint {
+                position: Position::from_byte_offset(self.src, span.end()),
+                label: format!(": {}", vcx.cx.pretty_ty(self.db, ty)),
+                kind: None,
+                padding_left: None,
+                padding_right: None,
+            });
+        }
+
         ControlFlow::Continue(())
     }
 
