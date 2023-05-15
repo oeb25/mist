@@ -361,7 +361,7 @@ impl Backend {
                     mist_src_path: uri.as_str().into(),
                     mist_src: &text,
                 };
-                let errors = match verify_file.run(&db_arc, &parse).await {
+                let errors = match verify_file.run(&db_arc).await {
                     Ok(errors) => errors,
                     Err(err) => vec![err],
                 };

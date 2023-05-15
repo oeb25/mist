@@ -1,9 +1,12 @@
 use itertools::Itertools;
-use mist_core::{hir, mir::BlockId, util::IdxWrap};
+use mist_core::{
+    hir,
+    mir::{self, BlockId},
+    util::IdxWrap,
+};
 use silvers::{
-    expression::{AbstractLocalVar, BinOp, Exp, FieldAccess, LocalVar, PermExp},
+    expression::{AbstractLocalVar, BinOp, Exp, FieldAccess, PermExp},
     program::{Field, Predicate},
-    typ::Type as VTy,
 };
 
 use crate::gen::{VExprId, ViperItem};
@@ -14,15 +17,15 @@ impl BodyLower<'_> {
     pub fn struct_lower(
         &mut self,
         s: hir::Struct,
-        invariants: impl IntoIterator<Item = hir::TypeInvariant>,
+        invariants: impl IntoIterator<Item = mir::BlockId>,
     ) -> Result<Vec<ViperItem<VExprId>>, ViperLowerError> {
         let mut viper_items = vec![];
 
         let source = BlockId::from_raw(0.into());
-        let this_var = LocalVar::new("this".to_string(), VTy::ref_());
-        let this = self.alloc(source, AbstractLocalVar::LocalVar(this_var.clone()));
+        let self_var = self.slot_to_var(self.body.self_slot().expect("self slot must be set"));
+        let self_ = self.alloc(source, AbstractLocalVar::LocalVar(self_var.clone()));
 
-        let body = hir::struct_fields(self.db, s)
+        let field_invs: Vec<_> = hir::struct_fields(self.db, s)
             .into_iter()
             .map(|f| {
                 let field_ty = self.cx.field_ty(&f);
@@ -33,7 +36,7 @@ impl BodyLower<'_> {
                 };
                 viper_items.push(ViperItem::Field(viper_field.clone()));
                 let perm = self.alloc(source, PermExp::Full);
-                let field_access = FieldAccess::new(this, viper_field);
+                let field_access = FieldAccess::new(self_, viper_field);
                 let field_perm = self.alloc(source, field_access.clone().access_perm(perm));
 
                 let field_ref = self.alloc(source, field_access.access_exp());
@@ -43,13 +46,19 @@ impl BodyLower<'_> {
                     field_perm
                 }
             })
-            .collect_vec()
+            .collect_vec();
+        let inv_invs: Vec<_> = invariants
             .into_iter()
+            .map(|inv| self.pure_lower(inv))
+            .collect::<Result<_, _>>()?;
+        let body = field_invs
+            .into_iter()
+            .chain(inv_invs)
             .reduce(|acc, next| self.alloc(source, Exp::bin(acc, BinOp::And, next)));
 
         viper_items.push(ViperItem::Predicate(Predicate {
             name: s.name(self.db).to_string(),
-            formal_args: vec![this_var.into()],
+            formal_args: vec![self_var.into()],
             body,
         }));
 

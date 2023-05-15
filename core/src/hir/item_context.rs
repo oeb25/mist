@@ -46,6 +46,10 @@ pub struct ItemContext {
     pub(super) body_expr: Option<ExprIdx>,
     #[new(default)]
     pub(super) return_ty: Option<TypeSrcId>,
+    #[new(default)]
+    pub(super) self_ty: Option<TypeSrcId>,
+    #[new(default)]
+    pub(super) self_invariants: Vec<ExprIdx>,
 
     pub(super) error_ty: TypeId,
     pub(super) int_ty: TypeId,
@@ -101,6 +105,12 @@ impl ItemContext {
     }
     pub fn return_ty(&self) -> Option<TypeId> {
         self.return_ty.map(|ty| self[ty].ty)
+    }
+    pub fn self_ty(&self) -> Option<TypeId> {
+        self.self_ty.map(|ty| self[ty].ty)
+    }
+    pub fn self_invariants(&self) -> &[ExprIdx] {
+        &self.self_invariants
     }
     pub fn body_expr(&self) -> Option<ExprIdx> {
         self.body_expr

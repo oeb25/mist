@@ -25,6 +25,7 @@ pub struct Jar(
     crate::hir::parse_program,
     crate::hir::struct_fields,
     crate::hir::item_lower,
+    crate::hir::intern_item,
     crate::hir::typecheck::TypeCheckErrors,
     crate::mir::MirErrors,
     crate::mir::lower_program,

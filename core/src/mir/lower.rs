@@ -52,6 +52,10 @@ pub fn lower_item(db: &dyn crate::Db, cx: ItemContext) -> (Body, BodySourceMap) 
         .return_ty()
         .map(|ret_ty| lower.alloc_slot(Slot::Result, ret_ty));
 
+    lower.body.self_slot = cx
+        .self_ty()
+        .map(|ret_ty| lower.alloc_slot(Slot::Temp, ret_ty));
+
     for cond in cx.conditions() {
         match cond {
             hir::Condition::Requires(es) => {
@@ -71,6 +75,13 @@ pub fn lower_item(db: &dyn crate::Db, cx: ItemContext) -> (Body, BodySourceMap) 
                 }
             }
         }
+    }
+
+    for &ty_inv in cx.self_invariants() {
+        let slot = lower.alloc_expr(ty_inv);
+        let entry_bid = lower.alloc_block(Some(ty_inv));
+        lower.expr(ty_inv, entry_bid, None, Placement::Assign(slot));
+        lower.body.invariants.push(entry_bid);
     }
 
     if let Some(body) = cx.body_expr() {
@@ -178,6 +189,9 @@ impl<'a> MirLower<'a> {
     }
     fn alloc_function(&mut self, function: Function) -> FunctionId {
         self.body.functions.alloc(function)
+    }
+    fn self_slot(&self) -> Option<SlotId> {
+        self.body.self_slot
     }
     fn var_place(&mut self, var: VariableIdx) -> Place {
         if let Some(&slot) = self.source_map.var_map.get(var) {
@@ -436,6 +450,7 @@ impl MirLower<'_> {
         let expr_data = self.cx.expr(expr);
         match &expr_data.data {
             ExprData::Literal(_) => todo!(),
+            ExprData::Self_ => todo!(),
             ExprData::Ident(x) => (bid, self.var_place(x.idx())),
             ExprData::Block(_) => todo!(),
             ExprData::Field {
@@ -541,9 +556,29 @@ impl MirLower<'_> {
                 );
                 bid
             }
+            ExprData::Self_ => {
+                if let Some(self_slot) = self.self_slot() {
+                    self.put(
+                        bid,
+                        dest,
+                        Some(expr),
+                        MExpr::Use(Operand::Move(self_slot.into())),
+                    );
+                } else {
+                    MirErrors::push(
+                        self.db,
+                        MirError::SelfInItemWithout {
+                            item_id: self.cx.item_id(),
+                            expr,
+                            span: None,
+                        },
+                    )
+                }
+                bid
+            }
             ExprData::Ident(var) => {
-                let var_slot = self.var_place(var.idx());
-                self.put(bid, dest, Some(expr), MExpr::Use(Operand::Move(var_slot)));
+                let var_place = self.var_place(var.idx());
+                self.put(bid, dest, Some(expr), MExpr::Use(Operand::Move(var_place)));
                 bid
             }
             ExprData::Block(block) => {

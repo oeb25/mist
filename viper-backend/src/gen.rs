@@ -92,7 +92,7 @@ fn internal_viper_item(
         hir::Item::Type(ty_decl) => match ty_decl.data(db) {
             hir::TypeDeclData::Struct(s) => {
                 let mut lower = lowerer.body_lower(db, &cx, mir, false);
-                lower.struct_lower(s, [])
+                lower.struct_lower(s, mir.invariants().iter().copied())
             }
         },
         hir::Item::TypeInvariant(_) => Ok(vec![]),

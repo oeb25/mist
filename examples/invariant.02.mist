@@ -1,0 +1,7 @@
+struct A { x: int }
+invariant A { self.x > 0 }
+
+
+fn main(a: A) {
+    assert a.x > 0;
+}

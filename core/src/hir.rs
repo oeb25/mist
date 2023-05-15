@@ -3,6 +3,7 @@ pub mod typecheck;
 
 use derive_more::{Display, From};
 use derive_new::new;
+use itertools::Itertools;
 use mist_syntax::{
     ast::{
         self,
@@ -15,12 +16,12 @@ use mist_syntax::{
 use tracing::error;
 
 use crate::{
-    hir::typecheck::Typed,
+    hir::{self, typecheck::Typed},
     util::{impl_idx, IdxWrap},
     TypeCheckErrors,
 };
 
-pub use item_context::{ItemContext, ItemSourceMap};
+pub use item_context::{ItemContext, ItemSourceMap, SpanOrAstPtr};
 use typecheck::{TypeCheckError, TypeCheckErrorKind, TypeChecker};
 
 pub mod pretty;
@@ -111,6 +112,12 @@ pub fn parse_program(db: &dyn crate::Db, source: SourceProgram) -> Program {
     Program::new(db, parse, items)
 }
 
+#[salsa::tracked]
+pub fn intern_item(db: &dyn crate::Db, program: Program, item_id: ItemId) -> Option<Item> {
+    let root = program.parse(db).tree();
+    item(db, program, &root, item_id)
+}
+
 pub fn item(
     db: &dyn crate::Db,
     program: Program,
@@ -175,12 +182,43 @@ pub fn item_lower(
     match item {
         Item::Type(ty_decl) => match &ty_decl.data(db) {
             TypeDeclData::Struct(_) => {
-                let checker = TypeChecker::init(db, program, &root, item_id, None);
+                let mut checker = TypeChecker::init(db, program, &root, item_id);
+
+                if let Some(self_ty) = checker.cx.self_ty() {
+                    let related_invs = program
+                        .items(db)
+                        .iter()
+                        .filter_map(|&item_id| {
+                            if let Some(hir::Item::TypeInvariant(inv)) =
+                                hir::item(db, program, &root, item_id)
+                            {
+                                if checker.find_named_type(inv.name(db)) == self_ty {
+                                    return Some(inv);
+                                }
+                            }
+                            None
+                        })
+                        .collect_vec();
+
+                    for ty_inv in related_invs {
+                        if let Some(ast_body) = ty_inv.body(db, &root) {
+                            let body = checker.check_block(&ast_body, |f| f);
+                            let ret = checker.bool().ghost();
+                            checker.expect_ty(ty_inv.name(db).span(), ret, body.return_ty);
+                            let body_expr = checker.alloc_expr(
+                                Expr::new(body.return_ty, ExprData::Block(body)),
+                                &ast::Expr::from(ast_body),
+                            );
+                            checker.cx.self_invariants.push(body_expr);
+                        }
+                    }
+                }
+
                 Some(checker.into())
             }
         },
         Item::TypeInvariant(ty_inv) => {
-            let mut checker = TypeChecker::init(db, program, &root, item_id, None);
+            let mut checker = TypeChecker::init(db, program, &root, item_id);
             if let Some(ast_body) = ty_inv.body(db, &root) {
                 let body = checker.check_block(&ast_body, |f| f);
                 let ret = checker.bool().ghost();
@@ -192,7 +230,7 @@ pub fn item_lower(
             Some(checker.into())
         }
         Item::Function(function) => {
-            let mut checker = TypeChecker::init(db, program, &root, item_id, Some(function));
+            let mut checker = TypeChecker::init(db, program, &root, item_id);
             let ast_body = function.body(db, &root);
             let body = ast_body
                 .as_ref()
@@ -455,6 +493,7 @@ pub struct Expr {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ExprData {
     Literal(Literal),
+    Self_,
     Ident(VariableRef),
     Block(Block),
     Field {

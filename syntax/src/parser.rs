@@ -332,7 +332,7 @@ impl<'src> Parser<'src> {
 
     fn name(&mut self) {
         self.start_node(NAME, |this| match this.current() {
-            Some(IDENT) => this.bump(),
+            Some(T![ident] | T![self]) => this.bump(),
             None => this.unexpected_eof(),
             _ => this.push_error(
                 None,
@@ -344,7 +344,7 @@ impl<'src> Parser<'src> {
     }
     fn name_ref(&mut self) {
         self.start_node(NAME_REF, |this| match this.current() {
-            Some(IDENT) => this.bump(),
+            Some(T![ident] | T![self]) => this.bump(),
             None => this.unexpected_eof(),
             _ => this.push_error(
                 None,
@@ -693,7 +693,7 @@ impl<'src> Parser<'src> {
                 });
             }
             Some(T![result]) => self.start_node(RESULT_EXPR, |this| this.bump()),
-            Some(T![ident]) => {
+            Some(T![ident] | T![self]) => {
                 let checkpoint = self.checkpoint();
                 self.name();
 
@@ -1071,6 +1071,7 @@ fn is_start_of_expr(token: SyntaxKind) -> bool {
     matches!(
         token,
         T![ident]
+            | T![self]
             | T![true]
             | T![false]
             | T![result]

@@ -102,6 +102,10 @@ impl PartialEq<Name> for std::string::String {
 }
 impl PartialEq<&'_ str> for Name {
     fn eq(&self, other: &&str) -> bool {
-        self.ident_token().unwrap().text() == *other
+        if let Some(ident) = self.ident_token() {
+            ident.text() == *other
+        } else {
+            other.is_empty()
+        }
     }
 }

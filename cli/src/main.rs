@@ -207,7 +207,7 @@ async fn cli() -> Result<()> {
 
             while let Some(status) = stream.next().await {
                 let status = status.into_diagnostic()?;
-                errors.append(&mut ctx.handle_status(&db, &parse.tree(), status));
+                errors.append(&mut ctx.handle_status(&db, status));
             }
 
             if !errors.is_empty() {

@@ -7,7 +7,6 @@ use futures_util::StreamExt;
 use miette::{Context, IntoDiagnostic};
 use mist_cli::VerificationContext;
 use mist_core::hir;
-use mist_syntax::{ast, Parse};
 use mist_viper_backend::gen::ViperOutput;
 use tracing::info;
 
@@ -24,7 +23,6 @@ impl VerifyFile<'_> {
     pub(crate) async fn run(
         &self,
         db: &Mutex<crate::db::Database>,
-        root: &Parse<ast::SourceFile>,
     ) -> miette::Result<Vec<miette::Report>> {
         let (viper_program, viper_body, viper_source_map) =
             mist_viper_backend::gen::viper_file(&*db.lock().unwrap(), self.program)?;
@@ -76,7 +74,7 @@ impl VerifyFile<'_> {
 
         while let Some(status) = stream.next().await {
             let status = status.into_diagnostic()?;
-            errors.append(&mut ctx.handle_status(&*db.lock().unwrap(), &root.tree(), status));
+            errors.append(&mut ctx.handle_status(&*db.lock().unwrap(), status));
         }
 
         // if errors.is_empty() {

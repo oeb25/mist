@@ -167,6 +167,14 @@ impl<'src> Visitor for Highlighter<'src> {
         self.push(var, tt, None);
         ControlFlow::Continue(())
     }
+    fn visit_self(
+        &mut self,
+        _vcx: &VisitContext,
+        src: &hir::SpanOrAstPtr<mist_syntax::ast::Expr>,
+    ) -> ControlFlow<Self::Item> {
+        self.push(src, TT::Keyword, None);
+        ControlFlow::Continue(())
+    }
 
     fn visit_param(
         &mut self,

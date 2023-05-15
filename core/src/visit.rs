@@ -134,6 +134,14 @@ pub trait Visitor {
         ControlFlow::Continue(())
     }
     #[must_use]
+    fn visit_self(
+        &mut self,
+        vcx: &VisitContext,
+        src: &hir::SpanOrAstPtr<ast::Expr>,
+    ) -> ControlFlow<Self::Item> {
+        ControlFlow::Continue(())
+    }
+    #[must_use]
     fn visit_param(
         &mut self,
         vcx: &VisitContext,
@@ -392,6 +400,9 @@ where
             ExprData::Literal(_) | ExprData::Missing | ExprData::Result => {}
             ExprData::Ident(var) => {
                 visitor.visit_var(&self.vcx, var)?;
+            }
+            ExprData::Self_ => {
+                visitor.visit_self(&self.vcx, &self.vcx.source_map[expr])?;
             }
             ExprData::Field {
                 expr,

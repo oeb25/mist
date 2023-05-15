@@ -5,8 +5,8 @@ struct List {
 }
 
 invariant List {
-    (if this.next == null { this.content == [] } else { true }) &&
-    (if this.next != null { this.content == [this.elem] + this.next.content } else { true })
+    (if self.next == null { self.content == [] } else { true }) &&
+    (if self.next != null { self.content == [self.elem] + self.next.content } else { true })
 }
 
 fn create() -> List

@@ -332,7 +332,7 @@ impl MExpr {
                 fields.iter().map(|(f, o)| (f.clone(), map(o))).collect(),
             ),
             MExpr::Use(o) => MExpr::Use(map(o)),
-            MExpr::Ref(bk, o) => MExpr::Ref(*bk, o.clone()),
+            MExpr::Ref(bk, o) => MExpr::Ref(*bk, *o),
             MExpr::BinaryOp(op, l, r) => MExpr::BinaryOp(*op, map(l), map(r)),
             MExpr::UnaryOp(op, o) => MExpr::UnaryOp(*op, map(o)),
         }
@@ -408,6 +408,8 @@ pub struct Body {
     #[new(default)]
     result_slot: Option<SlotId>,
     #[new(default)]
+    self_slot: Option<SlotId>,
+    #[new(default)]
     body_block: Option<BlockId>,
 }
 
@@ -441,6 +443,9 @@ pub enum BlockOrInstruction {
 impl Body {
     pub fn result_slot(&self) -> Option<SlotId> {
         self.result_slot
+    }
+    pub fn self_slot(&self) -> Option<SlotId> {
+        self.self_slot
     }
 
     pub fn entry_blocks(&self) -> impl Iterator<Item = BlockId> + '_ {
@@ -864,6 +869,12 @@ pub enum MirError {
         #[label]
         span: Option<SourceSpan>,
     },
+    #[error("`self` was used in a context where self is not defined")]
+    SelfInItemWithout {
+        item_id: hir::ItemId,
+        expr: hir::ExprIdx,
+        span: Option<SourceSpan>,
+    },
 }
 
 #[salsa::accumulator]
@@ -884,6 +895,11 @@ impl MirError {
             } => *span = expr_f(*item_id, *expr),
             MirError::SlotUseBeforeAlloc { item_id, var, span } => *span = var_f(*item_id, *var),
             MirError::ResultWithoutReturnSlot {
+                item_id,
+                expr,
+                span,
+            } => *span = expr_f(*item_id, *expr),
+            MirError::SelfInItemWithout {
                 item_id,
                 expr,
                 span,
