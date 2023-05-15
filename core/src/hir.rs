@@ -46,6 +46,14 @@ mod ident {
             }
         }
     }
+    impl From<ast::NameRef> for Ident {
+        fn from(value: ast::NameRef) -> Self {
+            Ident {
+                inner: value.to_string(),
+                span: value.span(),
+            }
+        }
+    }
     impl std::fmt::Display for Ident {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             self.inner.fmt(f)
@@ -140,7 +148,7 @@ pub fn item(
         }
         ItemData::TypeInvariant { ast } => {
             let i = ast.to_node(root.syntax());
-            let name = Ident::from(i.name().unwrap());
+            let name = Ident::from(i.name_ref().unwrap());
             TypeInvariant::new(db, ast, name).into()
         }
         ItemData::Macro { .. } => return None,
@@ -248,9 +256,6 @@ impl ItemId {
     pub fn syntax(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> mist_syntax::SyntaxNode {
         self.data(db).syntax(root)
     }
-    pub fn name(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> Option<ast::Name> {
-        self.data(db).name(root)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, From)]
@@ -269,15 +274,6 @@ impl ItemData {
             ItemData::Struct { ast } => ast.to_node(root.syntax()).syntax().clone(),
             ItemData::TypeInvariant { ast } => ast.to_node(root.syntax()).syntax().clone(),
             ItemData::Macro { ast } => ast.to_node(root.syntax()).syntax().clone(),
-        }
-    }
-    fn name(&self, root: &ast::SourceFile) -> Option<ast::Name> {
-        match self {
-            ItemData::Const { ast } => ast.to_node(root.syntax()).name(),
-            ItemData::Fn { ast } => ast.to_node(root.syntax()).name(),
-            ItemData::Struct { ast } => ast.to_node(root.syntax()).name(),
-            ItemData::TypeInvariant { ast } => ast.to_node(root.syntax()).name(),
-            ItemData::Macro { ast } => ast.to_node(root.syntax()).name(),
         }
     }
 }

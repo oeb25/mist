@@ -10,10 +10,9 @@ Item =
 | TypeInvariant
 | Macro
 
-Name = 'ident'
+Name = 'ident' | 'self'
 
-// NameRef =
-//  'ident'// | 'int_number'
+NameRef = 'ident' | 'self'
 
 Const =
   Attrs
@@ -62,7 +61,7 @@ Struct =
 StructField = Attrs Name ':' Type ','?
 
 TypeInvariant =
-  'invariant' Name GenericArgList? BlockExpr
+  'invariant' NameRef GenericArgList? BlockExpr
 
 Macro =
   'macro' Name ParamList BlockExpr

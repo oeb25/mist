@@ -1124,10 +1124,12 @@ impl AstNode for Struct {
 pub struct TypeInvariant {
     pub(crate) syntax: SyntaxNode,
 }
-impl crate::ast::HasName for TypeInvariant {}
 impl TypeInvariant {
     pub fn invariant_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![invariant])
+    }
+    pub fn name_ref(&self) -> Option<NameRef> {
+        support::child(&self.syntax)
     }
     pub fn generic_arg_list(&self) -> Option<GenericArgList> {
         support::child(&self.syntax)
@@ -1190,10 +1192,40 @@ impl Name {
     pub fn ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![ident])
     }
+    pub fn self_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![self])
+    }
 }
 impl AstNode for Name {
     fn can_cast(kind: SyntaxKind) -> bool {
         kind == NAME
+    }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct NameRef {
+    pub(crate) syntax: SyntaxNode,
+}
+impl NameRef {
+    pub fn ident_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![ident])
+    }
+    pub fn self_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![self])
+    }
+}
+impl AstNode for NameRef {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == NAME_REF
     }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
@@ -2991,6 +3023,11 @@ impl std::fmt::Display for Macro {
     }
 }
 impl std::fmt::Display for Name {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for NameRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }

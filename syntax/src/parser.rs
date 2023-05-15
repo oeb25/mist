@@ -310,7 +310,7 @@ impl<'src> Parser<'src> {
         self.start_node_at(attr_checkpoint, TYPE_INVARIANT, |this| {
             this.bump();
 
-            this.name();
+            this.name_ref();
             this.maybe_generic_arg_list();
 
             this.block();
@@ -332,6 +332,18 @@ impl<'src> Parser<'src> {
 
     fn name(&mut self) {
         self.start_node(NAME, |this| match this.current() {
+            Some(IDENT) => this.bump(),
+            None => this.unexpected_eof(),
+            _ => this.push_error(
+                None,
+                Some("expected a name"),
+                None,
+                ParseErrorKind::Context("name".to_string()),
+            ),
+        });
+    }
+    fn name_ref(&mut self) {
+        self.start_node(NAME_REF, |this| match this.current() {
             Some(IDENT) => this.bump(),
             None => this.unexpected_eof(),
             _ => this.push_error(

@@ -396,9 +396,9 @@ impl Backend {
                     let diagnostics = program
                         .items(&*db)
                         .iter()
-                        .filter_map(|item| Some(item.name(&*db, &parse.tree())?.span()))
-                        .map(|name| {
-                            let range = span_to_range(&text, name.span().set_len(0));
+                        .map(|item| {
+                            let span = item.syntax(&*db, &parse.tree()).span();
+                            let range = span_to_range(&text, span.set_len(0));
                             Diagnostic {
                                 severity: Some(DiagnosticSeverity::HINT),
                                 message: "Successfully verified".to_string(),
