@@ -3,7 +3,7 @@ use std::{marker::PhantomData, sync::Arc};
 pub(crate) use ast::SyntaxKind;
 pub use parser::ParseError;
 use parser::Parser;
-pub use rowan::{Direction, GreenNode};
+pub use rowan::{Direction, GreenNode, WalkEvent};
 pub use support::{AstNode, SourceSpan};
 
 pub mod ast;
@@ -73,6 +73,7 @@ pub type SyntaxToken = rowan::SyntaxToken<MistLanguage>;
 pub type SyntaxNode = rowan::SyntaxNode<MistLanguage>;
 pub type SyntaxNodeChildren = rowan::SyntaxNodeChildren<MistLanguage>;
 pub type SyntaxElement = rowan::SyntaxElement<MistLanguage>;
+pub type NodeOrToken = rowan::NodeOrToken<SyntaxNode, SyntaxToken>;
 
 #[cfg(test)]
 mod tests;
