@@ -89,9 +89,9 @@ impl<'src> Parser<'src> {
     pub fn parse(mut self) -> (SourceFile, Vec<ParseError>) {
         self.builder.start_node(SOURCE_FILE.into());
         loop {
-            if !self.maybe_item() {
+            if !self.item_opt() {
                 match self.current() {
-                    None => {
+                    EOF => {
                         self.builder.finish_node();
 
                         let node = SyntaxNode::new_root(self.builder.finish());
@@ -117,7 +117,7 @@ impl<'src> Parser<'src> {
         let mut attr_seen = AttrFlags::empty();
         self.start_node(ATTRS, |this| loop {
             match this.current() {
-                Some(T![pure]) => {
+                T![pure] => {
                     if attr_seen.is_pure() {
                         this.push_error(
                             None,
@@ -127,9 +127,9 @@ impl<'src> Parser<'src> {
                         );
                     }
                     attr_seen.insert(AttrFlags::PURE);
-                    this.start_node(ATTR, |this| this.bump());
+                    this.start_node(ATTR, |p| p.bump());
                 }
-                Some(T![ghost]) => {
+                T![ghost] => {
                     if attr_seen.is_ghost() {
                         this.push_error(
                             None,
@@ -139,7 +139,7 @@ impl<'src> Parser<'src> {
                         );
                     }
                     attr_seen.insert(AttrFlags::GHOST);
-                    this.start_node(ATTR, |this| this.bump());
+                    this.start_node(ATTR, |p| p.bump());
                 }
                 _ => break,
             }
@@ -147,16 +147,16 @@ impl<'src> Parser<'src> {
         attr_checkpoint
     }
 
-    fn maybe_item(&mut self) -> bool {
+    fn item_opt(&mut self) -> bool {
         let attrs_checkpoint = self.attrs();
 
         match self.current() {
-            Some(T![fn]) => self.fn_def(attrs_checkpoint),
-            Some(T![const]) => self.const_def(attrs_checkpoint),
-            Some(T![struct]) => self.struct_def(attrs_checkpoint),
-            Some(T![invariant]) => self.type_invariant(attrs_checkpoint),
-            Some(T![macro]) => self.macro_def(attrs_checkpoint),
-            Some(T![let]) => {
+            T![fn] => self.fn_def(attrs_checkpoint),
+            T![const] => self.const_def(attrs_checkpoint),
+            T![struct] => self.struct_def(attrs_checkpoint),
+            T![invariant] => self.type_invariant(attrs_checkpoint),
+            T![macro] => self.macro_def(attrs_checkpoint),
+            T![let] => {
                 self.push_error(
                     None,
                     Some("let found as top-level"),
@@ -171,7 +171,7 @@ impl<'src> Parser<'src> {
     }
 
     fn fn_def(&mut self, attr_checkpoint: Checkpoint) {
-        assert_eq!(self.current(), Some(T![fn]));
+        assert_eq!(self.current(), T![fn]);
         self.start_node_at(attr_checkpoint, FN, |this| {
             this.bump();
 
@@ -180,7 +180,7 @@ impl<'src> Parser<'src> {
             this.current();
             this.param_list();
 
-            if let Some(T![->]) = this.current() {
+            if let T![->] = this.current() {
                 this.bump();
                 this.ty();
             }
@@ -189,19 +189,19 @@ impl<'src> Parser<'src> {
 
             loop {
                 match this.current() {
-                    Some(T![requires] | T![req]) => {
+                    T![requires] | T![req] => {
                         this.start_node(REQUIRES, |this| {
                             this.bump();
                             this.comma_expr(Location::NO_STRUCT);
                         });
                     }
-                    Some(T![ensures] | T![ens]) => {
+                    T![ensures] | T![ens] => {
                         this.start_node(ENSURES, |this| {
                             this.bump();
                             this.comma_expr(Location::NO_STRUCT);
                         });
                     }
-                    Some(T![decreases] | T![dec]) => {
+                    T![decreases] | T![dec] => {
                         if seen_decreases {
                             // TODO: Report repeated decreases
                         }
@@ -210,7 +210,7 @@ impl<'src> Parser<'src> {
                         this.start_node(DECREASES, |this| {
                             this.bump();
                             match this.current() {
-                                Some(T![_]) => this.bump(),
+                                T![_] => this.bump(),
                                 _ => this.expr(Location::NO_STRUCT),
                             }
                         });
@@ -220,8 +220,8 @@ impl<'src> Parser<'src> {
             }
 
             match this.current() {
-                Some(T![;]) => this.bump(),
-                Some(T!['{']) => this.block(),
+                T![;] => this.bump(),
+                T!['{'] => this.block(),
                 _ => this.push_error(
                     Some(this.pre_whitespace_span.set_len(1)),
                     Some("expected a block"),
@@ -233,7 +233,7 @@ impl<'src> Parser<'src> {
     }
 
     fn const_def(&mut self, attr_checkpoint: Checkpoint) {
-        assert_eq!(self.current(), Some(T![const]));
+        assert_eq!(self.current(), T![const]);
         self.start_node_at(attr_checkpoint, CONST, |this| {
             this.bump();
 
@@ -241,12 +241,12 @@ impl<'src> Parser<'src> {
 
             let post_span = this.current_span();
             match this.current() {
-                Some(T![=]) => {
+                T![=] => {
                     this.bump();
                     this.expr(Location::NONE);
                     this.semicolon();
                 }
-                Some(T![;]) => this.semicolon(),
+                T![;] => this.semicolon(),
                 _ => this.push_error(
                     Some(post_span),
                     Some("expected a value with '=', or ';'"),
@@ -258,7 +258,7 @@ impl<'src> Parser<'src> {
     }
 
     fn struct_def(&mut self, attr_checkpoint: Checkpoint) {
-        assert_eq!(self.current(), Some(T![struct]));
+        assert_eq!(self.current(), T![struct]);
         self.start_node_at(attr_checkpoint, STRUCT, |this| {
             this.bump();
 
@@ -270,7 +270,7 @@ impl<'src> Parser<'src> {
             this.comma_sep(
                 |t| t == T!['}'],
                 |this| match this.current() {
-                    Some(T![ident]) => {
+                    T![ident] => {
                         this.start_node(STRUCT_FIELD, |this| {
                             this.name();
                             this.expect_control(T![:]);
@@ -279,7 +279,7 @@ impl<'src> Parser<'src> {
                         ControlFlow::Continue(())
                     }
 
-                    Some(T![ghost]) => {
+                    T![ghost] => {
                         this.start_node(STRUCT_FIELD, |this| {
                             this.attrs();
                             this.name();
@@ -288,7 +288,7 @@ impl<'src> Parser<'src> {
                         });
                         ControlFlow::Continue(())
                     }
-                    Some(T!['}']) => ControlFlow::Break(()),
+                    T!['}'] => ControlFlow::Break(()),
                     _ => {
                         this.push_error(
                             None,
@@ -306,7 +306,7 @@ impl<'src> Parser<'src> {
     }
 
     fn type_invariant(&mut self, attr_checkpoint: Checkpoint) {
-        assert_eq!(self.current(), Some(T![invariant]));
+        assert_eq!(self.current(), T![invariant]);
         self.start_node_at(attr_checkpoint, TYPE_INVARIANT, |this| {
             this.bump();
 
@@ -318,7 +318,7 @@ impl<'src> Parser<'src> {
     }
 
     fn macro_def(&mut self, attr_checkpoint: Checkpoint) {
-        assert_eq!(self.current(), Some(T![macro]));
+        assert_eq!(self.current(), T![macro]);
         self.start_node_at(attr_checkpoint, MACRO, |this| {
             this.bump();
 
@@ -332,8 +332,8 @@ impl<'src> Parser<'src> {
 
     fn name(&mut self) {
         self.start_node(NAME, |this| match this.current() {
-            Some(T![ident] | T![self]) => this.bump(),
-            None => this.unexpected_eof(),
+            T![ident] | T![self] => this.bump(),
+            EOF => this.unexpected_eof(),
             _ => this.push_error(
                 None,
                 Some("expected a name"),
@@ -344,8 +344,8 @@ impl<'src> Parser<'src> {
     }
     fn name_ref(&mut self) {
         self.start_node(NAME_REF, |this| match this.current() {
-            Some(T![ident] | T![self]) => this.bump(),
-            None => this.unexpected_eof(),
+            T![ident] | T![self] => this.bump(),
+            EOF => this.unexpected_eof(),
             _ => this.push_error(
                 None,
                 Some("expected a name"),
@@ -357,7 +357,7 @@ impl<'src> Parser<'src> {
 
     fn param_list(&mut self) {
         self.start_node(PARAM_LIST, |this| {
-            if let Some(L_PAREN) = this.current() {
+            if let T!['('] = this.current() {
                 this.bump();
             } else {
                 this.push_error(
@@ -372,10 +372,10 @@ impl<'src> Parser<'src> {
                 |t| t == T![')'],
                 |this| {
                     let attrs_checkpoint = this.attrs();
-                    if let Some(T![ident]) = this.current() {
+                    if let T![ident] = this.current() {
                         this.start_node_at(attrs_checkpoint, PARAM, |this| {
                             this.name();
-                            if let Some(T![:]) = this.current() {
+                            if let T![:] = this.current() {
                                 this.bump();
                                 this.ty();
                             }
@@ -391,17 +391,17 @@ impl<'src> Parser<'src> {
     }
 
     fn ty(&mut self) {
-        if let Some(T![&]) = self.current() {
+        if let T![&] = self.current() {
             self.start_node(REF_TYPE, |this| {
                 this.bump();
 
-                if let Some(T![mut]) = this.current() {
+                if let T![mut] = this.current() {
                     this.bump();
                 }
                 this.ty();
             });
             return;
-        } else if let Some(T![mut]) = self.current() {
+        } else if let T![mut] = self.current() {
             self.start_node(REF_TYPE, |this| {
                 this.push_error(
                     None,
@@ -415,7 +415,7 @@ impl<'src> Parser<'src> {
             return;
         }
 
-        if let Some(T![ghost]) = self.current() {
+        if let T![ghost] = self.current() {
             self.start_node(GHOST_TYPE, |this| {
                 this.bump();
                 this.ty();
@@ -423,7 +423,7 @@ impl<'src> Parser<'src> {
             return;
         }
 
-        if let Some(T!['[']) = self.current() {
+        if let T!['['] = self.current() {
             self.start_node(LIST_TYPE, |this| {
                 this.bump();
                 this.ty();
@@ -432,7 +432,7 @@ impl<'src> Parser<'src> {
             return;
         }
 
-        if let Some(T![?]) = self.current() {
+        if let T![?] = self.current() {
             self.start_node(OPTIONAL, |this| {
                 this.bump();
                 this.ty();
@@ -441,13 +441,13 @@ impl<'src> Parser<'src> {
         }
 
         match self.current() {
-            Some(IDENT) => {
+            T![ident] => {
                 self.start_node(NAMED_TYPE, |this| {
                     this.name();
                     this.maybe_generic_arg_list();
                 });
             }
-            Some(T![int] | T![bool]) => self.start_node(PRIMITIVE, |this| this.bump()),
+            T![int] | T![bool] => self.start_node(PRIMITIVE, |this| this.bump()),
             _ => self.push_error(
                 None,
                 Some("specify the type here"),
@@ -458,13 +458,13 @@ impl<'src> Parser<'src> {
     }
 
     fn maybe_generic_arg_list(&mut self) {
-        if let Some(T![<]) = self.current() {
+        if let T![<] = self.current() {
             self.start_node(GENERIC_ARG_LIST, |this| {
                 this.bump();
                 this.comma_sep(
                     |t| t == T![>],
                     |this| match this.current() {
-                        Some(T![>]) => ControlFlow::Break(()),
+                        T![>] => ControlFlow::Break(()),
                         _ => {
                             this.start_node(GENERIC_ARG, |this| this.ty());
                             ControlFlow::Continue(())
@@ -491,16 +491,16 @@ impl<'src> Parser<'src> {
                 last_span = Some(this.current_span());
 
                 match this.current() {
-                    Some(T!['}']) => {
+                    T!['}'] => {
                         this.bump();
                         break;
                     }
-                    Some(T![;]) => {
+                    T![;] => {
                         if let Some(checkpoint) = trailing.take() {
                             this.start_node_at(checkpoint, EXPR_STMT, |this| this.bump());
                         }
                     }
-                    None => {
+                    EOF => {
                         this.unexpected_eof();
                         break;
                     }
@@ -526,23 +526,22 @@ impl<'src> Parser<'src> {
 
     fn stmt(&mut self) -> StatementParsed {
         match self.current() {
-            Some(T![let]) => self.let_stmt(),
-            Some(T![assume]) => self.assume_stmt(),
-            Some(T![assert]) => self.assert_stmt(),
-            Some(T![while]) => self.while_stmt(),
-            Some(T![if]) => {
+            T![let] => self.let_stmt(),
+            T![assume] => self.assume_stmt(),
+            T![assert] => self.assert_stmt(),
+            T![while] => self.while_stmt(),
+            T![if] => {
                 let checkpoint = self.checkpoint();
                 // self.start_node(EXPR_STMT, |this| {});
                 self.if_expr();
                 // self.builder.finish_node();
                 return StatementParsed::Expression(checkpoint);
             }
-            Some(t) if is_start_of_expr(t) => {
+            t if is_start_of_expr(t) => {
                 let expr_checkpoint = self.checkpoint();
                 self.expr(Location::NONE);
 
-                // if let Some(T![;]) = self.current() {
-                //     self.builder
+                // if let T![;]) = self.current() {                //     self.builder
                 //         .start_node_at(expr_checkpoint, EXPR_STMT.into());
                 //     self.bump();
                 //     self.builder.finish_node();
@@ -551,9 +550,9 @@ impl<'src> Parser<'src> {
                 return StatementParsed::Expression(expr_checkpoint);
                 // }
             }
-            None => self.unexpected_eof(),
+            EOF => self.unexpected_eof(),
             _ => {
-                if !self.maybe_item() {
+                if !self.item_opt() {
                     self.push_error(
                         None,
                         Some("expected a statement here"),
@@ -569,19 +568,19 @@ impl<'src> Parser<'src> {
     }
 
     fn let_stmt(&mut self) {
-        assert_eq!(self.current(), Some(T![let]));
+        assert_eq!(self.current(), T![let]);
 
         self.start_node(LET_STMT, |this| {
             this.bump();
 
             this.name();
 
-            if let Some(T![:]) = this.current() {
+            if let T![:] = this.current() {
                 this.bump();
                 this.ty();
             }
 
-            if let Some(T![=]) = this.current() {
+            if let T![=] = this.current() {
                 this.bump();
                 this.expr(Location::NONE);
             }
@@ -591,7 +590,7 @@ impl<'src> Parser<'src> {
     }
 
     fn assume_stmt(&mut self) {
-        assert_eq!(self.current(), Some(T![assume]));
+        assert_eq!(self.current(), T![assume]);
 
         self.start_node(ASSUME_STMT, |this| {
             this.bump();
@@ -602,7 +601,7 @@ impl<'src> Parser<'src> {
     }
 
     fn assert_stmt(&mut self) {
-        assert_eq!(self.current(), Some(T![assert]));
+        assert_eq!(self.current(), T![assert]);
 
         self.start_node(ASSERT_STMT, |this| {
             this.bump();
@@ -613,7 +612,7 @@ impl<'src> Parser<'src> {
     }
 
     fn while_stmt(&mut self) {
-        assert_eq!(self.current(), Some(T![while]));
+        assert_eq!(self.current(), T![while]);
 
         self.start_node(WHILE_STMT, |this| {
             this.bump();
@@ -624,13 +623,13 @@ impl<'src> Parser<'src> {
 
             loop {
                 match this.current() {
-                    Some(T![invariant] | T![inv]) => {
+                    T![invariant] | T![inv] => {
                         this.start_node(INVARIANT, |this| {
                             this.bump();
                             this.comma_expr(Location::NO_STRUCT);
                         });
                     }
-                    Some(T![decreases] | T![dec]) => {
+                    T![decreases] | T![dec] => {
                         if seen_decreases {
                             // TODO: Report repeated decreases
                         }
@@ -639,7 +638,7 @@ impl<'src> Parser<'src> {
                         this.start_node(DECREASES, |this| {
                             this.bump();
                             match this.current() {
-                                Some(T![_]) => this.bump(),
+                                T![_] => this.bump(),
                                 _ => this.expr(Location::NO_STRUCT),
                             }
                         });
@@ -655,13 +654,13 @@ impl<'src> Parser<'src> {
     fn comma_expr(&mut self, loc: Location) {
         loop {
             match self.current() {
-                Some(t) if is_start_of_expr(t) => {
+                t if is_start_of_expr(t) => {
                     let mut finished = false;
                     self.start_node(COMMA_EXPR, |this| {
                         this.expr(loc);
 
                         match this.current() {
-                            Some(T![,]) => this.bump(),
+                            T![,] => this.bump(),
                             _ => finished = true,
                         }
                     });
@@ -680,32 +679,32 @@ impl<'src> Parser<'src> {
     fn expr_bp(&mut self, loc: Location, min_bp: u8) {
         let lhs = self.checkpoint();
         match self.current() {
-            Some(T![false] | T![true]) => self.start_node(LITERAL, |this| this.bump()),
-            Some(T!['{']) => self.block(),
-            Some(T![return]) => {
+            T![false] | T![true] => self.start_node(LITERAL, |this| this.bump()),
+            T!['{'] => self.block(),
+            T![return] => {
                 self.start_node(RETURN_EXPR, |this| {
                     this.bump();
 
                     match this.current() {
-                        Some(t) if is_start_of_expr(t) => this.expr(Location::NONE),
+                        t if is_start_of_expr(t) => this.expr(Location::NONE),
                         _ => {}
                     }
                 });
             }
-            Some(T![result]) => self.start_node(RESULT_EXPR, |this| this.bump()),
-            Some(T![ident] | T![self]) => {
+            T![result] => self.start_node(RESULT_EXPR, |this| this.bump()),
+            T![ident] | T![self] => {
                 let checkpoint = self.checkpoint();
                 self.name();
 
                 match self.current() {
-                    Some(T!['{']) if !loc.contains(Location::NO_STRUCT) => {
+                    T!['{'] if !loc.contains(Location::NO_STRUCT) => {
                         self.start_node_at(checkpoint, STRUCT_EXPR, |this| {
                             this.expect_control(T!['{']);
 
                             this.comma_sep(
                                 |t| t == T!['}'],
                                 |this| match this.current() {
-                                    Some(T![ident]) => {
+                                    T![ident] => {
                                         this.start_node(STRUCT_EXPR_FIELD, |this| {
                                             this.name();
                                             this.expect_control(T![:]);
@@ -713,7 +712,7 @@ impl<'src> Parser<'src> {
                                         });
                                         ControlFlow::Continue(())
                                     }
-                                    Some(T!['}']) => ControlFlow::Break(()),
+                                    T!['}'] => ControlFlow::Break(()),
                                     _ => {
                                         this.push_error(
                                             None,
@@ -734,9 +733,9 @@ impl<'src> Parser<'src> {
                     _ => self.wrap_checkpoint_in(checkpoint, IDENT_EXPR),
                 }
             }
-            Some(T![null]) => self.start_node(NULL_EXPR, |this| this.bump()),
-            Some(INT_NUMBER) => self.start_node(LITERAL, |this| this.bump()),
-            Some(T!['[']) => {
+            T![null] => self.start_node(NULL_EXPR, |this| this.bump()),
+            INT_NUMBER => self.start_node(LITERAL, |this| this.bump()),
+            T!['['] => {
                 self.start_node(LIST_EXPR, |this| {
                     this.bump();
                     this.comma_sep(
@@ -749,22 +748,26 @@ impl<'src> Parser<'src> {
                     this.expect_control(T![']']);
                 });
             }
-            Some(T!['(']) => {
+            T!['('] => {
                 self.start_node(PAREN_EXPR, |this| {
                     this.bump();
                     this.expr_bp(Location::NONE, 0);
                     this.expect_control(T![')']);
                 });
             }
-            Some(T![if]) => self.if_expr(),
-            Some(t) => {
-                if let Some((op, (), r_bp)) = prefix_binding_power(Some(t)) {
+            T![if] => self.if_expr(),
+            EOF => {
+                self.unexpected_eof();
+                return;
+            }
+            t => {
+                if let Some((op, (), r_bp)) = prefix_binding_power(t) {
                     match op {
                         T![&] => {
                             self.start_node(REF_EXPR, |this| {
                                 this.bump();
 
-                                if let Some(T![mut]) = this.current() {
+                                if let T![mut] = this.current() {
                                     this.bump();
                                 }
 
@@ -797,10 +800,6 @@ impl<'src> Parser<'src> {
                     self.bump();
                     return;
                 }
-            }
-            None => {
-                self.unexpected_eof();
-                return;
             }
         };
 
@@ -842,7 +841,7 @@ impl<'src> Parser<'src> {
                     T![..] => {
                         self.start_node_at(lhs, RANGE_EXPR, |this| {
                             this.bump();
-                            if this.current().map(is_start_of_expr) == Some(true) {
+                            if is_start_of_expr(this.current()) {
                                 this.expr_bp(loc, r_bp);
                             }
                         });
@@ -863,16 +862,16 @@ impl<'src> Parser<'src> {
     }
 
     fn if_expr(&mut self) {
-        assert_eq!(self.current(), Some(T![if]));
+        assert_eq!(self.current(), T![if]);
         self.start_node(IF_EXPR, |this| {
             this.bump();
 
             this.expr(Location::NO_STRUCT);
             this.block();
 
-            if let Some(T![else]) = this.current() {
+            if let T![else] = this.current() {
                 this.bump();
-                if let Some(T![if]) = this.current() {
+                if let T![if] = this.current() {
                     this.if_expr();
                 } else {
                     this.block();
@@ -912,7 +911,7 @@ impl<'src> Parser<'src> {
 
         loop {
             match self.current() {
-                Some(T![,]) => {
+                T![,] => {
                     match last {
                         LastThing::Comma => {
                             self.push_error(
@@ -936,8 +935,8 @@ impl<'src> Parser<'src> {
                     }
                     last = LastThing::Comma;
                 }
-                Some(t) if terminator(t) => break,
-                None => {
+                t if terminator(t) => break,
+                EOF => {
                     self.unexpected_eof();
                     break;
                 }
@@ -971,7 +970,7 @@ impl<'src> Parser<'src> {
     fn expect_control(&mut self, token: SyntaxKind) {
         let span = self.pre_whitespace_span;
         match self.current() {
-            Some(t) if t == token => self.bump(),
+            t if t == token => self.bump(),
             _ => self.push_error(
                 Some(span.set_len(1)),
                 Some(&format!("help: add '{token}' here")),
@@ -1037,8 +1036,10 @@ impl<'src> Parser<'src> {
             .copied()
             .find(|&(kind, _, _)| !is_whitespace(kind))
     }
-    fn current(&self) -> Option<SyntaxKind> {
-        self.current_full_token().map(|(kind, _, _)| kind)
+    fn current(&self) -> SyntaxKind {
+        self.current_full_token()
+            .map(|(kind, _, _)| kind)
+            .unwrap_or(SyntaxKind::EOF)
     }
     fn current_span(&self) -> SourceSpan {
         self.current_full_token()
@@ -1108,8 +1109,7 @@ bitflags::bitflags! {
 
 // TODO: https://github.com/rust-lang/rust-analyzer/blob/20b0ae4afe3f9e4c5ee5fc90586e55f2515f403b/crates/syntax/src/ast/prec.rs
 
-fn prefix_binding_power(op: Option<SyntaxKind>) -> Option<(SyntaxKind, (), u8)> {
-    let op = op?;
+fn prefix_binding_power(op: SyntaxKind) -> Option<(SyntaxKind, (), u8)> {
     match op {
         T![&] | T![!] => Some((op, (), 27)),
         // T![+] |
@@ -1119,8 +1119,7 @@ fn prefix_binding_power(op: Option<SyntaxKind>) -> Option<(SyntaxKind, (), u8)> 
     }
 }
 
-fn postfix_binding_power(op: Option<SyntaxKind>) -> Option<(SyntaxKind, u8, ())> {
-    let op = op?;
+fn postfix_binding_power(op: SyntaxKind) -> Option<(SyntaxKind, u8, ())> {
     let (l, r) = match op {
         T![!] => (29, ()),
         T!['['] => (11, ()),
@@ -1132,8 +1131,7 @@ fn postfix_binding_power(op: Option<SyntaxKind>) -> Option<(SyntaxKind, u8, ())>
     Some((op, l, r))
 }
 
-fn infix_binding_power(op: Option<SyntaxKind>) -> Option<(SyntaxKind, u8, u8)> {
-    let op = op?;
+fn infix_binding_power(op: SyntaxKind) -> Option<(SyntaxKind, u8, u8)> {
     let (l, r) = match op {
         T![=] => (2, 1),
         T![&&] => (2, 1),
