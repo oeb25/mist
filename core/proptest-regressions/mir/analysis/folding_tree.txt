@@ -1,0 +1,18 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 9a5e46d7b918a77050ee6ff36d39fbba779709e47b28a1f2849b2f725a220913 # shrinks to Input { ctx, trees } = Input({"%0_x", "%0_x.a"})
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 259cdb7d5572eeb7dd928cd313a4d2220b4b9275980b0be6e84690c98b6616ed # shrinks to Input { ctx, trees } = Input({"%0_x", "%0_x.a"})
+cc 9619ff5bc8e9fc0018d02db1e6ebfd34b64ac9478de258aa29061db48b58b12a # shrinks to Input { ctx, trees } = Input({}, {}, {"%0_x.a", "%0_x"})
+cc f1f17d4e1274181df5f7c057de07aecd69c47548c93c8d63ece5621a528f7761 # shrinks to Input { ctx, trees } = Input({"%0_x.b.a.b", "%1_y.b.b"}, {"%2_z.a.a.a", "%0_x.a", "%1_y.b.b.b", "%0_x.a.a", "%0_x.b.b"})
+cc 0cad5e47cae1ca0df976d7a9ed70fc9055fabb5b68d3d5bcb5262542a90e908a # shrinks to Input { ctx, trees } = Input({"%2_z.b", "%1_y.a.b", "%2_z.a.a.b", "%1_y.b", "%0_x.b.b.a", "%2_z.b.b", "%2_z.b.b.b"})
+cc d1e5b1206c2c72c172968da0ac518106ed9d8e7263a56d44e2cbf30bf80a8f86 # shrinks to Input { ctx, trees } = Input({"%2_z.a", "%1_y.b", "%0_x.a.a", "%2_z.a.b", "%0_x.b.a", "%0_x.b.a.b", "%2_z.b.b.b", "%0_x.b"}, {"%1_y.a.a", "%2_z.a.b.a", "%1_y.a", "%0_x.b", "%1_y.a.a.b", "%2_z.b.b", "%2_z.b.a.a", "%1_y.a.b.a", "%1_y.b.a.b", "%0_x.a.a", "%2_z.b.b.a", "%1_y.a.b"})

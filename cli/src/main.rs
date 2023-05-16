@@ -105,7 +105,7 @@ async fn cli() -> Result<()> {
 
                     if dump_liveness {
                         mir::analysis::cfg::dot_imgcat(&cfg.analysis_dot(
-                            &mir::analysis::liveness::FoldingLiveness::compute(&cx, &mir),
+                            &mir::analysis::liveness::FoldingAnalysisResults::compute(&cx, &mir),
                             |x| {
                                 format!(
                                     "{:?}",

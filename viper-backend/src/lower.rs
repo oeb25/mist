@@ -1,4 +1,7 @@
-use std::{cmp::Ordering, collections::HashMap};
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, HashSet},
+};
 
 use derive_new::new;
 
@@ -205,6 +208,11 @@ pub struct BodyLower<'a> {
     cfg: cfg::Cfg,
     postdominators: cfg::Postdominators,
     var_refs: IdxMap<mir::SlotId, VExprId>,
+    /// Places which are implicitly already unfolded.
+    ///
+    /// This is relevant in predicates for example, where fields are accessible
+    /// without unfolding.
+    pre_unfolded: HashSet<mir::Place>,
     inlined: IdxMap<VExprId, VExprId>,
     internally_bound_slots: IdxMap<mir::SlotId, ()>,
 }
@@ -229,6 +237,7 @@ impl<'a> BodyLower<'a> {
             cfg,
             postdominators: Default::default(),
             var_refs: Default::default(),
+            pre_unfolded: Default::default(),
             inlined: Default::default(),
             internally_bound_slots: Default::default(),
         }
@@ -304,7 +313,7 @@ impl<'a> BodyLower<'a> {
                     span: None,
                 })
             }
-            hir::TypeData::Range(inner) => VTy::Domain {
+            hir::TypeData::Range(_inner) => VTy::Domain {
                 domain_name: "Range".to_string(),
                 partial_typ_vars_map: Default::default(),
             }

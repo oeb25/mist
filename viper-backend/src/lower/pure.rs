@@ -332,8 +332,12 @@ impl BodyLower<'_> {
             mir::Instruction::Assertion(_, _) | mir::Instruction::PlaceMention(_) => acc,
             mir::Instruction::Folding(folding) => {
                 let unfolding_place = match folding {
-                    mir::Folding::Fold { .. } => return Ok(acc),
-                    mir::Folding::Unfold { consume, .. } => *consume,
+                    mir::Folding::Unfold { consume, .. }
+                        if !self.pre_unfolded.contains(consume) =>
+                    {
+                        *consume
+                    }
+                    _ => return Ok(acc),
                 };
                 if let Some(s) = self.cx.ty_struct(self.body.place_ty(unfolding_place)) {
                     acc.try_map_exp(|exp| {

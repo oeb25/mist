@@ -110,7 +110,7 @@ fn internal_viper_item(
                 .params()
                 .iter()
                 .map(|&s| {
-                    // TODO
+                    // TODO: Don't lower explicitly from 0
                     let bid = mir::BlockId::from_raw(0.into());
 
                     let refe = lower.place_to_ref(bid, s.into())?;
@@ -128,6 +128,24 @@ fn internal_viper_item(
                 })
                 .collect::<Result<_>>()?;
 
+            let return_ty = mir
+                .result_slot()
+                .map(|s| {
+                    // TODO: Don't lower explicitly from 0
+                    let bid = mir::BlockId::from_raw(0.into());
+
+                    let refe = lower.place_to_ref(bid, s.into())?;
+                    let conds = lower.ty_to_condition(bid, refe, mir.slot_ty(s))?;
+                    if is_method {
+                        if let Some(cond) = conds.0 {
+                            posts.push(cond);
+                        }
+                    }
+
+                    lower.slot_to_decl(s)
+                })
+                .transpose()?;
+
             for &pre in mir.requires() {
                 pres.push(lower.pure_lower(pre)?);
             }
@@ -140,14 +158,6 @@ fn internal_viper_item(
                 posts.push(exp);
             }
 
-            let ret_ty = mir
-                .result_slot()
-                .map(|ret| {
-                    let ty = mir.slot_ty(ret);
-                    Ok((ret, lower.lower_type(ty)?))
-                })
-                .transpose()?;
-
             if function.attrs(db).is_pure() {
                 let body = mir
                     .body_block()
@@ -157,15 +167,14 @@ fn internal_viper_item(
                 let func = Function {
                     name: function.name(db).to_string(),
                     formal_args,
-                    typ: ret_ty
+                    typ: return_ty
                         .ok_or_else(|| ViperLowerError::NotYetImplemented {
                             msg: "function had no return type".to_owned(),
                             item_id: cx.item_id(),
                             block_or_inst: None,
                             span: Some(function.name(db).span()),
                         })?
-                        .1
-                        .vty,
+                        .typ,
                     pres,
                     posts,
                     body,
@@ -173,10 +182,7 @@ fn internal_viper_item(
 
                 Ok(vec![func.into()])
             } else {
-                let formal_returns = ret_ty
-                    .map(|(ret, _ty)| Ok(vec![lower.slot_to_decl(ret)?]))
-                    .transpose()?
-                    .unwrap_or_default();
+                let formal_returns = return_ty.map(|ret| vec![ret]).unwrap_or_default();
 
                 let method = Method {
                     name: function.name(db).to_string(),
@@ -512,7 +518,7 @@ mod write_impl {
                 PermExp::Bin { op, left, right } => {
                     w!(w, "(", left, " {op} ", right, ")")
                 }
-                PermExp::Current { res } => w!(w, " // TODO: PermExp::Current"),
+                PermExp::Current { res: _ } => w!(w, " // TODO: PermExp::Current"),
             }
         }
     }

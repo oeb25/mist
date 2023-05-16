@@ -21,8 +21,11 @@ impl BodyLower<'_> {
         let mut viper_items = vec![];
 
         let source = BlockId::from_raw(0.into());
-        let self_var = self.slot_to_var(self.body.self_slot().expect("self slot must be set"))?;
+        let self_slot = self.body.self_slot().expect("self slot must be set");
+        let self_var = self.slot_to_var(self_slot)?;
         let self_ = self.alloc(source, AbstractLocalVar::LocalVar(self_var.clone()));
+
+        self.pre_unfolded.insert(self_slot.into());
 
         let field_invs: Vec<_> = hir::struct_fields(self.db, s)
             .into_iter()

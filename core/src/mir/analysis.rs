@@ -11,6 +11,7 @@ use crate::hir;
 use super::{serialize, BlockId, Body, MExpr, Operand, Place, SlotId};
 
 pub mod cfg;
+mod folding_tree;
 pub mod isorecursive;
 pub mod liveness;
 mod monotone;
