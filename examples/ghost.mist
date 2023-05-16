@@ -41,7 +41,7 @@ fn implicit_ghost() {
     if y {
         x = 15;
         y = true;
-    };
+    }
 }
 
 fn implicit_ghost_return(y: ghost bool) -> int {
@@ -55,7 +55,7 @@ fn implicit_ghost_return(y: ghost bool) -> int {
 fn ghost_arg(x: int, y: ghost bool) -> int {
     if y {
         x = 1;
-    };
+    }
     x = 2;
     x
 }

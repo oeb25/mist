@@ -10,12 +10,7 @@ pub fn item_opt(p: &mut Parser) -> bool {
         T![invariant] => type_invariant(p, attrs_checkpoint),
         T![macro] => macro_def(p, attrs_checkpoint),
         T![let] => {
-            p.push_error(
-                None,
-                Some("let found as top-level"),
-                Some("consider using a 'const' instead"),
-                ParseErrorKind::Context("top-level item".to_string()),
-            );
+            p.error_help("let found as top-level", "consider using a 'const' instead");
             let_stmt(p);
         }
         _ => return false,
@@ -61,9 +56,9 @@ pub fn fn_def(p: &mut Parser, attr_checkpoint: Checkpoint) {
                     p.start_node(DECREASES, |p| {
                         p.bump();
                         if p.at(T![_]) {
-                            p.bump()
+                            p.bump();
                         } else {
-                            expr(p, Location::NO_STRUCT)
+                            expr(p, Location::NO_STRUCT);
                         }
                     });
                 }
@@ -98,7 +93,9 @@ fn const_def(p: &mut Parser, attr_checkpoint: Checkpoint) {
                 expr(p, Location::NONE);
                 p.semicolon();
             }
-            T![;] => p.semicolon(),
+            T![;] => {
+                p.semicolon();
+            }
             _ => p.push_error(
                 Some(post_span),
                 Some("expected a value with '=', or ';'"),
@@ -117,7 +114,7 @@ fn struct_def(p: &mut Parser, attr_checkpoint: Checkpoint) {
         name(p);
         generic_arg_list_opt(p);
 
-        p.eat(T!['{']);
+        p.expect(T!['{']);
 
         comma_sep(
             p,
@@ -126,7 +123,7 @@ fn struct_def(p: &mut Parser, attr_checkpoint: Checkpoint) {
                 T![ident] => {
                     p.start_node(STRUCT_FIELD, |p| {
                         name(p);
-                        p.eat(T![:]);
+                        p.expect(T![:]);
                         ty(p);
                     });
                     ControlFlow::Continue(())
@@ -136,25 +133,20 @@ fn struct_def(p: &mut Parser, attr_checkpoint: Checkpoint) {
                     p.start_node(STRUCT_FIELD, |p| {
                         attrs(p);
                         name(p);
-                        p.eat(T![:]);
+                        p.expect(T![:]);
                         ty(p);
                     });
                     ControlFlow::Continue(())
                 }
                 T!['}'] => ControlFlow::Break(()),
                 _ => {
-                    p.push_error(
-                        None,
-                        Some("unexpected token"),
-                        None,
-                        ParseErrorKind::Context("parsing struct field".to_string()),
-                    );
+                    p.error("unexpected token");
                     ControlFlow::Break(())
                 }
             },
         );
 
-        p.eat(T!['}']);
+        p.expect(T!['}']);
     });
 }
 

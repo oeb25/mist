@@ -1,46 +1,34 @@
 use super::*;
 
 pub fn stmt(p: &mut Parser) -> StatementParsed {
+    if p.at(T![;]) {
+        p.expect(T![;]);
+        return StatementParsed::Statement;
+    }
+
     match p.current() {
         T![let] => let_stmt(p),
         T![assume] => assume_stmt(p),
         T![assert] => assert_stmt(p),
         T![while] => while_stmt(p),
-        T![if] => {
-            let checkpoint = p.checkpoint();
-            // p.start_node(EXPR_STMT, |p| {});
-            if_expr(p);
-            // p.builder.finish_node();
-            return StatementParsed::Expression(checkpoint);
-        }
-        t if is_start_of_expr(t) => {
-            let expr_checkpoint = p.checkpoint();
-            expr(p, Location::NONE);
-
-            // if let T![;]) = p.current() {                //     p.builder
-            //         .start_node_at(expr_checkpoint, EXPR_STMT.into());
-            //     p.bump();
-            //     p.builder.finish_node();
-            // } else {
-            //     // tail expr
-            return StatementParsed::Expression(expr_checkpoint);
-            // }
-        }
+        t if is_start_of_expr(t) => return expr_stmt(p),
         EOF => p.unexpected_eof(),
         _ => {
             if !item_opt(p) {
-                p.push_error(
-                    None,
-                    Some("expected a statement here"),
-                    None,
-                    ParseErrorKind::Context("statement".to_string()),
-                );
-                p.bump();
+                p.error("expected a statement here");
             }
         }
     }
 
     StatementParsed::Statement
+}
+
+pub fn expr_stmt(p: &mut Parser) -> StatementParsed {
+    let expr_checkpoint = p.checkpoint();
+    match expr(p, Location::NONE) {
+        Some(bl) => StatementParsed::Expression(expr_checkpoint, bl),
+        None => StatementParsed::Expression(expr_checkpoint, BlockLike::NotBolck),
+    }
 }
 
 pub fn let_stmt(p: &mut Parser) {
@@ -114,9 +102,9 @@ pub fn while_stmt(p: &mut Parser) {
                     p.start_node(DECREASES, |p| {
                         p.bump();
                         if p.at(T![_]) {
-                            p.bump()
+                            p.bump();
                         } else {
-                            expr(p, Location::NO_STRUCT)
+                            expr(p, Location::NO_STRUCT);
                         }
                     });
                 }
@@ -125,5 +113,36 @@ pub fn while_stmt(p: &mut Parser) {
         }
 
         block(p);
+    });
+}
+
+pub fn block(p: &mut Parser) {
+    if !p.at(T!['{']) {
+        return;
+    }
+    p.start_node(BLOCK_EXPR, |p| {
+        p.expect(T!['{']);
+
+        let mut trailing = None;
+
+        while !p.at(EOF) && !p.at(T!['}']) {
+            if let Some((cp, block_like)) = trailing.take() {
+                p.start_node_at(cp, EXPR_STMT, |p| {
+                    if let BlockLike::NotBolck = block_like {
+                        p.semicolon();
+                    }
+                });
+                continue;
+            }
+
+            match stmt(p) {
+                StatementParsed::Expression(next_cp, next_block_like) => {
+                    trailing = Some((next_cp, next_block_like));
+                }
+                StatementParsed::Statement => {}
+            }
+        }
+
+        p.expect(T!['}']);
     });
 }

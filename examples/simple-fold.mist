@@ -5,7 +5,7 @@ fn f(x: &mut P) {
         assert x.x > 0;
     } else {
         f(x);
-    };
+    }
     let x = x;
 }
 

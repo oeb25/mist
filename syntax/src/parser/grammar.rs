@@ -75,7 +75,7 @@ fn param_list(p: &mut Parser) {
             },
         );
 
-        p.eat(T![')']);
+        p.expect(T![')']);
     });
 }
 
@@ -111,7 +111,7 @@ fn ty(p: &mut Parser) {
         p.start_node(LIST_TYPE, |p| {
             p.bump();
             ty(p);
-            p.eat(T![']']);
+            p.expect(T![']']);
         });
         return;
     }
@@ -152,55 +152,9 @@ fn generic_arg_list_opt(p: &mut Parser) {
                     }
                 },
             );
-            p.eat(T![>]);
+            p.expect(T![>]);
         });
     }
-}
-
-fn block(p: &mut Parser) {
-    p.start_node(BLOCK_EXPR, |p| {
-        p.eat(T!['{']);
-
-        let mut trailing = None;
-        let mut last_span = None;
-
-        loop {
-            if last_span == Some(p.current_span()) {
-                error!("parser did not progress. breaking block body");
-                break;
-            }
-            last_span = Some(p.current_span());
-
-            match p.current() {
-                T!['}'] => {
-                    p.bump();
-                    break;
-                }
-                T![;] => {
-                    if let Some(checkpoint) = trailing.take() {
-                        p.start_node_at(checkpoint, EXPR_STMT, |p| p.bump());
-                    }
-                }
-                EOF => {
-                    p.unexpected_eof();
-                    break;
-                }
-                _ => {
-                    if let Some(checkpoint) = trailing.take() {
-                        p.error_help(
-                            "expected ';'",
-                            "consider adding a ';' to mark the end of the expression",
-                        );
-                        p.wrap_checkpoint_in(checkpoint, EXPR_STMT);
-                    }
-                    match stmt(p) {
-                        StatementParsed::Expression(e) => trailing = Some(e),
-                        StatementParsed::Statement => {}
-                    }
-                }
-            }
-        }
-    });
 }
 
 fn comma_expr(p: &mut Parser, loc: Location) {
@@ -228,18 +182,20 @@ fn comma_expr(p: &mut Parser, loc: Location) {
 
 fn arg_list(p: &mut Parser) {
     p.start_node(ARG_LIST, |p| {
-        p.eat(T!['(']);
+        p.expect(T!['(']);
 
         comma_sep(
             p,
             |t| t == T![')'],
             |p| {
-                p.start_node(ARG, |p| expr(p, Location::NONE));
+                p.start_node(ARG, |p| {
+                    expr(p, Location::NONE);
+                });
                 ControlFlow::Continue(())
             },
         );
 
-        p.eat(T![')']);
+        p.expect(T![')']);
     });
 }
 

@@ -40,6 +40,7 @@ pub enum ParseErrorKind {
 
 pub struct Parser<'src> {
     src: &'src str,
+    burn: u64,
     tokens: Vec<(SyntaxKind, &'src str, SourceSpan)>,
     builder: GreenNodeBuilder<'static>,
     errors: Vec<ParseError>,
@@ -72,6 +73,7 @@ impl<'src> Parser<'src> {
         let mut parser = Self {
             src,
             tokens,
+            burn: 0,
             builder: Default::default(),
             errors: Default::default(),
             pre_whitespace_span: SourceSpan::new_start_end(0, 0),
@@ -105,12 +107,7 @@ impl<'src> Parser<'src> {
                         return (SourceFile::cast(node).unwrap(), self.errors);
                     }
                     _ => {
-                        self.push_error(
-                            None,
-                            Some("unknown start to item"),
-                            None,
-                            ParseErrorKind::Context("start of item".to_string()),
-                        );
+                        self.error("unknown start to item");
                         self.bump();
                     }
                 }
@@ -118,20 +115,23 @@ impl<'src> Parser<'src> {
         }
     }
 
-    fn semicolon(&mut self) {
-        self.eat(T![;])
+    fn semicolon(&mut self) -> bool {
+        self.expect(T![;])
     }
 
-    fn eat(&mut self, token: SyntaxKind) {
+    fn expect(&mut self, token: SyntaxKind) -> bool {
         let span = self.pre_whitespace_span;
-        match self.current() {
-            t if t == token => self.bump(),
-            _ => self.push_error(
+        if self.at(token) {
+            self.bump();
+            true
+        } else {
+            self.push_error(
                 Some(span.set_len(1)),
                 Some(&format!("help: add '{token}' here")),
                 None,
                 ParseErrorKind::Context(token.to_string()),
-            ),
+            );
+            false
         }
     }
 
@@ -199,24 +199,30 @@ impl<'src> Parser<'src> {
         self.builder.token(kind.into(), text);
         self.has_bumped_after_ws_skip = true;
     }
-    fn current_full_token(&self) -> Option<(SyntaxKind, &'src str, SourceSpan)> {
+    fn current_full_token(&mut self) -> Option<(SyntaxKind, &'src str, SourceSpan)> {
+        self.burn += 1;
+
+        if self.burn > 10_000_000 {
+            panic!("infinite loop in parser detected");
+        }
+
         self.tokens
             .iter()
             .rev()
             .copied()
             .find(|&(kind, _, _)| !kind.is_trivia())
     }
-    fn current(&self) -> SyntaxKind {
+    fn current(&mut self) -> SyntaxKind {
         self.current_full_token()
             .map(|(kind, _, _)| kind)
             .unwrap_or(SyntaxKind::EOF)
     }
-    fn current_span(&self) -> SourceSpan {
+    fn current_span(&mut self) -> SourceSpan {
         self.current_full_token()
             .map(|(_, _, span)| span)
             .unwrap_or(self.pre_whitespace_span)
     }
-    fn at(&self, kind: SyntaxKind) -> bool {
+    fn at(&mut self, kind: SyntaxKind) -> bool {
         self.current() == kind
     }
     fn real_skip_ws(&mut self) {
@@ -231,18 +237,13 @@ impl<'src> Parser<'src> {
     }
 
     fn unexpected_eof(&mut self) {
-        self.push_error(
-            None,
-            Some("ended here"),
-            None,
-            ParseErrorKind::Context("rest of program".to_string()),
-        )
+        self.error("unexpected end of file")
     }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum StatementParsed {
-    Expression(Checkpoint),
+    Expression(Checkpoint, BlockLike),
     Statement,
 }
 

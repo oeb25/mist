@@ -4,7 +4,7 @@ fn f(a: int, b: int) -> int
     lemma_nothing(a, b);
   } else {
     lemma_nothing(b, a);
-  };
+  }
 
   a
 }

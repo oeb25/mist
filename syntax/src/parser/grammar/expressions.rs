@@ -1,19 +1,29 @@
 use super::*;
 
-pub fn expr(p: &mut Parser, loc: Location) {
+#[derive(Debug, Clone, Copy)]
+pub enum BlockLike {
+    Block,
+    NotBolck,
+}
+
+pub fn expr(p: &mut Parser, loc: Location) -> Option<BlockLike> {
     expr_bp(p, loc, 0)
 }
-fn expr_bp(p: &mut Parser, loc: Location, min_bp: u8) {
+fn expr_bp(p: &mut Parser, loc: Location, min_bp: u8) -> Option<BlockLike> {
+    let mut block_like = BlockLike::NotBolck;
     let lhs = p.checkpoint();
     match p.current() {
         T![false] | T![true] => p.start_node(LITERAL, |p| p.bump()),
-        T!['{'] => block(p),
+        T!['{'] => {
+            block(p);
+            block_like = BlockLike::Block;
+        }
         T![return] => {
             p.start_node(RETURN_EXPR, |p| {
                 p.bump();
 
                 if is_start_of_expr(p.current()) {
-                    expr(p, Location::NONE)
+                    let _ = expr(p, Location::NONE);
                 }
             });
         }
@@ -25,7 +35,7 @@ fn expr_bp(p: &mut Parser, loc: Location, min_bp: u8) {
             match p.current() {
                 T!['{'] if !loc.contains(Location::NO_STRUCT) => {
                     p.start_node_at(checkpoint, STRUCT_EXPR, |p| {
-                        p.eat(T!['{']);
+                        p.expect(T!['{']);
 
                         comma_sep(
                             p,
@@ -34,7 +44,7 @@ fn expr_bp(p: &mut Parser, loc: Location, min_bp: u8) {
                                 T![ident] => {
                                     p.start_node(STRUCT_EXPR_FIELD, |p| {
                                         name(p);
-                                        p.eat(T![:]);
+                                        p.expect(T![:]);
                                         expr_bp(p, Location::NONE, 0);
                                     });
                                     ControlFlow::Continue(())
@@ -47,7 +57,7 @@ fn expr_bp(p: &mut Parser, loc: Location, min_bp: u8) {
                             },
                         );
 
-                        p.eat(T!['}']);
+                        p.expect(T!['}']);
                     });
                 }
                 _ => p.wrap_checkpoint_in(checkpoint, IDENT_EXPR),
@@ -62,24 +72,29 @@ fn expr_bp(p: &mut Parser, loc: Location, min_bp: u8) {
                     p,
                     |t| t == T![']'],
                     |p| {
-                        p.start_node(COMMA_EXPR, |p| expr_bp(p, Location::NONE, 0));
+                        p.start_node(COMMA_EXPR, |p| {
+                            let _ = expr_bp(p, Location::NONE, 0);
+                        });
                         ControlFlow::Continue(())
                     },
                 );
-                p.eat(T![']']);
+                p.expect(T![']']);
             });
         }
         T!['('] => {
             p.start_node(PAREN_EXPR, |p| {
                 p.bump();
                 expr_bp(p, Location::NONE, 0);
-                p.eat(T![')']);
+                p.expect(T![')']);
             });
         }
-        T![if] => if_expr(p),
+        T![if] => {
+            if_expr(p);
+            block_like = BlockLike::Block;
+        }
         EOF => {
             p.unexpected_eof();
-            return;
+            return None;
         }
         t => {
             if let Some((op, (), r_bp)) = prefix_binding_power(t) {
@@ -111,10 +126,9 @@ fn expr_bp(p: &mut Parser, loc: Location, min_bp: u8) {
                     }
                 }
             } else {
-                // eprintln!("unknown start of expr {t:?}");
-                p.error(&format!("unknown start of expr: '{t}'"));
+                p.error(format!("unknown start of expr: '{t}'"));
                 p.bump();
-                return;
+                return None;
             }
         }
     };
@@ -125,13 +139,15 @@ fn expr_bp(p: &mut Parser, loc: Location, min_bp: u8) {
                 break;
             }
 
+            block_like = BlockLike::NotBolck;
+
             match op {
                 T!['('] => p.start_node_at(lhs, CALL_EXPR, arg_list),
                 T!['['] => {
                     p.start_node_at(lhs, INDEX_EXPR, |p| {
                         p.bump();
                         expr(p, Location::NONE);
-                        p.eat(T![']']);
+                        p.expect(T![']']);
                     });
                 }
                 T![!] => {
@@ -152,6 +168,8 @@ fn expr_bp(p: &mut Parser, loc: Location, min_bp: u8) {
             if l_bp < min_bp {
                 break;
             }
+
+            block_like = BlockLike::NotBolck;
 
             match op {
                 T![..] => {
@@ -175,6 +193,8 @@ fn expr_bp(p: &mut Parser, loc: Location, min_bp: u8) {
 
         break;
     }
+
+    Some(block_like)
 }
 
 pub fn if_expr(p: &mut Parser) {
