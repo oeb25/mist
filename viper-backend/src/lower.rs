@@ -133,6 +133,8 @@ impl ViperSourceMap {
     }
 }
 
+type Result<T> = std::result::Result<T, ViperLowerError>;
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Diagnostic)]
 pub enum ViperLowerError {
     #[error("not yet implemented: {msg}")]
@@ -232,8 +234,8 @@ impl<'a> BodyLower<'a> {
         }
     }
 
-    pub fn lower_type(&mut self, ty: hir::TypeId) -> ViperType {
-        match &self.cx[ty] {
+    pub fn lower_type(&mut self, ty: hir::TypeId) -> Result<ViperType> {
+        Ok(match &self.cx[ty] {
             hir::TypeData::Error => {
                 // TODO: Perhaps this should be handeld at a previous stage?
                 VTy::int().into()
@@ -248,21 +250,21 @@ impl<'a> BodyLower<'a> {
                 // VTy::internal_type().into()
                 VTy::int().into()
             }
-            hir::TypeData::Ghost(inner) => self.lower_type(*inner),
+            hir::TypeData::Ghost(inner) => self.lower_type(*inner)?,
             &hir::TypeData::Ref { is_mut, inner } => ViperType {
                 vty: VTy::ref_(),
                 is_mut,
                 is_ref: true,
                 optional: false,
-                inner: Some(Box::new(self.lower_type(inner))),
+                inner: Some(Box::new(self.lower_type(inner)?)),
                 strukt: None,
             },
             hir::TypeData::List(inner) => VTy::Seq {
-                element_type: Box::new(self.lower_type(*inner).vty),
+                element_type: Box::new(self.lower_type(*inner)?.vty),
             }
             .into(),
             hir::TypeData::Optional(inner) => {
-                let vty = self.lower_type(*inner);
+                let vty = self.lower_type(*inner)?;
                 ViperType {
                     optional: true,
                     ..vty
@@ -294,13 +296,20 @@ impl<'a> BodyLower<'a> {
                 is_ref: false,
                 strukt: None,
             },
-            hir::TypeData::Function { .. } => todo!("lower_type(Function)"),
+            hir::TypeData::Function { .. } => {
+                return Err(ViperLowerError::NotYetImplemented {
+                    msg: "lower_type(Function)".to_string(),
+                    item_id: self.body.item_id(),
+                    block_or_inst: None,
+                    span: None,
+                })
+            }
             hir::TypeData::Range(inner) => VTy::Domain {
                 domain_name: "Range".to_string(),
                 partial_typ_vars_map: Default::default(),
             }
             .into(),
-        }
+        })
     }
 
     fn can_inline(&self, x: mir::Place, exp: VExprId) -> bool {
@@ -349,22 +358,22 @@ impl BodyLower<'_> {
         source: impl Into<BlockOrInstruction> + Copy,
         fid: mir::FunctionId,
         args: &[mir::Operand],
-    ) -> Result<Exp<VExprId>, ViperLowerError> {
+    ) -> Result<Exp<VExprId>> {
         Ok(match &*self.body[fid] {
             mir::FunctionData::Named(v) => Exp::new_func_app(
                 self.cx.var_ident(*v).to_string(),
                 args.iter()
                     .map(|s| self.operand_to_ref(source, s))
-                    .collect(),
+                    .collect::<Result<_>>()?,
             ),
             mir::FunctionData::Index => {
-                let base = self.operand_to_ref(source, &args[0]);
-                let index = self.operand_to_ref(source, &args[1]);
+                let base = self.operand_to_ref(source, &args[0])?;
+                let index = self.operand_to_ref(source, &args[1])?;
                 SeqExp::new_index(base, index).into()
             }
             mir::FunctionData::RangeIndex => {
-                let base = self.operand_to_ref(source, &args[0]);
-                let index = self.operand_to_ref(source, &args[1]);
+                let base = self.operand_to_ref(source, &args[0])?;
+                let index = self.operand_to_ref(source, &args[1])?;
                 Exp::new_func_app("range_index".to_string(), vec![base, index])
             }
             mir::FunctionData::Range(op) => {
@@ -372,14 +381,16 @@ impl BodyLower<'_> {
                     mir::RangeKind::FromTo => (
                         "range_from_to",
                         vec![
-                            self.operand_to_ref(source, &args[0]),
-                            self.operand_to_ref(source, &args[1]),
+                            self.operand_to_ref(source, &args[0])?,
+                            self.operand_to_ref(source, &args[1])?,
                         ],
                     ),
                     mir::RangeKind::From => {
-                        ("range_from", vec![self.operand_to_ref(source, &args[0])])
+                        ("range_from", vec![self.operand_to_ref(source, &args[0])?])
                     }
-                    mir::RangeKind::To => ("range_to", vec![self.operand_to_ref(source, &args[0])]),
+                    mir::RangeKind::To => {
+                        ("range_to", vec![self.operand_to_ref(source, &args[0])?])
+                    }
                     mir::RangeKind::Full => ("range_full", vec![]),
                 };
                 Exp::new_func_app(f.to_string(), args)
@@ -387,42 +398,42 @@ impl BodyLower<'_> {
             mir::FunctionData::List => SeqExp::new_explicit(
                 args.iter()
                     .map(|s| self.operand_to_ref(source, s))
-                    .collect(),
+                    .collect::<Result<_>>()?,
             )
             .into(),
             mir::FunctionData::ListConcat => SeqExp::new_append(
-                self.operand_to_ref(source, &args[0]),
-                self.operand_to_ref(source, &args[1]),
+                self.operand_to_ref(source, &args[0])?,
+                self.operand_to_ref(source, &args[1])?,
             )
             .into(),
         })
     }
 
-    pub(super) fn slot_to_decl(&mut self, x: mir::SlotId) -> LocalVarDecl {
-        let var = self.slot_to_var(x);
-        LocalVarDecl::new(var.name, var.typ)
+    pub(super) fn slot_to_decl(&mut self, x: mir::SlotId) -> Result<LocalVarDecl> {
+        let var = self.slot_to_var(x)?;
+        Ok(LocalVarDecl::new(var.name, var.typ))
     }
-    pub(super) fn slot_to_var(&mut self, x: mir::SlotId) -> LocalVar {
-        match &self.body[x] {
+    pub(super) fn slot_to_var(&mut self, x: mir::SlotId) -> Result<LocalVar> {
+        Ok(match &self.body[x] {
             mir::Slot::Var(var) => LocalVar::new(
                 format!("{}_{}", self.cx.var_ident(*var), x.into_raw()),
-                self.lower_type(self.body.slot_ty(x)).vty,
+                self.lower_type(self.body.slot_ty(x))?.vty,
             ),
             _ => LocalVar::new(
                 format!("_{}", x.into_raw()),
-                self.lower_type(self.body.slot_ty(x)).vty,
+                self.lower_type(self.body.slot_ty(x))?.vty,
             ),
-        }
+        })
     }
     pub(super) fn place_to_ref(
         &mut self,
         source: impl Into<BlockOrInstruction> + Copy,
         p: mir::Place,
-    ) -> VExprId {
-        let var = self.slot_to_var(p.slot);
+    ) -> Result<VExprId> {
+        let var = self.slot_to_var(p.slot)?;
         if self.body[p.projection].is_empty() {
             if let Some(exp) = self.var_refs.get(p.slot).copied() {
-                return exp;
+                return Ok(exp);
             }
         }
 
@@ -442,40 +453,42 @@ impl BodyLower<'_> {
 
         self.body[p.projection]
             .iter()
-            .fold(id, |base, proj| match proj {
-                mir::Projection::Field(f, ty) => {
-                    if f.name.as_str() == "len" {
-                        let exp = SeqExp::Length { s: base };
-                        self.alloc(source, exp)
-                    } else {
-                        let exp = Field::new(
-                            f.name.to_string(),
-                            // TODO: Should we look at the contraints?
-                            self.lower_type(*ty).vty,
-                        )
-                        .access_exp(base);
-                        self.alloc(source, exp)
+            .try_fold(id, |base, proj| -> Result<_> {
+                Ok(match proj {
+                    mir::Projection::Field(f, ty) => {
+                        if f.name.as_str() == "len" {
+                            let exp = SeqExp::Length { s: base };
+                            self.alloc(source, exp)
+                        } else {
+                            let exp = Field::new(
+                                f.name.to_string(),
+                                // TODO: Should we look at the contraints?
+                                self.lower_type(*ty)?.vty,
+                            )
+                            .access_exp(base);
+                            self.alloc(source, exp)
+                        }
                     }
-                }
-                mir::Projection::Index(index, _) => {
-                    let idx = self.slot_to_var(*index);
-                    let idx = self.alloc(source, AbstractLocalVar::LocalVar(idx));
-                    self.alloc(source, SeqExp::Index { s: base, idx })
-                }
+                    mir::Projection::Index(index, _) => {
+                        let idx = self.slot_to_var(*index)?;
+                        let idx = self.alloc(source, AbstractLocalVar::LocalVar(idx));
+                        self.alloc(source, SeqExp::Index { s: base, idx })
+                    }
+                })
             })
     }
     fn operand_to_ref(
         &mut self,
         source: impl Into<BlockOrInstruction> + Copy,
         o: &mir::Operand,
-    ) -> VExprId {
-        match o {
-            mir::Operand::Copy(s) => self.place_to_ref(source, *s),
-            mir::Operand::Move(s) => self.place_to_ref(source, *s),
+    ) -> Result<VExprId> {
+        Ok(match o {
+            mir::Operand::Copy(s) => self.place_to_ref(source, *s)?,
+            mir::Operand::Move(s) => self.place_to_ref(source, *s)?,
             mir::Operand::Literal(l) => self.alloc(source, lower_lit(l)),
-        }
+        })
     }
-    fn place_for_assignment(&mut self, dest: mir::Place) -> LocalVar {
+    fn place_for_assignment(&mut self, dest: mir::Place) -> Result<LocalVar> {
         if self.body[dest.projection].is_empty() {
             self.slot_to_var(dest.slot)
         } else {
@@ -483,11 +496,7 @@ impl BodyLower<'_> {
         }
     }
 
-    fn expr(
-        &mut self,
-        inst: mir::InstructionId,
-        e: &mir::MExpr,
-    ) -> Result<VExprId, ViperLowerError> {
+    fn expr(&mut self, inst: mir::InstructionId, e: &mir::MExpr) -> Result<VExprId> {
         let exp = match e {
             mir::MExpr::Struct(s, fields) => {
                 Exp::FuncApp {
@@ -495,7 +504,7 @@ impl BodyLower<'_> {
                     args: fields
                         .iter()
                         .map(|(_, s)| self.operand_to_ref(inst, s))
-                        .collect(),
+                        .collect::<Result<_>>()?,
                 }
 
                 // return Err(ViperLowerError::NotYetImplemented(
@@ -504,7 +513,7 @@ impl BodyLower<'_> {
             }
             mir::MExpr::Use(s) => {
                 let item_id = self.body.item_id();
-                let id = self.operand_to_ref(inst, s);
+                let id = self.operand_to_ref(inst, s)?;
                 self.source_map.inst_expr.insert((item_id, inst), id);
                 self.source_map.inst_expr_back.insert(id, (item_id, inst));
                 return Ok(id);
@@ -514,15 +523,15 @@ impl BodyLower<'_> {
                 let _ = bk;
 
                 let item_id = self.body.item_id();
-                let id = self.place_to_ref(inst, *p);
+                let id = self.place_to_ref(inst, *p)?;
                 self.source_map.inst_expr.insert((item_id, inst), id);
                 self.source_map.inst_expr_back.insert(id, (item_id, inst));
                 return Ok(id);
             }
             mir::MExpr::BinaryOp(op, l, r) => {
                 let op = lower_binop(op).expect("assignment should have been filtered out by now");
-                let lhs = self.operand_to_ref(inst, l);
-                let rhs = self.operand_to_ref(inst, r);
+                let lhs = self.operand_to_ref(inst, l)?;
+                let rhs = self.operand_to_ref(inst, r)?;
                 Exp::new_bin(op, lhs, rhs)
             }
             mir::MExpr::UnaryOp(op, x) => {
@@ -532,7 +541,7 @@ impl BodyLower<'_> {
                     UnaryOp::Not => UnOp::Not,
                     UnaryOp::Neg => UnOp::Minus,
                 };
-                let x = self.operand_to_ref(inst, x);
+                let x = self.operand_to_ref(inst, x)?;
                 Exp::new_un(op, x)
             }
         };
@@ -544,8 +553,8 @@ impl BodyLower<'_> {
         source: impl Into<BlockOrInstruction> + Copy,
         place: VExprId,
         ty: hir::TypeId,
-    ) -> (Option<VExprId>, Option<VExprId>) {
-        let ty = self.lower_type(ty);
+    ) -> Result<(Option<VExprId>, Option<VExprId>)> {
+        let ty = self.lower_type(ty)?;
         if let Some(st) = ty.strukt {
             let perm = self.alloc(source, PermExp::Full);
             let pred = self.alloc(
@@ -562,7 +571,7 @@ impl BodyLower<'_> {
             } else {
                 pred
             };
-            return (Some(pred), None);
+            return Ok((Some(pred), None));
         }
         if let Some(inner) = ty.inner {
             if ty.is_ref {
@@ -579,10 +588,10 @@ impl BodyLower<'_> {
                             perm,
                         )),
                     );
-                    return (Some(exp), Some(exp));
+                    return Ok((Some(exp), Some(exp)));
                 }
             }
         }
-        (None, None)
+        Ok((None, None))
     }
 }

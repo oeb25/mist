@@ -52,7 +52,7 @@ use tracing::warn;
 
 use crate::gen::VExprId;
 
-use super::{BlockOrInstruction, BodyLower, ViperLowerError};
+use super::{BlockOrInstruction, BodyLower, Result, ViperLowerError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PureLowerResult {
@@ -70,15 +70,15 @@ impl PureLowerResult {
         source: impl Into<BlockOrInstruction> + Copy,
         x: mir::Place,
         exp: VExprId,
-    ) -> Result<PureLowerResult, ViperLowerError> {
+    ) -> Result<PureLowerResult> {
         match self {
             PureLowerResult::UnassignedExpression(body, target, stopped_before) => {
                 if lower.can_inline(x, exp) {
-                    let r = lower.place_to_ref(source, x);
+                    let r = lower.place_to_ref(source, x)?;
                     lower.inlined.insert(r, exp);
                     Ok(self)
                 } else {
-                    let variable = lower.place_for_assignment(x);
+                    let variable = lower.place_for_assignment(x)?;
                     Ok(PureLowerResult::UnassignedExpression(
                         lower.alloc(source, Exp::new_let(variable.into(), exp, body)),
                         target,
@@ -94,18 +94,18 @@ impl PureLowerResult {
         }
     }
 
-    fn map_exp(self, mut f: impl FnMut(VExprId) -> VExprId) -> PureLowerResult {
-        match self {
+    fn try_map_exp(self, mut f: impl FnMut(VExprId) -> Result<VExprId>) -> Result<PureLowerResult> {
+        Ok(match self {
             PureLowerResult::UnassignedExpression(exp, place, stopped_before) => {
-                PureLowerResult::UnassignedExpression(f(exp), place, stopped_before)
+                PureLowerResult::UnassignedExpression(f(exp)?, place, stopped_before)
             }
             PureLowerResult::Empty { stopped_before } => PureLowerResult::Empty { stopped_before },
-        }
+        })
     }
 }
 
 impl BodyLower<'_> {
-    pub fn pure_lower(&mut self, entry: mir::BlockId) -> Result<VExprId, ViperLowerError> {
+    pub fn pure_lower(&mut self, entry: mir::BlockId) -> Result<VExprId> {
         self.postdominators = self.cfg.postdominators(entry);
         self.pure_final_block(entry)
     }
@@ -151,7 +151,7 @@ impl BodyLower<'_> {
         &mut self,
         block: mir::BlockId,
         stop_at: Option<mir::BlockId>,
-    ) -> Result<PureLowerResult, ViperLowerError> {
+    ) -> Result<PureLowerResult> {
         if Some(block) == stop_at {
             todo!();
         }
@@ -172,7 +172,10 @@ impl BodyLower<'_> {
                             self.internally_bound_slots.insert(*s, ());
                         }
 
-                        let variables = over.iter().map(|s| self.slot_to_decl(*s)).collect();
+                        let variables = over
+                            .iter()
+                            .map(|s| self.slot_to_decl(*s))
+                            .collect::<Result<_>>()?;
                         let triggers = vec![];
 
                         PureLowerResult::UnassignedExpression(
@@ -245,7 +248,7 @@ impl BodyLower<'_> {
                                     });
                                 }
                                 let cond = match value {
-                                    1 => self.operand_to_ref(block, test),
+                                    1 => self.operand_to_ref(block, test)?,
                                     _ => todo!(), // Exp::new_bin(BinOp::EqCmp, test, value)
                                 };
                                 Ok(PureLowerResult::UnassignedExpression(
@@ -320,7 +323,7 @@ impl BodyLower<'_> {
         &mut self,
         inst: mir::InstructionId,
         acc: PureLowerResult,
-    ) -> Result<PureLowerResult, ViperLowerError> {
+    ) -> Result<PureLowerResult> {
         Ok(match &self.body[inst] {
             mir::Instruction::Assign(x, e) => {
                 let exp = self.expr(inst, e)?;
@@ -333,15 +336,15 @@ impl BodyLower<'_> {
                     mir::Folding::Unfold { consume, .. } => *consume,
                 };
                 if let Some(s) = self.cx.ty_struct(self.body.place_ty(unfolding_place)) {
-                    acc.map_exp(|exp| {
-                        let place_ref = self.place_to_ref(inst, unfolding_place);
+                    acc.try_map_exp(|exp| {
+                        let place_ref = self.place_to_ref(inst, unfolding_place)?;
                         let pred_acc = PredicateAccessPredicate::new(
                             PredicateAccess::new(s.name(self.db).to_string(), vec![place_ref]),
                             self.alloc(inst, PermExp::Wildcard),
                         );
 
-                        self.alloc(inst, Exp::new_unfolding(pred_acc, exp))
-                    })
+                        Ok(self.alloc(inst, Exp::new_unfolding(pred_acc, exp)))
+                    })?
                 } else {
                     warn!(
                         "no struct found for {:?}",
@@ -360,7 +363,7 @@ impl BodyLower<'_> {
         block: mir::BlockId,
         place: mir::Place,
         exp: VExprId,
-    ) -> Result<PureLowerResult, ViperLowerError> {
+    ) -> Result<PureLowerResult> {
         if stop_at != Some(next) {
             self.pure_block(next, None)?
                 .wrap_in_assignment(self, block, place, exp)
@@ -373,7 +376,7 @@ impl BodyLower<'_> {
         }
     }
 
-    fn pure_final_block(&mut self, b: mir::BlockId) -> Result<VExprId, ViperLowerError> {
+    fn pure_final_block(&mut self, b: mir::BlockId) -> Result<VExprId> {
         match self.pure_block(b, None)? {
             // TODO: Target should be result
             PureLowerResult::UnassignedExpression(exp, _, _) => Ok(exp),

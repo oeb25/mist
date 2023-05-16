@@ -16,11 +16,13 @@ use silvers::{
 
 use crate::lower::{ViperBody, ViperLowerError, ViperLowerErrors, ViperLowerer, ViperSourceMap};
 
+type Result<T> = std::result::Result<T, ViperLowerError>;
+
 #[salsa::tracked]
 pub fn viper_file(
     db: &dyn crate::Db,
     program: hir::Program,
-) -> Result<(Program<VExprId>, ViperBody, ViperSourceMap), ViperLowerError> {
+) -> Result<(Program<VExprId>, ViperBody, ViperSourceMap)> {
     let root = program.parse(db).tree();
 
     let mut domains = vec![];
@@ -75,7 +77,7 @@ pub fn viper_item(
     cx: hir::ItemContext,
     item: hir::Item,
     mir: &mir::Body,
-) -> Result<(Vec<ViperItem<VExprId>>, ViperBody, ViperSourceMap), ViperLowerError> {
+) -> Result<(Vec<ViperItem<VExprId>>, ViperBody, ViperSourceMap)> {
     let mut lowerer = ViperLowerer::new();
     let items = internal_viper_item(db, cx, &mut lowerer, item, mir)?;
     let (viper_body, viper_source_map) = lowerer.finish();
@@ -87,7 +89,7 @@ fn internal_viper_item(
     lowerer: &mut ViperLowerer,
     item: hir::Item,
     mir: &mir::Body,
-) -> Result<Vec<ViperItem<VExprId>>, ViperLowerError> {
+) -> Result<Vec<ViperItem<VExprId>>> {
     match item {
         hir::Item::Type(ty_decl) => match ty_decl.data(db) {
             hir::TypeDeclData::Struct(s) => {
@@ -111,8 +113,8 @@ fn internal_viper_item(
                     // TODO
                     let bid = mir::BlockId::from_raw(0.into());
 
-                    let refe = lower.place_to_ref(bid, s.into());
-                    let conds = lower.ty_to_condition(bid, refe, mir.slot_ty(s));
+                    let refe = lower.place_to_ref(bid, s.into())?;
+                    let conds = lower.ty_to_condition(bid, refe, mir.slot_ty(s))?;
                     if let Some(cond) = conds.0 {
                         pres.push(cond);
                     }
@@ -124,7 +126,7 @@ fn internal_viper_item(
 
                     lower.slot_to_decl(s)
                 })
-                .collect();
+                .collect::<Result<_>>()?;
 
             for &pre in mir.requires() {
                 pres.push(lower.pure_lower(pre)?);
@@ -138,10 +140,13 @@ fn internal_viper_item(
                 posts.push(exp);
             }
 
-            let ret_ty = mir.result_slot().map(|ret| {
-                let ty = mir.slot_ty(ret);
-                (ret, lower.lower_type(ty))
-            });
+            let ret_ty = mir
+                .result_slot()
+                .map(|ret| {
+                    let ty = mir.slot_ty(ret);
+                    Ok((ret, lower.lower_type(ty)?))
+                })
+                .transpose()?;
 
             if function.attrs(db).is_pure() {
                 let body = mir
@@ -169,7 +174,8 @@ fn internal_viper_item(
                 Ok(vec![func.into()])
             } else {
                 let formal_returns = ret_ty
-                    .map(|(ret, _ty)| vec![lower.slot_to_decl(ret)])
+                    .map(|(ret, _ty)| Ok(vec![lower.slot_to_decl(ret)?]))
+                    .transpose()?
                     .unwrap_or_default();
 
                 let method = Method {

@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use mist_core::{
     hir,
     mir::{self, Projection},
@@ -17,10 +16,10 @@ use tracing::warn;
 
 use crate::{gen::VExprId, lower::pure::PureLowerResult};
 
-use super::{BodyLower, ViperLowerError};
+use super::{BodyLower, Result, ViperLowerError};
 
 impl BodyLower<'_> {
-    pub fn method_lower(&mut self, entry: mir::BlockId) -> Result<Seqn<VExprId>, ViperLowerError> {
+    pub fn method_lower(&mut self, entry: mir::BlockId) -> Result<Seqn<VExprId>> {
         self.postdominators = Default::default();
         for bid in self.body.entry_blocks() {
             self.postdominators.merge(&self.cfg.postdominators(bid));
@@ -28,7 +27,7 @@ impl BodyLower<'_> {
         self.final_block(entry)
     }
 
-    fn final_block(&mut self, bid: mir::BlockId) -> Result<Seqn<VExprId>, ViperLowerError> {
+    fn final_block(&mut self, bid: mir::BlockId) -> Result<Seqn<VExprId>> {
         let mut result = self.block(bid, vec![], None)?;
         result
             .ss
@@ -54,7 +53,7 @@ impl BodyLower<'_> {
         }
 
         for x in slots_seen.iter() {
-            let var = self.slot_to_decl(x);
+            let var = self.slot_to_decl(x)?;
             result
                 .scoped_seqn_declarations
                 .push(Declaration::LocalVar(AnyLocalVarDecl::LocalVarDecl(var)));
@@ -83,7 +82,7 @@ impl BodyLower<'_> {
         block: mir::BlockId,
         mut insts: Vec<Stmt<VExprId>>,
         stop_at: Option<mir::BlockId>,
-    ) -> Result<Seqn<VExprId>, ViperLowerError> {
+    ) -> Result<Seqn<VExprId>> {
         for &inst in self.body[block].instructions() {
             self.instruction(inst, &mut insts)?;
         }
@@ -129,7 +128,7 @@ impl BodyLower<'_> {
                         }
 
                         let cond = match value {
-                            1 => self.operand_to_ref(block, test),
+                            1 => self.operand_to_ref(block, test)?,
                             _ => todo!(), // Exp::new_bin(BinOp::EqCmp, test, value)
                         };
 
@@ -145,20 +144,21 @@ impl BodyLower<'_> {
                         let access_invs = liveness
                             .entry(block)
                             .iter()
-                            .filter_map(|s| {
+                            .map(|s| {
                                 if let Some(t) = self.cx.ty_struct(self.body.place_ty(s.into())) {
                                     let name = t.name(self.db);
-                                    let place_ref = self.place_to_ref(block, s.into());
+                                    let place_ref = self.place_to_ref(block, s.into())?;
                                     let acc = PredicateAccessPredicate::new(
                                         PredicateAccess::new(name.to_string(), vec![place_ref]),
                                         self.alloc(block, PermExp::Full),
                                     );
-                                    Some(self.alloc(block, AccessPredicate::Predicate(acc)))
+                                    Ok(Some(self.alloc(block, AccessPredicate::Predicate(acc))))
                                 } else {
-                                    None
+                                    Ok(None)
                                 }
                             })
-                            .collect_vec();
+                            .filter_map(|s| s.transpose())
+                            .collect::<Result<Vec<_>>>()?;
 
                         let invs = access_invs
                             .into_iter()
@@ -169,7 +169,7 @@ impl BodyLower<'_> {
                                     PureLowerResult::Empty { .. } => todo!(),
                                 }
                             }))
-                            .collect::<Result<_, _>>()?;
+                            .collect::<Result<_>>()?;
 
                         insts.push(Stmt::While { cond, invs, body });
 
@@ -189,7 +189,7 @@ impl BodyLower<'_> {
                             let thn = self.block(target, vec![], Some(next))?;
 
                             let cond = match value {
-                                1 => self.operand_to_ref(block, test),
+                                1 => self.operand_to_ref(block, test)?,
                                 _ => todo!(), // Exp::new_bin(BinOp::EqCmp, test, value)
                             };
 
@@ -211,7 +211,7 @@ impl BodyLower<'_> {
                     destination,
                     target,
                 } => {
-                    let var = self.place_for_assignment(*destination);
+                    let var = self.place_for_assignment(*destination)?;
                     let f = self.function(block, *func, args)?;
                     let voided =
                         self.cx[self.body.place_ty(*destination).strip_ghost(self.cx)].is_void();
@@ -266,33 +266,33 @@ impl BodyLower<'_> {
         &mut self,
         inst: mir::InstructionId,
         insts: &mut Vec<Stmt<VExprId>>,
-    ) -> Result<(), ViperLowerError> {
+    ) -> Result<()> {
         match &self.body[inst] {
             mir::Instruction::Assign(s, x) => {
                 let rhs = self.expr(inst, x)?;
                 match &self.body[s.projection] {
                     [] => {
                         insts.push(Stmt::LocalVarAssign {
-                            lhs: self.place_for_assignment(*s),
+                            lhs: self.place_for_assignment(*s)?,
                             rhs,
                         });
                     }
                     [Projection::Field(f, ty)] => {
                         insts.push(Stmt::FieldAssign {
                             lhs: FieldAccess::new(
-                                self.place_to_ref(inst, s.slot.into()),
+                                self.place_to_ref(inst, s.slot.into())?,
                                 Field::new(
                                     f.name.to_string(),
                                     // TODO: should we respect the extra constraints in such a scenario?
-                                    self.lower_type(*ty).vty,
+                                    self.lower_type(*ty)?.vty,
                                 ),
                             ),
                             rhs,
                         });
                     }
                     [Projection::Index(index, _)] => {
-                        let idx = self.place_to_ref(inst, (*index).into());
-                        let seq = self.place_to_ref(inst, s.parent(self.body).unwrap());
+                        let idx = self.place_to_ref(inst, (*index).into())?;
+                        let seq = self.place_to_ref(inst, s.parent(self.body).unwrap())?;
                         let new_rhs = self.alloc(
                             inst,
                             SeqExp::Update {
@@ -301,12 +301,12 @@ impl BodyLower<'_> {
                                 elem: rhs,
                             },
                         );
-                        let lhs = self.place_for_assignment(s.without_projection());
+                        let lhs = self.place_for_assignment(s.without_projection())?;
                         insts.push(Stmt::LocalVarAssign { lhs, rhs: new_rhs })
                     }
                     [Projection::Field(f, ty), Projection::Index(index, _)] => {
-                        let idx = self.place_to_ref(inst, (*index).into());
-                        let seq = self.place_to_ref(inst, s.parent(self.body).unwrap());
+                        let idx = self.place_to_ref(inst, (*index).into())?;
+                        let seq = self.place_to_ref(inst, s.parent(self.body).unwrap())?;
                         let new_rhs = self.alloc(
                             inst,
                             SeqExp::Update {
@@ -316,11 +316,11 @@ impl BodyLower<'_> {
                             },
                         );
                         let lhs = FieldAccess::new(
-                            self.place_to_ref(inst, s.slot.into()),
+                            self.place_to_ref(inst, s.slot.into())?,
                             Field::new(
                                 f.name.to_string(),
                                 // TODO: should we respect the extra constraints in such a scenario?
-                                self.lower_type(*ty).vty,
+                                self.lower_type(*ty)?.vty,
                             ),
                         );
                         insts.push(Stmt::FieldAssign { lhs, rhs: new_rhs });
@@ -346,7 +346,7 @@ impl BodyLower<'_> {
                 };
                 if let Some(s) = self.cx.ty_struct(self.body.place_ty(place)) {
                     let name = s.name(self.db);
-                    let place_ref = self.place_to_ref(inst, place);
+                    let place_ref = self.place_to_ref(inst, place)?;
                     let acc = PredicateAccessPredicate::new(
                         PredicateAccess::new(name.to_string(), vec![place_ref]),
                         self.alloc(inst, PermExp::Full),
