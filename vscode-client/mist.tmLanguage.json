@@ -6,6 +6,7 @@
       "patterns": [
         { "include": "#function" },
         { "include": "#invariant" },
+        { "include": "#struct" },
         { "include": "#keywords" },
         { "include": "#primitive-type" },
         { "include": "#comment" },
@@ -35,6 +36,13 @@
       "match": "\\b(invariant)\\s+([a-zA-Z0-9_]+)\\s+\\{",
       "captures": {
         "1": { "name": "keyword.other.invariant.mist" },
+        "2": { "name": "entity.name.type.mist" }
+      }
+    },
+    "struct": {
+      "match": "\\b(struct)\\s+([a-zA-Z0-9_]+)",
+      "captures": {
+        "1": { "name": "keyword.other.struct.mist" },
         "2": { "name": "entity.name.type.mist" }
       }
     },
