@@ -83,6 +83,8 @@ impl VerifyFile<'_> {
 
         drop(viper_file);
 
+        info!("Finished verification!");
+
         Ok(errors)
     }
 }

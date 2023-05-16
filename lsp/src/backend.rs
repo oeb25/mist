@@ -132,7 +132,10 @@ impl Backend {
                     .with_writer(move || logger_client.clone()),
             )
             .with(tracing_subscriber::filter::FilterFn::new(|m| {
-                !m.target().contains("salsa") && !m.target().contains("ena")
+                !m.target().contains("salsa")
+                    && !m.target().contains("ena")
+                    && !m.target().contains("hyper")
+                    && !m.target().contains("reqwest")
             }))
             .init();
 
