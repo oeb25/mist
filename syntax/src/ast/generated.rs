@@ -259,7 +259,6 @@ pub enum SyntaxKind {
     STRING,
     BYTE_STRING,
     #[doc = r" Tokens"]
-    #[error]
     ERROR,
     #[regex(r"[a-zA-Z_][a-zA-Z_0-9]*")]
     IDENT,

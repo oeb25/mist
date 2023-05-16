@@ -151,7 +151,6 @@ fn generate_syntax_kinds(grammar: KindsSrc) -> String {
         .map(|name| {
             let tok = format_ident!("{}", name);
             match *name {
-                "ERROR" => quote!(#[error] #tok),
                 "WHITESPACE" => quote!(#[regex(r"[ \t\n\f]+")] #tok),
                 "IDENT" => quote!(#[regex(r"[a-zA-Z_][a-zA-Z_0-9]*")] #tok),
                 "COMMENT" => quote!(#[regex(r"//.*\n")] #tok),

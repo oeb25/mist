@@ -54,7 +54,7 @@ impl<'src> Parser<'src> {
             .spanned()
             .map(|(kind, span)| {
                 (
-                    kind,
+                    kind.unwrap_or(ERROR),
                     &src[span.clone()],
                     SourceSpan::new_start_end(span.start, span.end),
                 )
