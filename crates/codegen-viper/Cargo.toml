@@ -1,20 +1,20 @@
 [package]
 name = "mist-codegen-viper"
-version = { workspace = true }
+version.workspace = true
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-derive-new = "0.5.9"
 derive_more = "0.99.17"
-itertools = { workspace = true }
+derive-new = "0.5.9"
+itertools.workspace = true
 la-arena = "0.3.0"
-miette = { workspace = true }
-mist-core = { workspace = true }
-mist-syntax = { workspace = true }
-salsa = { workspace = true }
-silvers = { workspace = true }
-thiserror = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
+miette.workspace = true
+mist-core.workspace = true
+mist-syntax.workspace = true
+salsa.workspace = true
+silvers.workspace = true
+thiserror.workspace = true
+tracing-subscriber.workspace = true
+tracing.workspace = true

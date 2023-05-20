@@ -1,25 +1,23 @@
 [package]
 name = "mist-core"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 bitflags = "2.0.1"
-mist-syntax = { workspace = true }
-miette = { workspace = true }
-thiserror = { workspace = true }
-salsa = { workspace = true }
-tracing = { workspace = true }
-tracing-test = { workspace = true }
-la-arena = "0.3.0"
-ena = "0.14.0"
-derive-new = "0.5.9"
-itertools = "0.10.5"
 derive_more = "0.99.17"
-petgraph = "0.6.3"
+derive-new = "0.5.9"
+ena = "0.14.0"
+itertools.workspace = true
+la-arena = "0.3.0"
+miette.workspace = true
+mist-syntax.workspace = true
 owo-colors = "3.5.0"
+petgraph = "0.6.3"
+salsa.workspace = true
+thiserror.workspace = true
+tracing-test.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 proptest = "1.1.0"

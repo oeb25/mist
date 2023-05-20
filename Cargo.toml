@@ -7,22 +7,22 @@ version = "0.1.0"
 
 [workspace.dependencies]
 color-eyre = "0.6.2"
-miette = { version = "5.5.0", features = ["fancy"] }
 itertools = "0.10.5"
-tempfile = "3.4.0"
-thiserror = "1.0.38"
-tracing = "0.1.37"
-tracing-test = "0.2.4"
-tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
-mist-syntax = { path = "./crates/syntax" }
+miette = { version = "5.5.0", features = ["fancy"] }
 mist-cli = { path = "./crates/cli" }
-mist-core = { path = "./crates/core" }
 mist-codegen-viper = { path = "./crates/codegen-viper" }
+mist-core = { path = "./crates/core" }
+mist-syntax = { path = "./crates/syntax" }
 salsa = { git = "https://github.com/salsa-rs/salsa.git", package = "salsa-2022" }
 # silvers = { git = "https://github.com/oeb25/vipers.git" }
 silvers = { path = "../vipers/silvers" }
-viperserver = { path = "../vipers/server" }
+tempfile = "3.4.0"
+thiserror = "1.0.38"
 tokio = { version = "1.25.0", features = ["full"] }
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
+tracing-test = "0.2.4"
+viperserver = { path = "../vipers/server" }
 
 [profile.release]
 debug = true
