@@ -33,26 +33,7 @@ impl BodyLower<'_> {
             .ss
             .push(Stmt::Label(Label::new("end".to_string(), vec![])));
 
-        let mut slots_seen = IdxSet::default();
-
-        // TODO: This is quite excessive. Traversing the generated Seqn might be
-        // better
-        for s in self.body.slots() {
-            slots_seen.insert(s);
-        }
-
-        for to_remove in self
-            .body
-            .params()
-            .iter()
-            .copied()
-            .chain(self.body.result_slot())
-            .chain(self.internally_bound_slots.iter().map(|(s, _)| s))
-        {
-            slots_seen.remove(to_remove);
-        }
-
-        for x in slots_seen.iter() {
+        for x in self.body.locals() {
             let var = self.slot_to_decl(x)?;
             result
                 .scoped_seqn_declarations

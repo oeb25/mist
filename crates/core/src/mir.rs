@@ -550,10 +550,6 @@ impl Body {
         }
     }
 
-    pub fn slots(&self) -> impl Iterator<Item = SlotId> + '_ {
-        self.slots.iter().map(|(id, _)| id)
-    }
-
     pub fn item_id(&self) -> hir::ItemId {
         self.item_id
     }
@@ -689,6 +685,15 @@ impl Body {
             .terminator()
             .into_iter()
             .flat_map(|t| t.targets())
+    }
+
+    /// Returns an iterator over everything that local to the body. This
+    /// includes `Slot::Temp` and `Slot::Local(..)`.
+    pub fn locals(&self) -> impl Iterator<Item = SlotId> + '_ {
+        self.slots.iter().filter_map(|(sid, slot)| match slot {
+            Slot::Temp | Slot::Local(_) => Some(sid),
+            _ => None,
+        })
     }
 }
 
