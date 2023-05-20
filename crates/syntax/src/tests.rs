@@ -10,7 +10,7 @@ mod sourcegen_ast;
 fn parse_hello() -> color_eyre::Result<()> {
     color_eyre::install()?;
 
-    let src = include_str!("../../examples/list.mist");
+    let src = include_str!("../../../examples/list.mist");
 
     let (file, _errors) = Parser::new(src).parse();
 
