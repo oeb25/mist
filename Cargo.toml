@@ -1,5 +1,5 @@
 [workspace]
-members = ["syntax", "core", "viper-backend", "cli", "lsp"]
+members = ["crates/*"]
 resolver = "2"
 
 [workspace.package]
@@ -14,10 +14,10 @@ thiserror = "1.0.38"
 tracing = "0.1.37"
 tracing-test = "0.2.4"
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
-mist-syntax = { path = "./syntax" }
-mist-cli = { path = "./cli" }
-mist-core = { path = "./core" }
-mist-viper-backend = { path = "./viper-backend" }
+mist-syntax = { path = "./crates/syntax" }
+mist-cli = { path = "./crates/cli" }
+mist-core = { path = "./crates/core" }
+mist-viper-backend = { path = "./crates/viper-backend" }
 salsa = { git = "https://github.com/salsa-rs/salsa.git", package = "salsa-2022" }
 # silvers = { git = "https://github.com/oeb25/vipers.git" }
 silvers = { path = "../vipers/silvers" }
