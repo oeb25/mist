@@ -1,0 +1,7 @@
+// This should not be an infinite loop
+struct A { x: int, y: int }
+invariant A { self.x == -self.y }
+fn inc(a: &mut A) {
+    a.x += 1;
+    a.y -= 1;
+}

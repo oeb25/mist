@@ -153,6 +153,9 @@ fn generate_syntax_kinds(grammar: KindsSrc) -> String {
             match *name {
                 "WHITESPACE" => quote!(#[regex(r"[ \t\n\f]+")] #tok),
                 "IDENT" => quote!(#[regex(r"[a-zA-Z_][a-zA-Z_0-9]*")] #tok),
+                // TODO: Currently this fails when comments are not followed by a newline.
+                // This additional regex might work in principle, but $ is not supported:
+                // #[regex(r"//.*$")]
                 "COMMENT" => quote!(#[regex(r"//.*\n")] #tok),
                 _ => quote!(#tok),
             }

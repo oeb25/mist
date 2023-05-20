@@ -16,6 +16,7 @@ pub fn stmt(p: &mut Parser) -> StatementParsed {
         _ => {
             if !item_opt(p) {
                 p.error("expected a statement here");
+                p.bump();
             }
         }
     }
