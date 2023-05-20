@@ -247,14 +247,13 @@ impl fmt::Display for SlotId {
 pub enum Slot {
     #[default]
     Temp,
-    Var(VariableIdx),
+    Self_,
+    Param(VariableIdx),
+    Local(VariableIdx),
+    Quantified(VariableIdx),
     Result,
 }
 impl Slot {
-    fn from_var(var: VariableIdx) -> Self {
-        Self::Var(var)
-    }
-
     #[must_use]
     pub fn is_result(&self) -> bool {
         matches!(self, Self::Result)

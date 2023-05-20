@@ -27,8 +27,8 @@ impl BodyLower<'_> {
 
         self.pre_unfolded.insert(self_slot.into());
 
-        let field_invs: Vec<_> = hir::struct_fields(self.db, s)
-            .into_iter()
+        let field_invs: Vec<_> = s
+            .fields(self.db)
             .map(|f| {
                 let field_ty = self.cx.field_ty(&f);
                 let ty = self.lower_type(field_ty)?;

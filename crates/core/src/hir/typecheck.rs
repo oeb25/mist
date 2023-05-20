@@ -2,6 +2,7 @@ use std::{collections::HashMap, ops::Deref, sync::Mutex};
 
 use bitflags::bitflags;
 use derive_new::new;
+use itertools::Itertools;
 use miette::Diagnostic;
 use mist_syntax::{
     ast::{
@@ -191,7 +192,7 @@ impl<'a> TypeChecker<'a> {
         };
 
         let item_data = id.data(db);
-        let item = hir::item(db, program, root, id);
+        let item = hir::item(db, root, id);
 
         let is_ghost = match &item_data {
             hir::ItemData::Fn { ast } => ast.to_node(root.syntax()).attr_flags().is_ghost(),
@@ -206,7 +207,7 @@ impl<'a> TypeChecker<'a> {
         }
 
         for &item_id in program.items(db) {
-            let f = match hir::item(db, program, root, item_id) {
+            let f = match hir::item(db, root, item_id) {
                 Some(hir::Item::Function(f)) => f,
                 Some(hir::Item::Type(t)) => match t.data(db) {
                     hir::TypeDeclData::Struct(s) => {
@@ -232,8 +233,8 @@ impl<'a> TypeChecker<'a> {
                         );
                         checker.cx.struct_types.insert(s, ts);
 
-                        let fields = hir::struct_fields(db, s)
-                            .into_iter()
+                        let fields = s
+                            .fields(db)
                             .map(|f| {
                                 let data = f.ty(db, root);
                                 (f, checker.expect_find_type_src(&data))
@@ -867,9 +868,9 @@ impl<'a> TypeChecker<'a> {
                     TypeData::Error => (None, self.error_ty()),
                     TypeData::Ref { is_mut, inner } => match self.ty_data(inner) {
                         TypeData::Struct(s) => {
-                            let fields = self.struct_fields(s);
-                            if let Some(field) =
-                                fields.iter().find(|f| f.name.as_str() == field.as_str())
+                            if let Some(field) = self
+                                .struct_fields(s)
+                                .find(|f| f.name.as_str() == field.as_str())
                             {
                                 (
                                     Some(field.clone()),
@@ -903,8 +904,9 @@ impl<'a> TypeChecker<'a> {
                         }
                     },
                     TypeData::Struct(s) => {
-                        let fields = self.struct_fields(s);
-                        if let Some(field) = fields.iter().find(|f| f.name.deref() == field.deref())
+                        if let Some(field) = self
+                            .struct_fields(s)
+                            .find(|f| f.name.deref() == field.deref())
                         {
                             (
                                 Some(field.clone()),
@@ -1017,7 +1019,7 @@ impl<'a> TypeChecker<'a> {
                     }
                 };
 
-                let fields = self.struct_fields(s);
+                let fields = self.struct_fields(s).collect_vec();
                 let mut present_fields = vec![];
 
                 for f in it.fields() {
@@ -1648,8 +1650,8 @@ impl<'a> TypeChecker<'a> {
             })
     }
 
-    fn struct_fields(&self, s: crate::hir::Struct) -> Vec<Field> {
-        crate::hir::struct_fields(self.db, s)
+    fn struct_fields(&self, s: crate::hir::Struct) -> impl Iterator<Item = Field> + 'a {
+        s.fields(self.db)
     }
 
     fn is_ghost(&mut self, e: ExprIdx) -> bool {

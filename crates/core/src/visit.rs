@@ -21,14 +21,14 @@ pub trait Walker<'db>: Sized {
         visitor: &'v mut V,
     ) -> ControlFlow<V::Item> {
         for &item_id in program.items(db) {
-            let Some(item) = hir::item(db, program, root, item_id) else { continue };
+            let Some(item) = hir::item(db, root, item_id) else { continue };
             let Some((cx, source_map)) = hir::item_lower(db, program, item_id, item) else { continue };
             let cx = Arc::new(cx);
             let source_map = Arc::new(source_map);
             let mut walker = Self::init(db, VisitContext { cx, source_map });
             match item {
                 hir::Item::Type(ty_decl) => {
-                    walker.walk_ty_decl(visitor, program, ty_decl)?;
+                    walker.walk_ty_decl(visitor, ty_decl)?;
                 }
                 hir::Item::TypeInvariant(ty_inv) => {
                     walker.walk_ty_inv(visitor, program, ty_inv)?;
@@ -44,7 +44,6 @@ pub trait Walker<'db>: Sized {
     fn walk_ty_decl<V: Visitor>(
         &mut self,
         visitor: &mut V,
-        program: Program,
         ty_decl: TypeDecl,
     ) -> ControlFlow<V::Item>;
     #[must_use]
@@ -235,7 +234,6 @@ where
     fn walk_ty_decl<V: Visitor>(
         &mut self,
         visitor: &mut V,
-        _program: Program,
         ty_decl: TypeDecl,
     ) -> ControlFlow<V::Item> {
         if self.pre() {
@@ -244,7 +242,7 @@ where
         match ty_decl.data(self.db) {
             hir::TypeDeclData::Struct(s) => {
                 self.walk_ty(visitor, self.vcx.cx.struct_ty(s))?;
-                for f in hir::struct_fields(self.db, s) {
+                for f in s.fields(self.db) {
                     self.walk_field(visitor, &f, &f.name)?
                 }
             }

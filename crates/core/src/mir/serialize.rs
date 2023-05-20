@@ -178,9 +178,12 @@ impl Serializer<'_> {
 
     fn slot(&mut self, cx: Option<&ItemContext>, s: SlotId) {
         match (&self.body.slots[s], cx) {
-            (Slot::Var(v), Some(cx)) => w!(self, Cyan, "{s}_{}", cx.var_ident(*v)),
-            (Slot::Temp | Slot::Var(_), _) => w!(self, Cyan, "{s}"),
+            (Slot::Param(v), Some(cx)) => w!(self, Cyan, "{s}_{}", cx.var_ident(*v)),
+            (Slot::Quantified(v), Some(cx)) => w!(self, Cyan, "{s}_{}", cx.var_ident(*v)),
+            (Slot::Local(v), Some(cx)) => w!(self, Cyan, "{s}_{}", cx.var_ident(*v)),
             (Slot::Result, _) => w!(self, Magenta, "%result"),
+            (Slot::Self_, _) => w!(self, Magenta, "%self"),
+            _ => w!(self, Cyan, "{s}"),
         }
     }
 

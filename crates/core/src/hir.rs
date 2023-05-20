@@ -115,15 +115,10 @@ pub fn parse_program(db: &dyn crate::Db, source: SourceProgram) -> Program {
 #[salsa::tracked]
 pub fn intern_item(db: &dyn crate::Db, program: Program, item_id: ItemId) -> Option<Item> {
     let root = program.parse(db).tree();
-    item(db, program, &root, item_id)
+    item(db, &root, item_id)
 }
 
-pub fn item(
-    db: &dyn crate::Db,
-    program: Program,
-    root: &ast::SourceFile,
-    item_id: ItemId,
-) -> Option<Item> {
+pub fn item(db: &dyn crate::Db, root: &ast::SourceFile, item_id: ItemId) -> Option<Item> {
     Some(match item_id.data(db) {
         ItemData::Const { .. } => return None,
         ItemData::Fn { ast } => {
@@ -133,7 +128,7 @@ pub fn item(
 
             if !f.is_ghost() && f.body().is_none() {
                 let err = TypeCheckError {
-                    input: program.parse(db).tree().to_string(),
+                    input: root.to_string(),
                     span: f
                         .semicolon_token()
                         .map(|t| t.span())
@@ -150,7 +145,19 @@ pub fn item(
         ItemData::Struct { ast } => {
             let s = ast.to_node(root.syntax());
             let name = Ident::from(s.name().unwrap());
-            let data = TypeDeclData::Struct(Struct::new(db, program, ast, name.clone()));
+            let fields = s
+                .struct_fields()
+                .map(|f| {
+                    let is_ghost = f.is_ghost();
+                    let name = f.name().unwrap();
+                    StructFieldInner {
+                        name: name.into(),
+                        is_ghost,
+                        ty: f.ty().as_ref().map(AstPtr::new),
+                    }
+                })
+                .collect();
+            let data = TypeDeclData::Struct(Struct::new(db, ast, name.clone(), fields));
             TypeDecl::new(db, name, data).into()
         }
         ItemData::TypeInvariant { ast } => {
@@ -190,7 +197,7 @@ pub fn item_lower(
                         .iter()
                         .filter_map(|&item_id| {
                             if let Some(hir::Item::TypeInvariant(inv)) =
-                                hir::item(db, program, &root, item_id)
+                                hir::item(db, &root, item_id)
                             {
                                 if checker.find_named_type(inv.name(db)) == self_ty {
                                     return Some(inv);
@@ -266,23 +273,6 @@ pub fn item_lower(
             Some(checker.into())
         }
     }
-}
-
-#[salsa::tracked]
-pub fn struct_fields(db: &dyn crate::Db, s: Struct) -> Vec<Field> {
-    let root = s.program(db).parse(db).tree();
-    s.fields(db, &root)
-        .map(|f| {
-            let is_ghost = f.is_ghost();
-            let name = f.name().unwrap();
-            Field {
-                parent: FieldParent::Struct(s),
-                name: name.into(),
-                is_ghost,
-                ty: f.ty().as_ref().map(AstPtr::new),
-            }
-        })
-        .collect()
 }
 
 #[salsa::interned]
@@ -752,21 +742,38 @@ impl TypeData<TypeSrcId> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StructFieldInner {
+    name: Ident,
+    is_ghost: bool,
+    ty: Option<AstPtr<ast::Type>>,
+}
+
 #[salsa::interned]
 pub struct Struct {
-    program: Program,
     #[return_ref]
     node: AstPtr<ast::Struct>,
     pub name: Ident,
+    #[return_ref]
+    fields_inner: Vec<StructFieldInner>,
 }
 
 impl Struct {
-    pub fn fields(
+    pub fn ast_fields(
         &self,
         db: &dyn crate::Db,
         root: &ast::SourceFile,
     ) -> impl Iterator<Item = ast::StructField> + '_ {
         self.node(db).to_node(root.syntax()).struct_fields()
+    }
+    pub fn fields<'db>(&self, db: &'db dyn crate::Db) -> impl Iterator<Item = Field> + 'db {
+        let s = *self;
+        self.fields_inner(db).iter().map(move |f| Field {
+            parent: FieldParent::Struct(s),
+            name: f.name.clone(),
+            is_ghost: f.is_ghost,
+            ty: f.ty.clone(),
+        })
     }
 }
 

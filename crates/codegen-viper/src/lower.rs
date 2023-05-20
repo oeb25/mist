@@ -424,7 +424,7 @@ impl BodyLower<'_> {
     }
     pub(super) fn slot_to_var(&mut self, x: mir::SlotId) -> Result<LocalVar> {
         Ok(match &self.body[x] {
-            mir::Slot::Var(var) => LocalVar::new(
+            mir::Slot::Local(var) => LocalVar::new(
                 format!("{}_{}", self.cx.var_ident(*var), x.into_raw()),
                 self.lower_type(self.body.slot_ty(x))?.vty,
             ),
@@ -447,7 +447,11 @@ impl BodyLower<'_> {
         }
 
         let exp = match &self.body[p.slot] {
-            mir::Slot::Temp | mir::Slot::Var(_) => AbstractLocalVar::LocalVar(var),
+            mir::Slot::Temp
+            | mir::Slot::Self_
+            | mir::Slot::Param(_)
+            | mir::Slot::Quantified(_)
+            | mir::Slot::Local(_) => AbstractLocalVar::LocalVar(var),
             mir::Slot::Result => {
                 if self.is_method {
                     AbstractLocalVar::LocalVar(var)

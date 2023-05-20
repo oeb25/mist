@@ -22,7 +22,7 @@ pub fn lower_program(
 ) -> Vec<(hir::Item, ItemContext, ItemSourceMap, Body, BodySourceMap)> {
     let root = program.parse(db).tree();
     program.items(db).iter().filter_map(|&item_id| {
-        let Some(item) = hir::item(db, program, &root, item_id) else { return None; };
+        let Some(item) = hir::item(db, &root, item_id) else { return None; };
         let Some((cx, item_source_map)) = hir::item_lower(db, program, item_id, item) else { return None; };
         let (mir, mir_source_map) = lower_item(db, cx.clone());
         Some((item, cx, item_source_map, mir, mir_source_map))
@@ -45,7 +45,7 @@ pub fn lower_item(db: &dyn crate::Db, cx: ItemContext) -> (Body, BodySourceMap) 
     lower.body.params = cx
         .params()
         .iter()
-        .map(|param| lower.alloc_slot(Slot::from_var(param.name), cx[param.ty].ty))
+        .map(|param| lower.alloc_slot(Slot::Param(param.name), cx[param.ty].ty))
         .collect();
 
     lower.body.result_slot = cx
@@ -54,7 +54,7 @@ pub fn lower_item(db: &dyn crate::Db, cx: ItemContext) -> (Body, BodySourceMap) 
 
     lower.body.self_slot = cx
         .self_ty()
-        .map(|ret_ty| lower.alloc_slot(Slot::Temp, ret_ty));
+        .map(|self_ty| lower.alloc_slot(Slot::Self_, self_ty));
 
     for cond in cx.conditions() {
         match cond {
@@ -124,27 +124,29 @@ impl<'a> MirLower<'a> {
     fn alloc_place(&mut self, slot: Slot, ty: TypeId) -> Place {
         self.alloc_slot(slot, ty).into()
     }
-    fn alloc_var(&mut self, var: VariableIdx) -> SlotId {
-        self.alloc_slot(Slot::Var(var), self.cx.var_ty(var))
+    fn alloc_quantified(&mut self, var: VariableIdx) -> SlotId {
+        self.alloc_slot(Slot::Quantified(var), self.cx.var_ty(var))
+    }
+    fn alloc_local(&mut self, var: VariableIdx) -> SlotId {
+        self.alloc_slot(Slot::Local(var), self.cx.var_ty(var))
     }
     fn alloc_slot(&mut self, slot: Slot, ty: TypeId) -> SlotId {
         let id = match &slot {
             Slot::Temp => self.body.slots.alloc(slot),
-            Slot::Var(var) => {
+            Slot::Param(var) | Slot::Local(var) | Slot::Quantified(var) => {
                 let var = *var;
                 let id = self.body.slots.alloc(slot);
                 self.source_map.var_map.insert(var, id);
                 id
             }
-            Slot::Result => {
-                if let Some(id) = self.body.result_slot {
-                    id
-                } else {
-                    let id = self.body.slots.alloc(slot);
-                    self.body.result_slot = Some(id);
-                    id
-                }
-            }
+            Slot::Self_ => *self
+                .body
+                .self_slot
+                .get_or_insert_with(|| self.body.slots.alloc(slot)),
+            Slot::Result => *self
+                .body
+                .result_slot
+                .get_or_insert_with(|| self.body.slots.alloc(slot)),
         };
         if let Some(old_ty) = self.body.slot_type.insert(id, ty) {
             debug!(
@@ -364,7 +366,7 @@ impl MirLower<'_> {
                 explicit_ty: _,
                 initializer,
             } => {
-                let dest = self.alloc_var(variable.idx());
+                let dest = self.alloc_local(variable.idx());
                 self.expr(*initializer, bid, target, Placement::Assign(dest.into()))
             }
             StatementData::While {
@@ -738,7 +740,7 @@ impl MirLower<'_> {
                 let q_body = self.alloc_block(None);
                 let params = params
                     .iter()
-                    .map(|param| self.alloc_var(param.name))
+                    .map(|param| self.alloc_quantified(param.name))
                     .collect();
 
                 let mut q_end = q_body;
