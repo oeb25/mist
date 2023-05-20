@@ -52,12 +52,13 @@ impl MExpr {
 }
 pub fn serialize_terminator(
     color: Color,
+    db: Option<&dyn crate::Db>,
     cx: Option<&ItemContext>,
     body: &Body,
     term: &Terminator,
 ) -> String {
     let mut s = Serializer::new(color, body).with_color(color);
-    s.terminator(cx, term);
+    s.terminator(db, cx, term);
     s.output
 }
 pub fn serialize_block(
@@ -78,12 +79,13 @@ pub fn serialize_slot(color: Color, cx: Option<&ItemContext>, body: &Body, slot:
 }
 pub fn serialize_place(
     color: Color,
+    db: Option<&dyn crate::Db>,
     cx: Option<&ItemContext>,
     body: &Body,
     place: &Place,
 ) -> String {
     let mut s = Serializer::new(color, body).with_color(color);
-    s.place(cx, place);
+    s.place(db, cx, place);
     s.output
 }
 
@@ -147,7 +149,7 @@ impl Serializer<'_> {
                 this.inst(db, cx, *inst);
             }
             if let Some(term) = &this.body.blocks[body].terminator {
-                this.terminator(cx, term);
+                this.terminator(Some(db), cx, term);
             }
         });
     }
@@ -155,7 +157,7 @@ impl Serializer<'_> {
     fn inst(&mut self, db: &dyn crate::Db, cx: Option<&ItemContext>, inst: InstructionId) {
         match &self.body.instructions[inst] {
             Instruction::Assign(s, e) => {
-                self.place(cx, s);
+                self.place(Some(db), cx, s);
                 w!(self, Default, " := ");
                 self.expr(db, cx, e);
                 wln!(self, Default, "");
@@ -167,11 +169,11 @@ impl Serializer<'_> {
             }
             Instruction::PlaceMention(p) => {
                 w!(self, Default, "mention ");
-                self.place(cx, p);
+                self.place(Some(db), cx, p);
                 wln!(self, Default, "");
             }
             Instruction::Folding(folding) => {
-                self.folding(cx, folding);
+                self.folding(Some(db), cx, folding);
             }
         }
     }
@@ -187,7 +189,7 @@ impl Serializer<'_> {
         }
     }
 
-    fn place(&mut self, cx: Option<&ItemContext>, s: &Place) {
+    fn place(&mut self, db: Option<&dyn crate::Db>, cx: Option<&ItemContext>, s: &Place) {
         if self.body[s.projection].is_empty() {
             self.slot(cx, s.slot);
         } else {
@@ -195,8 +197,12 @@ impl Serializer<'_> {
             for p in &self.body[s.projection] {
                 match p {
                     Projection::Field(f, _) => {
-                        let name = &f.name;
-                        w!(self, Default, ".{name}");
+                        if let Some(db) = db {
+                            let name = &f.name(db);
+                            w!(self, Default, ".{name}");
+                        } else {
+                            w!(self, Default, ".?");
+                        }
                     }
                     Projection::Index(idx, _) => {
                         w!(self, Default, "[");
@@ -208,34 +214,34 @@ impl Serializer<'_> {
         }
     }
 
-    fn operand(&mut self, cx: Option<&ItemContext>, o: &Operand) {
+    fn operand(&mut self, db: Option<&dyn crate::Db>, cx: Option<&ItemContext>, o: &Operand) {
         match o {
-            Operand::Copy(s) => self.place(cx, s),
-            Operand::Move(s) => self.place(cx, s),
+            Operand::Copy(s) => self.place(db, cx, s),
+            Operand::Move(s) => self.place(db, cx, s),
             Operand::Literal(l) => w!(self, Magenta, "${l}"),
         }
     }
 
-    fn folding(&mut self, cx: Option<&ItemContext>, f: &Folding) {
+    fn folding(&mut self, db: Option<&dyn crate::Db>, cx: Option<&ItemContext>, f: &Folding) {
         match f {
             Folding::Fold { consume, into } => {
                 w!(self, Red, "fold ");
                 w!(self, BrightWhite, "[");
                 for s in consume {
-                    self.place(cx, s);
+                    self.place(db, cx, s);
                 }
                 w!(self, BrightWhite, "]");
                 w!(self, Red, " into ");
-                self.place(cx, into);
+                self.place(db, cx, into);
                 wln!(self, Default, "");
             }
             Folding::Unfold { consume, into } => {
                 w!(self, Red, "unfold ");
-                self.place(cx, consume);
+                self.place(db, cx, consume);
                 w!(self, Red, " into ");
                 w!(self, BrightWhite, "[");
                 for s in into {
-                    self.place(cx, s);
+                    self.place(db, cx, s);
                 }
                 w!(self, BrightWhite, "]");
                 wln!(self, Default, "");
@@ -245,13 +251,13 @@ impl Serializer<'_> {
 
     fn expr(&mut self, db: &dyn crate::Db, cx: Option<&ItemContext>, e: &MExpr) {
         match e {
-            MExpr::Use(s) => self.operand(cx, s),
+            MExpr::Use(s) => self.operand(Some(db), cx, s),
             MExpr::Ref(bk, p) => {
                 match bk {
                     BorrowKind::Shared => w!(self, Default, "&"),
                     BorrowKind::Mutable => w!(self, Default, "&mut "),
                 }
-                self.place(cx, p);
+                self.place(Some(db), cx, p);
             }
             MExpr::Struct(s, fields) => {
                 w!(self, Default, "{} {{", s.name(db));
@@ -261,29 +267,29 @@ impl Serializer<'_> {
                         w!(self, Default, ",");
                     }
                     first = false;
-                    w!(self, Default, " {}: ", field.name);
-                    self.operand(cx, slot);
+                    w!(self, Default, " {}: ", field.name(db));
+                    self.operand(Some(db), cx, slot);
                 }
                 w!(self, Default, " }}");
             }
             // MExpr::Quantifier(_, q, args, body) => {
             //     w!(self, Default, "{q} (");
             //     for arg in args {
-            //         self.operand(cx, arg);
+            //         self.operand(db, cx, arg);
             //     }
             //     w!(self, Default, ") ");
             //     self.block_id(Some(*body));
             // }
             MExpr::BinaryOp(op, l, r) => {
                 w!(self, Default, "({op} ");
-                self.operand(cx, l);
+                self.operand(Some(db), cx, l);
                 w!(self, Default, " ");
-                self.operand(cx, r);
+                self.operand(Some(db), cx, r);
                 w!(self, Default, ")");
             }
             MExpr::UnaryOp(op, x) => {
                 w!(self, Default, "({op} ");
-                self.operand(cx, x);
+                self.operand(Some(db), cx, x);
                 w!(self, Default, ")");
             }
         }
@@ -313,7 +319,12 @@ impl Serializer<'_> {
             w!(self, Green, ":B!")
         }
     }
-    fn terminator(&mut self, cx: Option<&ItemContext>, term: &Terminator) {
+    fn terminator(
+        &mut self,
+        db: Option<&dyn crate::Db>,
+        cx: Option<&ItemContext>,
+        term: &Terminator,
+    ) {
         match term {
             Terminator::Return => wln!(self, Default, "!return"),
             Terminator::Goto(b) => {
@@ -337,7 +348,7 @@ impl Serializer<'_> {
             }
             Terminator::Switch(cond, switch) => {
                 w!(self, Yellow, "!switch ");
-                self.operand(cx, cond);
+                self.operand(db, cx, cond);
                 w!(self, Default, " {{");
                 for (idx, value) in switch.values.iter() {
                     w!(self, Default, " {value} -> ");
@@ -355,14 +366,14 @@ impl Serializer<'_> {
             } => {
                 w!(self, Yellow, "!call ");
 
-                self.place(cx, destination);
+                self.place(db, cx, destination);
                 w!(self, Default, " := ");
 
                 w!(self, Default, "(");
                 self.function(cx, *func);
                 for arg in args {
                     w!(self, Default, " ");
-                    self.operand(cx, arg);
+                    self.operand(db, cx, arg);
                 }
                 w!(self, Default, ")");
                 w!(self, Default, " -> ");

@@ -30,10 +30,10 @@ impl BodyLower<'_> {
         let field_invs: Vec<_> = s
             .fields(self.db)
             .map(|f| {
-                let field_ty = self.cx.field_ty(&f);
+                let field_ty = self.cx.field_ty(self.db, &f);
                 let ty = self.lower_type(field_ty)?;
                 let viper_field = Field {
-                    name: f.name.to_string(),
+                    name: f.name(self.db).to_string(),
                     typ: ty.vty,
                 };
                 viper_items.push(ViperItem::Field(viper_field.clone()));

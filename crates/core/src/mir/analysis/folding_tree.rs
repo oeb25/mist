@@ -204,12 +204,13 @@ impl Lattice<mir::Body> for FoldingTree {
 
 #[allow(unused)]
 pub(crate) fn debug_folding_tree(
+    db: Option<&dyn crate::Db>,
     cx: Option<&hir::ItemContext>,
     body: &mir::Body,
     tree: &FoldingTree,
 ) -> HashSet<String> {
     tree.leafs()
-        .map(|p| mir::serialize::serialize_place(mir::serialize::Color::No, cx, body, &p))
+        .map(|p| mir::serialize::serialize_place(mir::serialize::Color::No, db, cx, body, &p))
         .collect::<std::collections::HashSet<_>>()
 }
 
@@ -274,7 +275,7 @@ mod test {
 
     #[derive(Clone)]
     struct Context {
-        _db: Arc<crate::db::Database>,
+        db: Arc<crate::db::Database>,
         cx: hir::ItemContext,
         body: mir::Body,
     }
@@ -313,11 +314,11 @@ mod test {
             let (_, cx, _, body, _) =
                 mir::lower_program(&db, program).into_iter().nth(1).unwrap();
 
-            Context { _db: Arc::new(db), cx, body }
+            Context { db: Arc::new(db), cx, body }
         }
     }
     fn debug_folding_tree_ctx(ctx: &Context, tree: &FoldingTree) -> HashSet<String> {
-        debug_folding_tree(Some(&ctx.cx), &ctx.body, tree)
+        debug_folding_tree(Some(&*ctx.db), Some(&ctx.cx), &ctx.body, tree)
     }
 
     struct Input {

@@ -113,6 +113,7 @@ async fn cli() -> Result<()> {
                                         .map(|p| {
                                             mir::serialize::serialize_place(
                                                 mir::serialize::Color::No,
+                                                Some(&db),
                                                 Some(&cx),
                                                 &mir,
                                                 &p,

@@ -18,6 +18,7 @@ pub struct Jar(
     crate::hir::ItemId,
     crate::hir::Function,
     crate::hir::Struct,
+    crate::hir::Field,
     crate::hir::TypeInvariant,
     crate::hir::TypeDecl,
     crate::hir::VariableId,

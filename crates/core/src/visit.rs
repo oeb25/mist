@@ -243,7 +243,7 @@ where
             hir::TypeDeclData::Struct(s) => {
                 self.walk_ty(visitor, self.vcx.cx.struct_ty(s))?;
                 for f in s.fields(self.db) {
-                    self.walk_field(visitor, &f, &f.name)?
+                    self.walk_field(visitor, &f, &f.name(self.db))?
                 }
             }
         }
@@ -278,7 +278,7 @@ where
         if self.pre() {
             visitor.visit_field(&self.vcx, field, reference)?;
         }
-        if let Some(ty) = self.vcx.cx.field_ty_src(field) {
+        if let Some(ty) = self.vcx.cx.field_ty_src(self.db, field) {
             self.walk_ty(visitor, ty)?;
         }
         if self.post() {

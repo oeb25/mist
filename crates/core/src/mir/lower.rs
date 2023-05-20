@@ -110,7 +110,7 @@ impl<'a> MirLower<'a> {
         Self {
             db,
             cx,
-            body: Body::new(cx.item_id()),
+            body: Body::new(cx.item_id(), cx.ty_table()),
             source_map: Default::default(),
         }
     }
@@ -464,7 +464,7 @@ impl MirLower<'_> {
                     let f_ty = expr_data.ty;
                     (
                         bid,
-                        self.project_deeper(place, &[Projection::Field(f.clone(), f_ty)]),
+                        self.project_deeper(place, &[Projection::Field(*f, f_ty)]),
                     )
                 } else {
                     MirErrors::push(
@@ -598,7 +598,7 @@ impl MirLower<'_> {
                     if let Some(place) = tmp.place() {
                         let f_ty = expr_data.ty;
                         let field_projection =
-                            self.project_deeper(place, &[Projection::Field(field.clone(), f_ty)]);
+                            self.project_deeper(place, &[Projection::Field(*field, f_ty)]);
                         self.put(
                             bid,
                             dest,
@@ -637,7 +637,7 @@ impl MirLower<'_> {
 
                 for f in fields {
                     let tmp = self.expr_into_operand(f.value, &mut bid, None);
-                    operands.push((f.decl.clone(), tmp));
+                    operands.push((f.decl, tmp));
                 }
 
                 self.put(

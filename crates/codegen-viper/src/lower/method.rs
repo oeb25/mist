@@ -263,7 +263,7 @@ impl BodyLower<'_> {
                             lhs: FieldAccess::new(
                                 self.place_to_ref(inst, s.slot.into())?,
                                 Field::new(
-                                    f.name.to_string(),
+                                    f.name(self.db).to_string(),
                                     // TODO: should we respect the extra constraints in such a scenario?
                                     self.lower_type(*ty)?.vty,
                                 ),
@@ -299,7 +299,7 @@ impl BodyLower<'_> {
                         let lhs = FieldAccess::new(
                             self.place_to_ref(inst, s.slot.into())?,
                             Field::new(
-                                f.name.to_string(),
+                                f.name(self.db).to_string(),
                                 // TODO: should we respect the extra constraints in such a scenario?
                                 self.lower_type(*ty)?.vty,
                             ),

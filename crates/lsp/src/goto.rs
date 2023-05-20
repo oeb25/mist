@@ -46,7 +46,7 @@ impl Visitor for DeclarationFinder<'_> {
     ) -> ControlFlow<Option<DeclarationSpans>> {
         if reference.contains_pos(self.byte_offset) {
             let original_span = reference.span();
-            let target_span = field.name.span();
+            let target_span = field.name(self.db).span();
             ControlFlow::Break(Some(DeclarationSpans {
                 original_span,
                 target_span,

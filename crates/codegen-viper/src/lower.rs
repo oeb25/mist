@@ -469,12 +469,12 @@ impl BodyLower<'_> {
             .try_fold(id, |base, proj| -> Result<_> {
                 Ok(match proj {
                     mir::Projection::Field(f, ty) => {
-                        if f.name.as_str() == "len" {
+                        if f.name(self.db).as_str() == "len" {
                             let exp = SeqExp::Length { s: base };
                             self.alloc(source, exp)
                         } else {
                             let exp = Field::new(
-                                f.name.to_string(),
+                                f.name(self.db).to_string(),
                                 // TODO: Should we look at the contraints?
                                 self.lower_type(*ty)?.vty,
                             )

@@ -1,4 +1,8 @@
-use std::{collections::HashMap, ops::Deref, sync::Mutex};
+use std::{
+    collections::HashMap,
+    ops::Deref,
+    sync::{Arc, Mutex},
+};
 
 use bitflags::bitflags;
 use derive_new::new;
@@ -148,10 +152,15 @@ pub struct TypeChecker<'w> {
 
 impl From<TypeChecker<'_>> for (ItemContext, ItemSourceMap) {
     fn from(mut tc: TypeChecker<'_>) -> Self {
-        for &ty in &tc.ty_keys {
-            let td = tc.ty_table.lock().unwrap().probe_value(ty);
-            tc.cx.ty_table.insert(ty.0, td);
-        }
+        tc.cx.ty_table = Arc::new(
+            tc.ty_keys
+                .iter()
+                .map(|&ty| {
+                    let td = tc.ty_table.lock().unwrap().probe_value(ty);
+                    (ty, td)
+                })
+                .collect(),
+        );
 
         (tc.cx, tc.source_map)
     }
@@ -870,12 +879,12 @@ impl<'a> TypeChecker<'a> {
                         TypeData::Struct(s) => {
                             if let Some(field) = self
                                 .struct_fields(s)
-                                .find(|f| f.name.as_str() == field.as_str())
+                                .find(|f| f.name(self.db).as_str() == field.as_str())
                             {
                                 (
-                                    Some(field.clone()),
+                                    Some(field),
                                     self.expect_find_type(&field.ty(self.db, self.root))
-                                        .with_ghost(field.is_ghost)
+                                        .with_ghost(field.is_ghost(self.db))
                                         .ty(self),
                                 )
                             } else {
@@ -906,10 +915,10 @@ impl<'a> TypeChecker<'a> {
                     TypeData::Struct(s) => {
                         if let Some(field) = self
                             .struct_fields(s)
-                            .find(|f| f.name.deref() == field.deref())
+                            .find(|f| f.name(self.db).deref() == field.deref())
                         {
                             (
-                                Some(field.clone()),
+                                Some(field),
                                 self.expect_find_type(&field.ty(self.db, self.root)),
                             )
                         } else {
@@ -927,12 +936,13 @@ impl<'a> TypeChecker<'a> {
                     }
                     TypeData::List(ty) => match field.as_str() {
                         "len" => (
-                            Some(Field {
-                                parent: FieldParent::List(ty),
-                                name: field.clone(),
-                                is_ghost: false,
-                                ty: None,
-                            }),
+                            Some(Field::new(
+                                self.db,
+                                FieldParent::List(ty),
+                                field.clone(),
+                                false,
+                                None,
+                            )),
                             self.int(),
                         ),
                         _ => {
@@ -1026,15 +1036,11 @@ impl<'a> TypeChecker<'a> {
                     let mut matched = false;
                     for sf in &fields {
                         let field_name = Ident::from(f.name().unwrap());
-                        if field_name.as_str() == sf.name.as_str() {
+                        if field_name.as_str() == sf.name(self.db).as_str() {
                             let value = self.check(f.span(), f.expr());
                             let expected = self.expect_find_type(&sf.ty(self.db, self.root));
                             self.expect_ty(self.expr_span(value), expected, self.expr_ty(value));
-                            present_fields.push(StructExprField::new(
-                                sf.clone(),
-                                field_name,
-                                value,
-                            ));
+                            present_fields.push(StructExprField::new(*sf, field_name, value));
                             matched = true;
                         }
                     }
@@ -1766,8 +1772,8 @@ impl hir::pretty::PrettyPrint for ItemContext {
     }
 
     fn resolve_ty(&self, ty: TypeId) -> TypeData {
-        if self.ty_table.contains_idx(ty.0) {
-            self.ty_table[ty.0].clone()
+        if self.ty_table.contains_ty(ty) {
+            self.ty_table[ty].clone()
         } else {
             error!(?ty, "tried to get type id which was not in ItemContext");
             TypeData::Error

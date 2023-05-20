@@ -44,7 +44,7 @@ impl Cfg {
         let fmt_node =
             |n: BlockId| serialize::serialize_block(serialize::Color::No, db, Some(cx), body, n);
         self.map_graph(fmt_node, |e| {
-            serialize::serialize_terminator(serialize::Color::No, Some(cx), body, e)
+            serialize::serialize_terminator(serialize::Color::No, Some(db), Some(cx), body, e)
         })
     }
     pub fn analysis_dot<A: MonotoneFramework>(

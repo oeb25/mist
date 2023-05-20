@@ -1,5 +1,6 @@
 mod item_context;
 pub mod typecheck;
+pub mod types;
 
 use derive_more::{Display, From};
 use derive_new::new;
@@ -23,6 +24,7 @@ use crate::{
 
 pub use item_context::{ItemContext, ItemSourceMap, SpanOrAstPtr};
 use typecheck::{TypeCheckError, TypeCheckErrorKind, TypeChecker};
+pub use types::TypeTable;
 
 pub mod pretty;
 
@@ -768,11 +770,14 @@ impl Struct {
     }
     pub fn fields<'db>(&self, db: &'db dyn crate::Db) -> impl Iterator<Item = Field> + 'db {
         let s = *self;
-        self.fields_inner(db).iter().map(move |f| Field {
-            parent: FieldParent::Struct(s),
-            name: f.name.clone(),
-            is_ghost: f.is_ghost,
-            ty: f.ty.clone(),
+        self.fields_inner(db).iter().map(move |f| {
+            Field::new(
+                db,
+                FieldParent::Struct(s),
+                f.name.clone(),
+                f.is_ghost,
+                f.ty.clone(),
+            )
         })
     }
 }
@@ -783,17 +788,18 @@ pub enum FieldParent {
     List(TypeId),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+// #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[salsa::interned]
 pub struct Field {
     pub parent: FieldParent,
     pub name: Ident,
     pub is_ghost: bool,
-    ty: Option<AstPtr<ast::Type>>,
+    ast_ty: Option<AstPtr<ast::Type>>,
 }
 
 impl Field {
-    pub fn ty(&self, _db: &dyn crate::Db, root: &ast::SourceFile) -> Option<ast::Type> {
-        self.ty.as_ref().map(|ty| ty.to_node(root.syntax()))
+    pub fn ty(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> Option<ast::Type> {
+        self.ast_ty(db).as_ref().map(|ty| ty.to_node(root.syntax()))
     }
 }
 

@@ -2,7 +2,7 @@ pub mod analysis;
 mod lower;
 pub mod serialize;
 
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 use derive_more::{Display, From};
 use derive_new::new;
@@ -377,6 +377,8 @@ pub enum RangeKind {
 #[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Body {
     item_id: hir::ItemId,
+
+    ty_table: Arc<hir::TypeTable>,
 
     #[new(default)]
     blocks: IdxArena<BlockId>,
@@ -781,6 +783,13 @@ impl std::ops::Index<&'_ FunctionId> for Body {
 
     fn index(&self, index: &'_ FunctionId) -> &Self::Output {
         &self.functions[*index]
+    }
+}
+impl std::ops::Index<TypeId> for Body {
+    type Output = hir::TypeData;
+
+    fn index(&self, index: TypeId) -> &Self::Output {
+        &self.ty_table[index]
     }
 }
 

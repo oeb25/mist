@@ -199,6 +199,15 @@ impl<IDX: IdxWrap, V> std::ops::IndexMut<IDX> for IdxMap<IDX, V> {
         &mut self.0[index.into_idx()]
     }
 }
+impl<IDX: IdxWrap, V> FromIterator<(IDX, V)> for IdxMap<IDX, V> {
+    fn from_iter<T: IntoIterator<Item = (IDX, V)>>(iter: T) -> Self {
+        IdxMap(
+            iter.into_iter()
+                .map(|(idx, v)| (idx.into_idx(), v))
+                .collect(),
+        )
+    }
+}
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct IdxSet<IDX: IdxWrap>(IdxMap<IDX, ()>);

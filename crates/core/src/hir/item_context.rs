@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use derive_new::new;
 use mist_syntax::{
@@ -13,8 +13,8 @@ use crate::{
 };
 
 use super::{
-    Condition, Decreases, Expr, ExprIdx, Field, Ident, ItemId, Param, Struct, TypeData,
-    TypeDataIdx, TypeId, TypeSrc, TypeSrcId, Variable, VariableIdx, VariableRef,
+    types::TypeTable, Condition, Decreases, Expr, ExprIdx, Field, Ident, ItemId, Param, Struct,
+    TypeData, TypeId, TypeSrc, TypeSrcId, Variable, VariableIdx, VariableRef,
 };
 
 #[derive(new, Debug, Clone, PartialEq, Eq)]
@@ -32,7 +32,7 @@ pub struct ItemContext {
     pub(super) ty_src_arena: IdxArena<TypeSrcId>,
 
     #[new(default)]
-    pub(super) ty_table: IdxMap<TypeDataIdx, TypeData>,
+    pub(super) ty_table: Arc<TypeTable>,
     #[new(default)]
     pub(super) named_types: HashMap<String, TypeId>,
     #[new(default)]
@@ -80,8 +80,8 @@ impl std::ops::Index<TypeId> for ItemContext {
     type Output = TypeData;
 
     fn index(&self, index: TypeId) -> &Self::Output {
-        if self.ty_table.contains_idx(index.0) {
-            &self.ty_table[index.0]
+        if self.ty_table.contains_ty(index) {
+            &self.ty_table[index]
         } else {
             todo!("ItemContext::ty_table was missing key '{:?}'", index)
         }
@@ -139,26 +139,26 @@ impl ItemContext {
     pub fn var_ident(&self, var: impl Into<VariableIdx>) -> &Ident {
         self.declarations.map[var.into()].name()
     }
-    pub fn field_ty(&self, field: &Field) -> TypeId {
-        match &field.parent {
-            super::FieldParent::Struct(s) => self.structs[s]
+    pub fn field_ty(&self, db: &dyn crate::Db, field: &Field) -> TypeId {
+        match field.parent(db) {
+            super::FieldParent::Struct(s) => self.structs[&s]
                 .iter()
                 .find_map(|(f, ty)| if f == field { Some(self[*ty].ty) } else { None })
                 .unwrap(),
-            super::FieldParent::List(_) => match field.name.as_str() {
+            super::FieldParent::List(_) => match field.name(db).as_str() {
                 "len" => self.int_ty(),
                 _ => todo!(),
             },
         }
     }
-    pub fn field_ty_src(&self, field: &Field) -> Option<TypeSrcId> {
-        match &field.parent {
+    pub fn field_ty_src(&self, db: &dyn crate::Db, field: &Field) -> Option<TypeSrcId> {
+        match field.parent(db) {
             super::FieldParent::Struct(s) => {
-                self.structs[s]
+                self.structs[&s]
                     .iter()
                     .find_map(|(f, ty)| if f == field { Some(*ty) } else { None })
             }
-            super::FieldParent::List(_) => match field.name.as_str() {
+            super::FieldParent::List(_) => match field.name(db).as_str() {
                 "len" => None,
                 _ => todo!(),
             },
@@ -175,7 +175,7 @@ impl ItemContext {
     }
 
     pub fn ty_data(&self, index: TypeId) -> &TypeData {
-        &self.ty_table[index.0]
+        &self.ty_table[index]
     }
 
     pub(crate) fn ty_data_without_ghost(&self, ty: TypeId) -> &TypeData {
@@ -201,6 +201,10 @@ impl ItemContext {
             | TypeData::Range(_)
             | TypeData::Free => None,
         }
+    }
+
+    pub fn ty_table(&self) -> Arc<TypeTable> {
+        Arc::clone(&self.ty_table)
     }
 }
 

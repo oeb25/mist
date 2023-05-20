@@ -57,21 +57,21 @@ impl<'a> Visitor for HoverFinder<'a> {
         reference: &Ident,
     ) -> ControlFlow<Option<HoverResult>> {
         if reference.contains_pos(self.byte_offset) {
-            match field.parent {
+            match field.parent(self.db) {
                 FieldParent::Struct(s) => {
                     let struct_ty = pretty::ty(&*vcx.cx, self.db, vcx.cx[vcx.cx.struct_ty(s)].ty);
-                    let ty = pretty::ty(&*vcx.cx, self.db, vcx.cx.field_ty(field));
+                    let ty = pretty::ty(&*vcx.cx, self.db, vcx.cx.field_ty(self.db, field));
                     break_code(
                         [
                             format!("struct {struct_ty}"),
-                            format!("{}: {ty}", field.name),
+                            format!("{}: {ty}", field.name(self.db)),
                         ],
                         Some(reference.span()),
                     )
                 }
                 FieldParent::List(list_ty) => {
                     let list_ty = pretty::ty(&*vcx.cx, self.db, list_ty);
-                    let ty = pretty::ty(&*vcx.cx, self.db, vcx.cx.field_ty(field));
+                    let ty = pretty::ty(&*vcx.cx, self.db, vcx.cx.field_ty(self.db, field));
                     break_code(
                         [format!("[{list_ty}]"), format!("len: {ty}")],
                         Some(reference.span()),
