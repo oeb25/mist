@@ -6,8 +6,8 @@ use std::{
 use futures_util::StreamExt;
 use miette::{Context, IntoDiagnostic};
 use mist_cli::VerificationContext;
+use mist_codegen_viper::gen::ViperOutput;
 use mist_core::hir;
-use mist_viper_backend::gen::ViperOutput;
 use tracing::info;
 
 pub struct VerifyFile<'a> {
@@ -25,7 +25,7 @@ impl VerifyFile<'_> {
         db: &Mutex<crate::db::Database>,
     ) -> miette::Result<Vec<miette::Report>> {
         let (viper_program, viper_body, viper_source_map) =
-            mist_viper_backend::gen::viper_file(&*db.lock().unwrap(), self.program)?;
+            mist_codegen_viper::gen::viper_file(&*db.lock().unwrap(), self.program)?;
         let viper_output = ViperOutput::generate(&viper_body, &viper_program);
         let viper_src = &viper_output.buf;
 

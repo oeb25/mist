@@ -16,8 +16,8 @@ tracing-wasm = "0.2.1"
 tracing = "0.1.37"
 typeshare = "1.0.0"
 color-eyre = "0.6.2"
-mist-syntax = { path = "../../syntax" }
-mist-core = { path = "../../core" }
-mist-viper-backend = { path = "../../viper-backend" }
+mist-syntax = { path = "../../crates/syntax" }
+mist-core = { path = "../../crates/core" }
+mist-codegen-viper = { path = "../../crates/codegen-viper" }
 
 [workspace]

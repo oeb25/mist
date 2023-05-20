@@ -656,6 +656,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "mist-codegen-viper"
+version = "0.1.0"
+dependencies = [
+ "derive-new",
+ "derive_more",
+ "itertools",
+ "la-arena",
+ "miette",
+ "mist-core",
+ "mist-syntax",
+ "salsa-2022",
+ "silvers",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "mist-core"
 version = "0.1.0"
 dependencies = [
@@ -688,24 +706,6 @@ dependencies = [
  "rowan",
  "thiserror",
  "tracing",
-]
-
-[[package]]
-name = "mist-viper-backend"
-version = "0.1.0"
-dependencies = [
- "derive-new",
- "derive_more",
- "itertools",
- "la-arena",
- "miette",
- "mist-core",
- "mist-syntax",
- "salsa-2022",
- "silvers",
- "thiserror",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -1295,9 +1295,9 @@ dependencies = [
  "color-eyre",
  "console_error_panic_hook",
  "miette",
+ "mist-codegen-viper",
  "mist-core",
  "mist-syntax",
- "mist-viper-backend",
  "serde",
  "serde_json",
  "tracing",

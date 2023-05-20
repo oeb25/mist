@@ -1140,9 +1140,9 @@ dependencies = [
  "futures-util",
  "itertools",
  "miette",
+ "mist-codegen-viper",
  "mist-core",
  "mist-syntax",
- "mist-viper-backend",
  "spinners",
  "tempfile",
  "thiserror",
@@ -1150,6 +1150,24 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "viperserver",
+]
+
+[[package]]
+name = "mist-codegen-viper"
+version = "0.1.0"
+dependencies = [
+ "derive-new",
+ "derive_more",
+ "itertools",
+ "la-arena",
+ "miette",
+ "mist-core",
+ "mist-syntax",
+ "salsa-2022",
+ "silvers",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1183,9 +1201,9 @@ dependencies = [
  "itertools",
  "miette",
  "mist-cli",
+ "mist-codegen-viper",
  "mist-core",
  "mist-syntax",
- "mist-viper-backend",
  "tempfile",
  "thiserror",
  "tokio",
@@ -1212,24 +1230,6 @@ dependencies = [
  "thiserror",
  "tracing",
  "ungrammar",
-]
-
-[[package]]
-name = "mist-viper-backend"
-version = "0.1.0"
-dependencies = [
- "derive-new",
- "derive_more",
- "itertools",
- "la-arena",
- "miette",
- "mist-core",
- "mist-syntax",
- "salsa-2022",
- "silvers",
- "thiserror",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

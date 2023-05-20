@@ -5,7 +5,7 @@ use mist_core::salsa::{self, DebugWithDb};
 // TODO: This should perhaps be pub(crate), but we use it in main, which does
 // not have crate access
 #[derive(Default)]
-#[salsa::db(crate::Jar, mist_core::Jar, mist_viper_backend::Jar)]
+#[salsa::db(crate::Jar, mist_core::Jar, mist_codegen_viper::Jar)]
 pub struct Database {
     storage: salsa::Storage<Self>,
     logs: Option<Arc<Mutex<Vec<String>>>>,

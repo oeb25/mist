@@ -17,7 +17,7 @@ tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 mist-syntax = { path = "./crates/syntax" }
 mist-cli = { path = "./crates/cli" }
 mist-core = { path = "./crates/core" }
-mist-viper-backend = { path = "./crates/viper-backend" }
+mist-codegen-viper = { path = "./crates/codegen-viper" }
 salsa = { git = "https://github.com/salsa-rs/salsa.git", package = "salsa-2022" }
 # silvers = { git = "https://github.com/oeb25/vipers.git" }
 silvers = { path = "../vipers/silvers" }

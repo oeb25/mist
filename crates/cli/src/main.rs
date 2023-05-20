@@ -4,8 +4,8 @@ use clap::Parser;
 use futures_util::StreamExt;
 use itertools::Itertools;
 use miette::{bail, Context, IntoDiagnostic, Result};
+use mist_codegen_viper::gen::ViperOutput;
 use mist_core::{hir, mir};
-use mist_viper_backend::gen::ViperOutput;
 use tracing::{error, info, warn, Level};
 use tracing_subscriber::prelude::*;
 
@@ -125,7 +125,7 @@ async fn cli() -> Result<()> {
                     }
                 }
                 if dump_viper {
-                    match mist_viper_backend::gen::viper_item(&db, cx, item, &mir) {
+                    match mist_codegen_viper::gen::viper_item(&db, cx, item, &mir) {
                         Ok((viper_items, viper_body, _viper_source_map)) => {
                             if viper_items.is_empty() {
                                 warn!("no viper code generated")
@@ -155,7 +155,7 @@ async fn cli() -> Result<()> {
             dump_errors(&db, &file, &src, program)?;
 
             let (viper_program, viper_body, viper_source_map) =
-                mist_viper_backend::gen::viper_file(&db, program)?;
+                mist_codegen_viper::gen::viper_file(&db, program)?;
             let viper_output = ViperOutput::generate(&viper_body, &viper_program);
             let viper_src = &viper_output.buf;
 

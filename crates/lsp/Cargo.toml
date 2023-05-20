@@ -11,7 +11,7 @@ itertools = { workspace = true }
 mist-syntax = { workspace = true }
 mist-cli = { workspace = true }
 mist-core = { workspace = true }
-mist-viper-backend = { workspace = true }
+mist-codegen-viper = { workspace = true }
 miette = { workspace = true }
 thiserror = { workspace = true }
 viperserver = { workspace = true }

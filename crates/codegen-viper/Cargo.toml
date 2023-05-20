@@ -1,5 +1,5 @@
 [package]
-name = "mist-viper-backend"
+name = "mist-codegen-viper"
 version = { workspace = true }
 edition = "2021"
 

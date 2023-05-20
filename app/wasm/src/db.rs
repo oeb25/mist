@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use mist_core::salsa::{self, DebugWithDb};
 
 #[derive(Default)]
-#[salsa::db(mist_core::Jar, mist_viper_backend::Jar)]
+#[salsa::db(mist_core::Jar, mist_codegen_viper::Jar)]
 pub(crate) struct Database {
     storage: salsa::Storage<Self>,
     logs: Option<Arc<Mutex<Vec<String>>>>,

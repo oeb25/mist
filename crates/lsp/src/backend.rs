@@ -6,12 +6,12 @@ use std::{
 use dashmap::DashMap;
 use itertools::Itertools;
 use miette::IntoDiagnostic;
+use mist_codegen_viper::gen::ViperHints;
 use mist_core::{
     hir::SourceProgram,
     salsa::{ParallelDatabase, Snapshot},
 };
 use mist_syntax::{ast::Spanned, SourceSpan};
-use mist_viper_backend::gen::ViperHints;
 use tower_lsp::{
     jsonrpc::Result,
     lsp_types::{
@@ -227,7 +227,7 @@ impl Backend {
         let inlay_hints = crate::highlighting::inlay_hints(db, source);
 
         let program = mist_core::hir::parse_program(db, source);
-        let hints = mist_viper_backend::gen::viper_file::accumulated::<ViperHints>(db, program);
+        let hints = mist_codegen_viper::gen::viper_file::accumulated::<ViperHints>(db, program);
 
         Ok(Some(
             inlay_hints

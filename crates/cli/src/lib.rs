@@ -3,12 +3,12 @@
 pub mod db;
 
 use miette::Diagnostic;
-use mist_core::{hir, mir, salsa, util::Position, TypeCheckError};
-use mist_syntax::{ParseError, SourceSpan};
-use mist_viper_backend::{
+use mist_codegen_viper::{
     gen::ViperOutput,
     lower::{ViperLowerError, ViperSourceMap},
 };
+use mist_core::{hir, mir, salsa, util::Position, TypeCheckError};
+use mist_syntax::{ParseError, SourceSpan};
 use tracing::warn;
 use viperserver::{verification::Details, VerificationStatus};
 
@@ -57,8 +57,8 @@ pub fn accumulated_errors(
     let mir_errors = mir::lower_program::accumulated::<mir::MirErrors>(db, program);
     let viper_errors = if parse_errors.is_empty() && type_errors.is_empty() && mir_errors.is_empty()
     {
-        mist_viper_backend::gen::viper_file::accumulated::<
-            mist_viper_backend::lower::ViperLowerErrors,
+        mist_codegen_viper::gen::viper_file::accumulated::<
+            mist_codegen_viper::lower::ViperLowerErrors,
         >(db, program)
     } else {
         vec![]
@@ -276,6 +276,6 @@ fn viper_position_to_internal(
 #[salsa::jar(db=Db)]
 pub struct Jar();
 
-pub trait Db: mist_core::Db + mist_viper_backend::Db + salsa::DbWithJar<Jar> {}
+pub trait Db: mist_core::Db + mist_codegen_viper::Db + salsa::DbWithJar<Jar> {}
 
-impl<DB> Db for DB where DB: ?Sized + mist_core::Db + mist_viper_backend::Db + salsa::DbWithJar<Jar> {}
+impl<DB> Db for DB where DB: ?Sized + mist_core::Db + mist_codegen_viper::Db + salsa::DbWithJar<Jar> {}
