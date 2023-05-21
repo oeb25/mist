@@ -270,10 +270,6 @@ pub struct Place {
     pub projection: ProjectionList,
 }
 impl Place {
-    fn has_projection(&self, b: &Body) -> bool {
-        !b[self.projection].is_empty()
-    }
-
     pub fn without_projection(&self) -> Place {
         self.replace_projection(Projection::empty())
     }
