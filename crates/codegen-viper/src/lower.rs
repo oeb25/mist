@@ -7,7 +7,10 @@ use derive_new::new;
 
 use miette::Diagnostic;
 use mist_core::{
-    hir,
+    hir::{
+        self,
+        types::{TypeProvider, TypePtr},
+    },
     mir::{self, analysis::cfg, BlockOrInstruction},
     util::{IdxArena, IdxMap, IdxWrap},
 };
@@ -243,8 +246,8 @@ impl<'a> BodyLower<'a> {
         }
     }
 
-    pub fn lower_type(&mut self, ty: hir::TypeId) -> Result<ViperType> {
-        Ok(match &self.cx[ty] {
+    pub fn lower_type(&mut self, ty: TypePtr<impl TypeProvider>) -> Result<ViperType> {
+        Ok(match ty.data() {
             hir::TypeData::Error => {
                 // TODO: Perhaps this should be handeld at a previous stage?
                 VTy::int().into()
@@ -259,8 +262,8 @@ impl<'a> BodyLower<'a> {
                 // VTy::internal_type().into()
                 VTy::int().into()
             }
-            hir::TypeData::Ghost(inner) => self.lower_type(*inner)?,
-            &hir::TypeData::Ref { is_mut, inner } => ViperType {
+            hir::TypeData::Ghost(inner) => self.lower_type(inner)?,
+            hir::TypeData::Ref { is_mut, inner } => ViperType {
                 vty: VTy::ref_(),
                 is_mut,
                 is_ref: true,
@@ -269,11 +272,11 @@ impl<'a> BodyLower<'a> {
                 strukt: None,
             },
             hir::TypeData::List(inner) => VTy::Seq {
-                element_type: Box::new(self.lower_type(*inner)?.vty),
+                element_type: Box::new(self.lower_type(inner)?.vty),
             }
             .into(),
             hir::TypeData::Optional(inner) => {
-                let vty = self.lower_type(*inner)?;
+                let vty = self.lower_type(inner)?;
                 ViperType {
                     optional: true,
                     ..vty
@@ -294,7 +297,7 @@ impl<'a> BodyLower<'a> {
                     is_mut: false,
                     is_ref: false,
                     inner: None,
-                    strukt: Some(*s),
+                    strukt: Some(s),
                 },
             },
             hir::TypeData::Null => ViperType {
@@ -466,6 +469,7 @@ impl BodyLower<'_> {
 
         self.body[p.projection]
             .iter()
+            .copied()
             .try_fold(id, |base, proj| -> Result<_> {
                 Ok(match proj {
                     mir::Projection::Field(f, ty) => {
@@ -476,14 +480,14 @@ impl BodyLower<'_> {
                             let exp = Field::new(
                                 f.name(self.db).to_string(),
                                 // TODO: Should we look at the contraints?
-                                self.lower_type(*ty)?.vty,
+                                self.lower_type(self.body.ty(ty))?.vty,
                             )
                             .access_exp(base);
                             self.alloc(source, exp)
                         }
                     }
                     mir::Projection::Index(index, _) => {
-                        let idx = self.slot_to_var(*index)?;
+                        let idx = self.slot_to_var(index)?;
                         let idx = self.alloc(source, AbstractLocalVar::LocalVar(idx));
                         self.alloc(source, SeqExp::Index { s: base, idx })
                     }
@@ -565,7 +569,7 @@ impl BodyLower<'_> {
         &mut self,
         source: impl Into<BlockOrInstruction> + Copy,
         place: VExprId,
-        ty: hir::TypeId,
+        ty: TypePtr<impl TypeProvider>,
     ) -> Result<(Option<VExprId>, Option<VExprId>)> {
         let ty = self.lower_type(ty)?;
         if let Some(st) = ty.strukt {

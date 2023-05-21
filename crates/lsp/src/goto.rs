@@ -2,7 +2,7 @@ use std::ops::ControlFlow;
 
 use derive_new::new;
 use mist_core::{
-    hir::{self, Ident, SourceProgram, VariableRef},
+    hir::{self, types::TypeProvider, Ident, SourceProgram, VariableRef},
     salsa,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
 };
@@ -41,7 +41,7 @@ impl Visitor for DeclarationFinder<'_> {
     fn visit_field(
         &mut self,
         _: &VisitContext,
-        field: &hir::Field,
+        field: hir::Field,
         reference: &Ident,
     ) -> ControlFlow<Option<DeclarationSpans>> {
         if reference.contains_pos(self.byte_offset) {
@@ -63,7 +63,7 @@ impl Visitor for DeclarationFinder<'_> {
     ) -> ControlFlow<Option<DeclarationSpans>> {
         let original_span = vcx.source_map[ty].span();
         if original_span.contains(self.byte_offset) {
-            match vcx.cx[vcx.cx[ty].ty] {
+            match vcx.cx.ty_data(vcx.cx[ty].ty) {
                 hir::TypeData::Struct(s) => {
                     let target_span = s.name(self.db).span();
                     ControlFlow::Break(Some(DeclarationSpans {

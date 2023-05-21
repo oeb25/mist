@@ -13,8 +13,9 @@ use crate::{
 };
 
 use super::{
-    types::TypeTable, Condition, Decreases, Expr, ExprIdx, Field, Ident, ItemId, Param, Struct,
-    TypeData, TypeId, TypeSrc, TypeSrcId, Variable, VariableIdx, VariableRef,
+    types::{TypeDataPtr, TypeProvider, TypePtr, TypeTable},
+    Condition, Decreases, Expr, ExprIdx, Field, Ident, ItemId, Param, Struct, TypeId, TypeSrc,
+    TypeSrcId, Variable, VariableIdx, VariableRef,
 };
 
 #[derive(new, Debug, Clone, PartialEq, Eq)]
@@ -76,17 +77,16 @@ impl std::ops::Index<TypeSrcId> for ItemContext {
         &self.ty_src_arena[index]
     }
 }
-impl std::ops::Index<TypeId> for ItemContext {
-    type Output = TypeData;
+impl TypeProvider for ItemContext {
+    fn field_ty(&self, f: Field) -> TypePtr<Self> {
+        self.ty_table[f].wrap(self)
+    }
 
-    fn index(&self, index: TypeId) -> &Self::Output {
-        if self.ty_table.contains_ty(index) {
-            &self.ty_table[index]
-        } else {
-            todo!("ItemContext::ty_table was missing key '{:?}'", index)
-        }
+    fn ty_data(&self, ty: TypeId) -> TypeDataPtr<Self> {
+        self.ty_table.ty_data(ty).with_provider(self)
     }
 }
+
 impl ItemContext {
     pub fn item_id(&self) -> ItemId {
         self.item_id
@@ -118,14 +118,14 @@ impl ItemContext {
     pub fn var_ty_src(&self, var: impl Into<VariableIdx>) -> TypeSrcId {
         self.var_types[var.into()]
     }
-    pub fn var_ty(&self, var: impl Into<VariableIdx>) -> TypeId {
-        self[self.var_types[var.into()]].ty
+    pub fn var_ty(&self, var: impl Into<VariableIdx>) -> TypePtr<Self> {
+        self[self.var_types[var.into()]].ty.wrap(self)
     }
     pub fn expr(&self, expr: ExprIdx) -> &Expr {
         &self.expr_arena[expr]
     }
-    pub fn expr_ty(&self, expr: ExprIdx) -> TypeId {
-        self.expr_arena[expr].ty
+    pub fn expr_ty(&self, expr: ExprIdx) -> TypePtr<Self> {
+        self.expr_arena[expr].ty.wrap(self)
     }
     pub fn var(&self, var: impl Into<VariableIdx>) -> Variable {
         self.declarations.arena[var.into()]
@@ -139,24 +139,26 @@ impl ItemContext {
     pub fn var_ident(&self, var: impl Into<VariableIdx>) -> &Ident {
         self.declarations.map[var.into()].name()
     }
-    pub fn field_ty(&self, db: &dyn crate::Db, field: &Field) -> TypeId {
-        match field.parent(db) {
-            super::FieldParent::Struct(s) => self.structs[&s]
-                .iter()
-                .find_map(|(f, ty)| if f == field { Some(self[*ty].ty) } else { None })
-                .unwrap(),
-            super::FieldParent::List(_) => match field.name(db).as_str() {
-                "len" => self.int_ty(),
-                _ => todo!(),
-            },
-        }
-    }
-    pub fn field_ty_src(&self, db: &dyn crate::Db, field: &Field) -> Option<TypeSrcId> {
+    // TODO: Remove this, but for now keep it, since it seems like we have some
+    // regressions when hovering `len` in `[].len`.
+    // pub fn field_ty(&self, db: &dyn crate::Db, field: &Field) -> TypeId {
+    //     match field.parent(db) {
+    //         super::FieldParent::Struct(s) => self.structs[&s]
+    //             .iter()
+    //             .find_map(|(f, ty)| if f == field { Some(self[*ty].ty) } else { None })
+    //             .unwrap(),
+    //         super::FieldParent::List(_) => match field.name(db).as_str() {
+    //             "len" => self.int_ty(),
+    //             _ => todo!(),
+    //         },
+    //     }
+    // }
+    pub fn field_ty_src(&self, db: &dyn crate::Db, field: Field) -> Option<TypeSrcId> {
         match field.parent(db) {
             super::FieldParent::Struct(s) => {
                 self.structs[&s]
                     .iter()
-                    .find_map(|(f, ty)| if f == field { Some(*ty) } else { None })
+                    .find_map(|(f, ty)| if f == &field { Some(*ty) } else { None })
             }
             super::FieldParent::List(_) => match field.name(db).as_str() {
                 "len" => None,
@@ -174,52 +176,8 @@ impl ItemContext {
         self.int_ty
     }
 
-    pub fn ty_data(&self, index: TypeId) -> &TypeData {
-        &self.ty_table[index]
-    }
-
-    pub(crate) fn ty_data_without_ghost(&self, ty: TypeId) -> &TypeData {
-        match self.ty_data(ty) {
-            TypeData::Ghost(inner) => self.ty_data_without_ghost(*inner),
-            td => td,
-        }
-    }
-    pub fn ty_struct(&self, ty: TypeId) -> Option<Struct> {
-        match self.ty_data(ty) {
-            TypeData::Struct(s) => Some(*s),
-
-            TypeData::Ghost(inner) => self.ty_struct(*inner),
-            TypeData::Ref { inner, .. } => self.ty_struct(*inner),
-            TypeData::Optional(inner) => self.ty_struct(*inner),
-
-            TypeData::Error
-            | TypeData::Void
-            | TypeData::List(_)
-            | TypeData::Primitive(_)
-            | TypeData::Null
-            | TypeData::Function { .. }
-            | TypeData::Range(_)
-            | TypeData::Free => None,
-        }
-    }
-
     pub fn ty_table(&self) -> Arc<TypeTable> {
         Arc::clone(&self.ty_table)
-    }
-}
-
-impl TypeId {
-    pub fn strip_ghost(self, cx: &ItemContext) -> TypeId {
-        match cx[self] {
-            TypeData::Ghost(inner) => inner,
-            _ => self,
-        }
-    }
-    pub fn is_ghost(self, cx: &ItemContext) -> bool {
-        matches!(cx[self], TypeData::Ghost(_))
-    }
-    pub fn is_error(self, cx: &ItemContext) -> bool {
-        matches!(cx[self], TypeData::Error)
     }
 }
 

@@ -339,7 +339,7 @@ impl BodyLower<'_> {
                     }
                     _ => return Ok(acc),
                 };
-                if let Some(s) = self.cx.ty_struct(self.body.place_ty(unfolding_place)) {
+                if let Some(s) = self.body.place_ty(unfolding_place).ty_struct() {
                     acc.try_map_exp(|exp| {
                         let place_ref = self.place_to_ref(inst, unfolding_place)?;
                         let pred_acc = PredicateAccessPredicate::new(
@@ -352,7 +352,7 @@ impl BodyLower<'_> {
                 } else {
                     warn!(
                         "no struct found for {:?}",
-                        self.cx[self.body.place_ty(unfolding_place)]
+                        self.body.place_ty(unfolding_place).data()
                     );
                     acc
                 }

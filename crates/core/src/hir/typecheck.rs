@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     ops::Deref,
     sync::{Arc, Mutex},
 };
@@ -28,7 +28,8 @@ use crate::hir::{
 
 use super::{
     item_context::{FunctionContext, SpanOrAstPtr},
-    ItemContext, ItemSourceMap, TypeSrc, TypeSrcId,
+    types::TypeProvider,
+    ItemContext, ItemSourceMap, TypeSrc, TypeSrcId, TypeTable,
 };
 
 fn id<T>(t: T) -> T {
@@ -148,19 +149,28 @@ pub struct TypeChecker<'w> {
     ty_table: Mutex<ena::unify::InPlaceUnificationTable<TypeId>>,
     ty_cache: HashMap<TypeData, TypeId>,
     ty_keys: Vec<TypeId>,
+
+    field_tys: BTreeMap<Field, TypeSrcId>,
 }
 
 impl From<TypeChecker<'_>> for (ItemContext, ItemSourceMap) {
     fn from(mut tc: TypeChecker<'_>) -> Self {
-        tc.cx.ty_table = Arc::new(
+        tc.cx.ty_table = Arc::new(TypeTable::new(
             tc.ty_keys
                 .iter()
                 .map(|&ty| {
                     let td = tc.ty_table.lock().unwrap().probe_value(ty);
                     (ty, td)
                 })
-                .collect(),
-        );
+                .collect_vec(),
+            tc.cx
+                .structs
+                .values()
+                .flat_map(|fields| fields.iter().copied())
+                .collect_vec()
+                .into_iter()
+                .map(|(f, ty)| (f, ty.ty(&mut tc))),
+        ));
 
         (tc.cx, tc.source_map)
     }
@@ -194,6 +204,7 @@ impl<'a> TypeChecker<'a> {
             ty_table: Mutex::new(ty_table),
             ty_cache,
             ty_keys,
+            field_tys: Default::default(),
             scope: Default::default(),
             scope_stack: vec![],
             source_map: Default::default(),
@@ -246,7 +257,9 @@ impl<'a> TypeChecker<'a> {
                             .fields(db)
                             .map(|f| {
                                 let data = f.ty(db, root);
-                                (f, checker.expect_find_type_src(&data))
+                                let ty = checker.expect_find_type_src(&data);
+                                let ty_id = *checker.field_tys.entry(f).or_insert_with(|| ty);
+                                (f, ty_id)
                             })
                             .collect();
                         checker.cx.structs.insert(s, fields);
@@ -1764,7 +1777,7 @@ impl hir::pretty::PrettyPrint for ItemContext {
     }
 
     fn resolve_var_ty(&self, idx: VariableIdx) -> TypeId {
-        self.var_ty(idx)
+        self.var_ty(idx).id()
     }
 
     fn resolve_expr(&self, idx: ExprIdx) -> &Expr {
@@ -1773,7 +1786,7 @@ impl hir::pretty::PrettyPrint for ItemContext {
 
     fn resolve_ty(&self, ty: TypeId) -> TypeData {
         if self.ty_table.contains_ty(ty) {
-            self.ty_table[ty].clone()
+            self.ty_table.ty_data(ty).map(|t| t.id())
         } else {
             error!(?ty, "tried to get type id which was not in ItemContext");
             TypeData::Error

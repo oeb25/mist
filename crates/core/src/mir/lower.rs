@@ -115,13 +115,13 @@ impl<'a> MirLower<'a> {
         }
     }
 
-    fn alloc_tmp(&mut self, ty: TypeId) -> Place {
+    fn alloc_tmp(&mut self, ty: impl Into<TypeId>) -> Place {
         self.alloc_place(Slot::default(), ty)
     }
     fn alloc_expr(&mut self, expr: ExprIdx) -> Place {
         self.alloc_tmp(self.cx.expr_ty(expr))
     }
-    fn alloc_place(&mut self, slot: Slot, ty: TypeId) -> Place {
+    fn alloc_place(&mut self, slot: Slot, ty: impl Into<TypeId>) -> Place {
         self.alloc_slot(slot, ty).into()
     }
     fn alloc_quantified(&mut self, var: VariableIdx) -> SlotId {
@@ -130,7 +130,7 @@ impl<'a> MirLower<'a> {
     fn alloc_local(&mut self, var: VariableIdx) -> SlotId {
         self.alloc_slot(Slot::Local(var), self.cx.var_ty(var))
     }
-    fn alloc_slot(&mut self, slot: Slot, ty: TypeId) -> SlotId {
+    fn alloc_slot(&mut self, slot: Slot, ty: impl Into<TypeId>) -> SlotId {
         let id = match &slot {
             Slot::Temp => self.body.slots.alloc(slot),
             Slot::Param(var) | Slot::Local(var) | Slot::Quantified(var) => {
@@ -148,6 +148,7 @@ impl<'a> MirLower<'a> {
                 .result_slot
                 .get_or_insert_with(|| self.body.slots.alloc(slot)),
         };
+        let ty = ty.into();
         if let Some(old_ty) = self.body.slot_type.insert(id, ty) {
             debug!(
                 "replaced a type. old was '{}' and new was '{}'",
@@ -386,7 +387,7 @@ impl MirLower<'_> {
                     let cond_inv_bid = self.alloc_block(None);
                     let mut end_bid = cond_inv_bid;
                     let inv_result = self.expr_into_operand(*expr, &mut end_bid, None);
-                    let bool_ty = self.body.place_ty(cond_place);
+                    let bool_ty = self.body.place_ty(cond_place).id();
                     let some_place = self.alloc_place(Slot::Temp, bool_ty);
                     self.alloc_instruction(
                         Some(*expr),
@@ -514,7 +515,7 @@ impl MirLower<'_> {
             expr,
             *bid,
             target,
-            Placement::IntoOperand(self.cx.expr_ty(expr), &mut tmp),
+            Placement::IntoOperand(self.cx.expr_ty(expr).id(), &mut tmp),
         );
         tmp.unwrap_or_else(|| Operand::Move(self.alloc_expr(expr)))
     }
@@ -530,7 +531,7 @@ impl MirLower<'_> {
             expr,
             *bid,
             target,
-            Placement::IntoPlace(self.cx.expr_ty(expr), &mut tmp),
+            Placement::IntoPlace(self.cx.expr_ty(expr).id(), &mut tmp),
         );
         tmp.unwrap_or_else(|| {
             let ty = self.cx.expr_ty(expr);
@@ -610,7 +611,7 @@ impl MirLower<'_> {
                         todo!()
                     }
                 } else {
-                    if !self.cx.expr_ty(*base).is_error(self.cx) {
+                    if !self.cx.expr_ty(*base).data().is_error() {
                         MirErrors::push(
                             self.db,
                             MirError::NotYetImplemented {
@@ -680,7 +681,7 @@ impl MirLower<'_> {
                     }
                     BinaryOp::ArithOp(ArithOp::Add)
                         if matches!(
-                            self.cx.ty_data(self.cx.expr_ty(lhs).strip_ghost(self.cx)),
+                            self.cx.expr_ty(lhs).strip_ghost().data(),
                             TypeData::List(_),
                         ) =>
                     {
@@ -711,7 +712,7 @@ impl MirLower<'_> {
                 bid
             }
             &ExprData::Index { base, index } => {
-                let f = match self.cx.ty_data_without_ghost(self.cx.expr_ty(index)) {
+                let f = match self.cx.expr_ty(index).strip_ghost().data() {
                     hir::TypeData::Range(_) => FunctionData::RangeIndex,
                     hir::TypeData::Primitive(hir::Primitive::Int) => FunctionData::Index,
                     hir::TypeData::Error => FunctionData::Index,

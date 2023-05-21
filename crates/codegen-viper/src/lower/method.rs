@@ -1,7 +1,6 @@
 use mist_core::{
-    hir,
+    hir::{self, types::TypeProvider},
     mir::{self, Projection},
-    util::IdxSet,
 };
 use silvers::{
     ast::Declaration,
@@ -119,14 +118,13 @@ impl BodyLower<'_> {
                             cond
                         };
 
-                        let liveness =
-                            mir::analysis::liveness::Liveness::compute(self.cx, self.body);
+                        let liveness = mir::analysis::liveness::Liveness::compute(self.body);
 
                         let access_invs = liveness
                             .entry(block)
                             .iter()
                             .map(|s| {
-                                if let Some(t) = self.cx.ty_struct(self.body.place_ty(s.into())) {
+                                if let Some(t) = self.body.place_ty(s.into()).ty_struct() {
                                     let name = t.name(self.db);
                                     let place_ref = self.place_to_ref(block, s.into())?;
                                     let acc = PredicateAccessPredicate::new(
@@ -194,8 +192,7 @@ impl BodyLower<'_> {
                 } => {
                     let var = self.place_for_assignment(*destination)?;
                     let f = self.function(block, *func, args)?;
-                    let voided =
-                        self.cx[self.body.place_ty(*destination).strip_ghost(self.cx)].is_void();
+                    let voided = self.body.place_ty(*destination).strip_ghost().is_void();
 
                     match f {
                         Exp::FuncApp { funcname, args } => {
@@ -265,7 +262,7 @@ impl BodyLower<'_> {
                                 Field::new(
                                     f.name(self.db).to_string(),
                                     // TODO: should we respect the extra constraints in such a scenario?
-                                    self.lower_type(*ty)?.vty,
+                                    self.lower_type(self.body.ty(*ty))?.vty,
                                 ),
                             ),
                             rhs,
@@ -301,7 +298,7 @@ impl BodyLower<'_> {
                             Field::new(
                                 f.name(self.db).to_string(),
                                 // TODO: should we respect the extra constraints in such a scenario?
-                                self.lower_type(*ty)?.vty,
+                                self.lower_type(self.body.ty(*ty))?.vty,
                             ),
                         );
                         insts.push(Stmt::FieldAssign { lhs, rhs: new_rhs });
@@ -325,7 +322,7 @@ impl BodyLower<'_> {
                     mir::Folding::Fold { into, .. } => *into,
                     mir::Folding::Unfold { consume, .. } => *consume,
                 };
-                if let Some(s) = self.cx.ty_struct(self.body.place_ty(place)) {
+                if let Some(s) = self.body.place_ty(place).ty_struct() {
                     let name = s.name(self.db);
                     let place_ref = self.place_to_ref(inst, place)?;
                     let acc = PredicateAccessPredicate::new(
@@ -338,10 +335,7 @@ impl BodyLower<'_> {
                         mir::Folding::Unfold { .. } => Stmt::Unfold { acc },
                     });
                 } else {
-                    warn!(
-                        "no struct found for {:?}",
-                        self.cx[self.body.place_ty(place)]
-                    );
+                    warn!("no struct found for {:?}", self.body.place_ty(place).data());
                 }
             }
         }

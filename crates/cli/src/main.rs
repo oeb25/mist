@@ -90,7 +90,7 @@ async fn cli() -> Result<()> {
                     );
                 }
                 if dump_isorecursive {
-                    mir::analysis::isorecursive::IsorecursivePass::new(&cx, &mut mir).run();
+                    mir::analysis::isorecursive::IsorecursivePass::new(&mut mir).run();
                     if dump_mir {
                         println!(
                             "{}",
@@ -105,7 +105,7 @@ async fn cli() -> Result<()> {
 
                     if dump_liveness {
                         mir::analysis::cfg::dot_imgcat(&cfg.analysis_dot(
-                            &mir::analysis::liveness::FoldingAnalysisResults::compute(&cx, &mir),
+                            &mir::analysis::liveness::FoldingAnalysisResults::compute(&mir),
                             |x| {
                                 format!(
                                     "{:?}",

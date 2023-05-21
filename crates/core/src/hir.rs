@@ -737,6 +737,12 @@ impl<T> TypeData<T> {
     pub fn is_void(&self) -> bool {
         matches!(self, TypeData::Void)
     }
+    pub fn is_ghost(&self) -> bool {
+        matches!(self, TypeData::Ghost(_))
+    }
+    pub fn is_error(&self) -> bool {
+        matches!(self, TypeData::Error)
+    }
 }
 impl TypeData<TypeSrcId> {
     pub fn canonical(&self, cx: &ItemContext) -> TypeData {

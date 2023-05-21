@@ -3,8 +3,8 @@ use std::ops::ControlFlow;
 use derive_new::new;
 use mist_core::{
     hir::{
-        self, pretty, ExprData, ExprIdx, Field, FieldParent, Ident, Param, SourceProgram, TypeData,
-        TypeSrcId, VariableIdx, VariableRef,
+        self, pretty, types::TypeProvider, ExprData, ExprIdx, Field, FieldParent, Ident, Param,
+        SourceProgram, TypeData, TypeSrcId, VariableIdx, VariableRef,
     },
     salsa,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
@@ -53,14 +53,14 @@ impl<'a> Visitor for HoverFinder<'a> {
     fn visit_field(
         &mut self,
         vcx: &VisitContext,
-        field: &Field,
+        field: Field,
         reference: &Ident,
     ) -> ControlFlow<Option<HoverResult>> {
         if reference.contains_pos(self.byte_offset) {
             match field.parent(self.db) {
                 FieldParent::Struct(s) => {
                     let struct_ty = pretty::ty(&*vcx.cx, self.db, vcx.cx[vcx.cx.struct_ty(s)].ty);
-                    let ty = pretty::ty(&*vcx.cx, self.db, vcx.cx.field_ty(self.db, field));
+                    let ty = pretty::ty(&*vcx.cx, self.db, vcx.cx.field_ty(field).id());
                     break_code(
                         [
                             format!("struct {struct_ty}"),
@@ -71,7 +71,7 @@ impl<'a> Visitor for HoverFinder<'a> {
                 }
                 FieldParent::List(list_ty) => {
                     let list_ty = pretty::ty(&*vcx.cx, self.db, list_ty);
-                    let ty = pretty::ty(&*vcx.cx, self.db, vcx.cx.field_ty(self.db, field));
+                    let ty = pretty::ty(&*vcx.cx, self.db, vcx.cx.field_ty(field).id());
                     break_code(
                         [format!("[{list_ty}]"), format!("len: {ty}")],
                         Some(reference.span()),
@@ -90,7 +90,7 @@ impl<'a> Visitor for HoverFinder<'a> {
     ) -> ControlFlow<Option<HoverResult>> {
         if var.contains_pos(self.byte_offset) {
             let name = vcx.cx.var_ident(var);
-            let ty = pretty::ty(&*vcx.cx, self.db, vcx.cx.var_ty(var));
+            let ty = pretty::ty(&*vcx.cx, self.db, vcx.cx.var_ty(var).id());
 
             break_code(
                 [match vcx.cx.decl(var).kind() {

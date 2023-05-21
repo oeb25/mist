@@ -38,7 +38,7 @@ pub fn viper_file(
         let Some(item) = hir::item(db, &root, item_id) else { continue };
         let Some((cx, _source_map)) = hir::item_lower(db, program, item_id, item) else { continue };
         let (mut mir, _mir_source_map) = mir::lower_item(db, cx.clone());
-        mir::analysis::isorecursive::IsorecursivePass::new(&cx, &mut mir).run();
+        mir::analysis::isorecursive::IsorecursivePass::new(&mut mir).run();
         match internal_viper_item(db, cx, &mut lowerer, item, &mir) {
             Ok(items) => {
                 for item in items {

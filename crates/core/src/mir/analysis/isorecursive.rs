@@ -1,7 +1,6 @@
 use derive_new::new;
 
 use crate::{
-    hir::ItemContext,
     mir::{BlockLocation, Body, BodyLocation, Folding, Instruction},
     util::IdxSet,
 };
@@ -10,7 +9,6 @@ use super::{cfg::Cfg, folding_tree::FoldingTree, liveness, monotone::MonotoneFra
 
 #[derive(new)]
 pub struct IsorecursivePass<'a> {
-    cx: &'a ItemContext,
     body: &'a mut Body,
 }
 
@@ -25,7 +23,7 @@ impl IsorecursivePass<'_> {
     /// Run the pass from the given block
     // #[tracing::instrument(name = "IsorecursivePass", skip(self))]
     pub fn run(&mut self) {
-        let liveness = liveness::Liveness::compute(self.cx, self.body);
+        let liveness = liveness::Liveness::compute(self.body);
 
         let cfg = Cfg::compute(self.body);
 
@@ -50,7 +48,7 @@ impl IsorecursivePass<'_> {
             }
         }
 
-        let folding_liveness = liveness::FoldingAnalysisResults::compute(self.cx, self.body);
+        let folding_liveness = liveness::FoldingAnalysisResults::compute(self.body);
         let mut internal_foldings: Vec<InternalFolding> = Vec::new();
 
         let cfg = Cfg::compute(self.body);
@@ -82,7 +80,7 @@ impl IsorecursivePass<'_> {
                     }
                 }
                 let outgoing = current;
-                let termination_folding = liveness::FoldingAnalysis.initial(self.cx, self.body);
+                let termination_folding = liveness::FoldingAnalysis.initial(self.body);
 
                 if self.body.succeeding_blocks(bid).next().is_none() {
                     let mut outgoing = outgoing;

@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    hir, mir,
+    mir,
     util::{IdxMap, IdxSet, IdxWrap},
 };
 
@@ -161,7 +161,7 @@ pub trait MonotoneFramework {
         terminator: &mir::Terminator,
         prev: &mut Self::Domain,
     );
-    fn initial(&self, cx: &hir::ItemContext, body: &mir::Body) -> Self::Domain;
+    fn initial(&self, body: &mir::Body) -> Self::Domain;
     fn debug(&self, item: &Self::Domain) {
         let _ = item;
     }
@@ -214,7 +214,6 @@ impl Worklist for LiFo {
 
 pub fn mono_analysis<A: MonotoneFramework, W: Worklist>(
     a: A,
-    cx: &hir::ItemContext,
     body: &mir::Body,
 ) -> AnalysisResults<A> {
     let mut worklist = W::empty();
@@ -227,7 +226,7 @@ pub fn mono_analysis<A: MonotoneFramework, W: Worklist>(
         worklist.insert(bid);
     }
 
-    let initial = a.initial(cx, body);
+    let initial = a.initial(body);
     A::Direction::initial_blocks(body, |bid| {
         let mut prev = initial.clone();
         A::Direction::semantic(&a, body, &mut prev, bid);

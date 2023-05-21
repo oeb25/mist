@@ -5,7 +5,7 @@ use std::{ops::ControlFlow, sync::Arc};
 use derive_new::new;
 use itertools::Itertools;
 use mist_core::{
-    hir::{self, ExprIdx, SourceProgram, VariableIdx, VariableRef},
+    hir::{self, types::TypeProvider, ExprIdx, SourceProgram, VariableIdx, VariableRef},
     salsa,
     util::Position,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
@@ -188,7 +188,7 @@ impl<'src> Visitor for Highlighter<'src> {
             let ty = vcx.cx.var_ty(param.name);
             self.inlay_hints.push(InlayHint {
                 position: Position::from_byte_offset(self.src, span.end()),
-                label: format!(": {}", vcx.cx.pretty_ty(self.db, ty)),
+                label: format!(": {}", vcx.cx.pretty_ty(self.db, ty.id())),
                 kind: None,
                 padding_left: None,
                 padding_right: None,
@@ -203,7 +203,7 @@ impl<'src> Visitor for Highlighter<'src> {
         let e = vcx.cx.expr(expr);
         match &e.data {
             hir::ExprData::Literal(_) => {
-                let tt = match &vcx.cx[vcx.cx.expr_ty(expr)] {
+                let tt = match vcx.cx.expr_ty(expr).data() {
                     hir::TypeData::Function { .. } => TT::Function,
                     hir::TypeData::Primitive(_) => TT::Number,
                     hir::TypeData::Null => TT::Number,
@@ -237,7 +237,7 @@ impl<'src> Visitor for Highlighter<'src> {
 
     fn visit_ty(&mut self, vcx: &VisitContext, ty: hir::TypeSrcId) -> ControlFlow<()> {
         let ts = &vcx.cx[ty];
-        match &vcx.cx[ts.ty] {
+        match vcx.cx.ty_data(ts.ty) {
             hir::TypeData::Primitive(_) => {
                 self.push_opt(
                     Some(vcx.source_map[ty].span()),
@@ -266,7 +266,7 @@ impl<'src> Visitor for Highlighter<'src> {
                 let ty = vcx.cx.var_ty(*variable);
                 self.inlay_hints.push(InlayHint {
                     position: Position::from_byte_offset(self.src, span.end()),
-                    label: format!(": {}", vcx.cx.pretty_ty(self.db, ty)),
+                    label: format!(": {}", vcx.cx.pretty_ty(self.db, ty.id())),
                     kind: None,
                     padding_left: None,
                     padding_right: None,

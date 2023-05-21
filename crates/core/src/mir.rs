@@ -16,7 +16,11 @@ use mist_syntax::{
 use tracing::debug;
 
 use crate::{
-    hir::{self, AssertionKind, Field, Literal, Quantifier, Struct, TypeId, VariableIdx},
+    hir::{
+        self,
+        types::{TypeDataPtr, TypeProvider, TypePtr},
+        AssertionKind, Field, Literal, Quantifier, Struct, TypeId, VariableIdx,
+    },
     util::{impl_idx, IdxArena, IdxMap, IdxWrap},
 };
 
@@ -296,7 +300,7 @@ impl From<SlotId> for Place {
 }
 
 impl_idx!(ProjectionList, Vec<Projection>, default_debug);
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Projection {
     Field(Field, hir::TypeId),
     Index(SlotId, hir::TypeId),
@@ -326,10 +330,9 @@ impl MExpr {
     #[allow(dead_code)]
     fn map_operand(&self, mut map: impl FnMut(&Operand) -> Operand) -> MExpr {
         match self {
-            MExpr::Struct(st, fields) => MExpr::Struct(
-                *st,
-                fields.iter().map(|(f, o)| (f.clone(), map(o))).collect(),
-            ),
+            MExpr::Struct(st, fields) => {
+                MExpr::Struct(*st, fields.iter().map(|(f, o)| (*f, map(o))).collect())
+            }
             MExpr::Use(o) => MExpr::Use(map(o)),
             MExpr::Ref(bk, o) => MExpr::Ref(*bk, *o),
             MExpr::BinaryOp(op, l, r) => MExpr::BinaryOp(*op, map(l), map(r)),
@@ -441,6 +444,16 @@ pub enum BlockOrInstruction {
     Instruction(InstructionId),
 }
 
+impl TypeProvider for Body {
+    fn field_ty(&self, f: Field) -> TypePtr<Self> {
+        self.ty_table[f].wrap(self)
+    }
+
+    fn ty_data(&self, ty: TypeId) -> TypeDataPtr<Self> {
+        self.ty_table.ty_data(ty).with_provider(self)
+    }
+}
+
 impl Body {
     pub fn result_slot(&self) -> Option<SlotId> {
         self.result_slot
@@ -537,17 +550,17 @@ impl Body {
         self.params.as_ref()
     }
 
-    pub fn slot_ty(&self, slot: SlotId) -> hir::TypeId {
-        self.slot_type[slot]
+    pub fn slot_ty(&self, slot: SlotId) -> TypePtr<Self> {
+        self.slot_type[slot].wrap(self)
     }
 
-    pub fn place_ty(&self, place: Place) -> hir::TypeId {
+    pub fn place_ty(&self, place: Place) -> TypePtr<Self> {
         if self[place.projection].is_empty() {
             self.slot_ty(place.slot)
         } else {
             match self[place.projection].last().unwrap() {
-                Projection::Field(_, ty) => *ty,
-                Projection::Index(_, ty) => *ty,
+                Projection::Field(_, ty) => ty.wrap(self),
+                Projection::Index(_, ty) => ty.wrap(self),
             }
         }
     }
@@ -783,13 +796,6 @@ impl std::ops::Index<&'_ FunctionId> for Body {
 
     fn index(&self, index: &'_ FunctionId) -> &Self::Output {
         &self.functions[*index]
-    }
-}
-impl std::ops::Index<TypeId> for Body {
-    type Output = hir::TypeData;
-
-    fn index(&self, index: TypeId) -> &Self::Output {
-        &self.ty_table[index]
     }
 }
 

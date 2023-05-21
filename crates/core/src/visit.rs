@@ -57,7 +57,7 @@ pub trait Walker<'db>: Sized {
     fn walk_field<V: Visitor>(
         &mut self,
         visitor: &mut V,
-        field: &Field,
+        field: Field,
         reference: &Ident,
     ) -> ControlFlow<V::Item>;
     #[must_use]
@@ -123,7 +123,7 @@ pub trait Visitor {
     fn visit_field(
         &mut self,
         vcx: &VisitContext,
-        field: &Field,
+        field: Field,
         reference: &Ident,
     ) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
@@ -243,7 +243,7 @@ where
             hir::TypeDeclData::Struct(s) => {
                 self.walk_ty(visitor, self.vcx.cx.struct_ty(s))?;
                 for f in s.fields(self.db) {
-                    self.walk_field(visitor, &f, &f.name(self.db))?
+                    self.walk_field(visitor, f, &f.name(self.db))?
                 }
             }
         }
@@ -272,7 +272,7 @@ where
     fn walk_field<V: Visitor>(
         &mut self,
         visitor: &mut V,
-        field: &Field,
+        field: Field,
         reference: &Ident,
     ) -> ControlFlow<V::Item> {
         if self.pre() {
@@ -410,12 +410,12 @@ where
             } => {
                 self.walk_expr(visitor, expr)?;
                 if let Some(field) = field {
-                    self.walk_field(visitor, &field, &field_name)?;
+                    self.walk_field(visitor, field, &field_name)?;
                 }
             }
             ExprData::Struct { fields, .. } => {
                 for f in fields {
-                    self.walk_field(visitor, &f.decl, &f.name)?;
+                    self.walk_field(visitor, f.decl, &f.name)?;
                     self.walk_expr(visitor, f.value)?;
                 }
             }
