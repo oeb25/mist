@@ -289,7 +289,7 @@ impl<'a> TypeChecker<'a> {
                 .map(|p| {
                     let ty = checker
                         .expect_find_type_src(&p.ty)
-                        .with_ghost(is_ghost)
+                        .with_ghost(is_ghost || p.is_ghost)
                         .ts(&mut checker);
                     let var = checker.declare_variable(
                         VariableDeclaration::new_param(p.name.clone()),
@@ -1021,4 +1021,6 @@ pub enum TypeCheckErrorKind {
     NonGhostNorPureCalledInGhost,
     #[error("tried to assign a `ghost` value to a variable that is not marked `ghost`")]
     GhostAssignedToNonGhost,
+    #[error("invalid left-hand-side of assignment")]
+    InvalidLhsOfAssignment,
 }
