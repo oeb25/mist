@@ -79,7 +79,7 @@ impl std::ops::Index<TypeSrcId> for ItemContext {
 }
 impl TypeProvider for ItemContext {
     fn field_ty(&self, f: Field) -> TypePtr<Self> {
-        self.ty_table[f].wrap(self)
+        self.ty_table.field_ty(f).with_provider(self)
     }
 
     fn ty_data(&self, ty: TypeId) -> TypeDataPtr<Self> {

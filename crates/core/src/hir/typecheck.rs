@@ -167,6 +167,7 @@ impl From<TypeChecker<'_>> for (ItemContext, ItemSourceMap) {
                 .structs
                 .values()
                 .flat_map(|fields| fields.iter().copied())
+                .chain(tc.field_tys.iter().map(|(f, ty)| (*f, *ty)))
                 .collect_vec()
                 .into_iter()
                 .map(|(f, ty)| (f, ty.ty(&mut tc))),
@@ -948,16 +949,19 @@ impl<'a> TypeChecker<'a> {
                         }
                     }
                     TypeData::List(ty) => match field.as_str() {
-                        "len" => (
-                            Some(Field::new(
+                        "len" => {
+                            let field = Field::new(
                                 self.db,
                                 FieldParent::List(ty),
                                 field.clone(),
                                 false,
                                 None,
-                            )),
-                            self.int(),
-                        ),
+                            );
+                            let int_ty = self.int();
+                            let int_ty_src = self.unsourced_ty(int_ty);
+                            self.field_tys.entry(field).or_insert(int_ty_src);
+                            (Some(field), self.int())
+                        }
                         _ => {
                             return self.expr_error(
                                 it.span(),

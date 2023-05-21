@@ -18,6 +18,7 @@ use crate::{gen::VExprId, lower::pure::PureLowerResult};
 use super::{BodyLower, Result, ViperLowerError};
 
 impl BodyLower<'_> {
+    #[tracing::instrument(skip_all)]
     pub fn method_lower(&mut self, entry: mir::BlockId) -> Result<Seqn<VExprId>> {
         self.postdominators = Default::default();
         for bid in self.body.entry_blocks() {
@@ -240,6 +241,7 @@ impl BodyLower<'_> {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     fn instruction(
         &mut self,
         inst: mir::InstructionId,

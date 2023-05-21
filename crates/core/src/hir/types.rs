@@ -26,10 +26,16 @@ impl TypeTable {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct TypePtr<'a, T> {
     id: TypeId,
     table: &'a T,
+}
+
+impl<'a, T: std::fmt::Debug> std::fmt::Debug for TypePtr<'a, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TypePtr").field("id", &self.id).finish()
+    }
 }
 
 impl<'a, T> Clone for TypePtr<'a, T> {
@@ -82,6 +88,10 @@ where
     pub fn is_void(&self) -> bool {
         self.data().is_void()
     }
+
+    pub fn with_provider<'b, P>(&self, table: &'b P) -> TypePtr<'b, P> {
+        TypePtr { id: self.id, table }
+    }
 }
 
 impl<'a, T> From<TypePtr<'a, T>> for TypeId {
@@ -119,18 +129,14 @@ pub trait TypeProvider: Sized {
 
 impl TypeProvider for TypeTable {
     fn field_ty(&self, f: Field) -> TypePtr<Self> {
-        self[f].wrap(self)
+        if let Some(ty) = self.field_types.get(&f) {
+            ty.wrap(self)
+        } else {
+            panic!("field '{f:?}' was not found in {self:?}")
+        }
     }
 
     fn ty_data(&self, ty: TypeId) -> TypeData<TypePtr<Self>> {
         self.type_data[ty.0].map(|id| id.wrap(self))
-    }
-}
-
-impl std::ops::Index<Field> for TypeTable {
-    type Output = TypeId;
-
-    fn index(&self, field: Field) -> &Self::Output {
-        &self.field_types[&field]
     }
 }
