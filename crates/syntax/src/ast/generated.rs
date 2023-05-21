@@ -1293,6 +1293,7 @@ impl AstNode for ParamList {
 pub struct Decreases {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasExpr for Decreases {}
 impl Decreases {
     pub fn decreases_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![decreases])
@@ -1302,9 +1303,6 @@ impl Decreases {
     }
     pub fn underscore_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![_])
-    }
-    pub fn expr(&self) -> Option<Expr> {
-        support::child(&self.syntax)
     }
 }
 impl AstNode for Decreases {
@@ -1478,10 +1476,8 @@ impl AstNode for Ensures {
 pub struct CommaExpr {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasExpr for CommaExpr {}
 impl CommaExpr {
-    pub fn expr(&self) -> Option<Expr> {
-        support::child(&self.syntax)
-    }
     pub fn comma_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T ! [,])
     }
@@ -1800,10 +1796,8 @@ impl AstNode for LetStmt {
 pub struct ExprStmt {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasExpr for ExprStmt {}
 impl ExprStmt {
-    pub fn expr(&self) -> Option<Expr> {
-        support::child(&self.syntax)
-    }
     pub fn semicolon_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T ! [;])
     }
@@ -1887,12 +1881,10 @@ impl AstNode for AssumeStmt {
 pub struct WhileStmt {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasExpr for WhileStmt {}
 impl WhileStmt {
     pub fn while_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![while])
-    }
-    pub fn expr(&self) -> Option<Expr> {
-        support::child(&self.syntax)
     }
     pub fn invariants(&self) -> AstChildren<Invariant> {
         support::children(&self.syntax)
@@ -1923,12 +1915,10 @@ impl AstNode for WhileStmt {
 pub struct ReturnExpr {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasExpr for ReturnExpr {}
 impl ReturnExpr {
     pub fn return_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![return])
-    }
-    pub fn expr(&self) -> Option<Expr> {
-        support::child(&self.syntax)
     }
     pub fn semicolon_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T ! [;])
@@ -2054,11 +2044,8 @@ impl AstNode for WhileExpr {
 pub struct PrefixExpr {
     pub(crate) syntax: SyntaxNode,
 }
-impl PrefixExpr {
-    pub fn expr(&self) -> Option<Expr> {
-        support::child(&self.syntax)
-    }
-}
+impl crate::ast::HasExpr for PrefixExpr {}
+impl PrefixExpr {}
 impl AstNode for PrefixExpr {
     fn can_cast(kind: SyntaxKind) -> bool {
         kind == PREFIX_EXPR
@@ -2122,10 +2109,8 @@ impl AstNode for RangeExpr {
 pub struct CallExpr {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasExpr for CallExpr {}
 impl CallExpr {
-    pub fn expr(&self) -> Option<Expr> {
-        support::child(&self.syntax)
-    }
     pub fn arg_list(&self) -> Option<ArgList> {
         support::child(&self.syntax)
     }
@@ -2206,6 +2191,7 @@ impl AstNode for IndexExpr {
 pub struct NotNullExpr {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasExpr for NotNullExpr {}
 impl NotNullExpr {
     pub fn excl_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![!])
@@ -2230,10 +2216,8 @@ impl AstNode for NotNullExpr {
 pub struct FieldExpr {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasExpr for FieldExpr {}
 impl FieldExpr {
-    pub fn expr(&self) -> Option<Expr> {
-        support::child(&self.syntax)
-    }
     pub fn dot_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T ! [.])
     }
@@ -2291,12 +2275,10 @@ impl AstNode for StructExpr {
 pub struct ParenExpr {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasExpr for ParenExpr {}
 impl ParenExpr {
     pub fn l_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T!['('])
-    }
-    pub fn expr(&self) -> Option<Expr> {
-        support::child(&self.syntax)
     }
     pub fn r_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![')'])
@@ -2321,15 +2303,13 @@ impl AstNode for ParenExpr {
 pub struct RefExpr {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasExpr for RefExpr {}
 impl RefExpr {
     pub fn amp_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T ! [&])
     }
     pub fn mut_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![mut])
-    }
-    pub fn expr(&self) -> Option<Expr> {
-        support::child(&self.syntax)
     }
 }
 impl AstNode for RefExpr {
@@ -2420,14 +2400,12 @@ impl AstNode for ResultExpr {
 pub struct QuantifierExpr {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasExpr for QuantifierExpr {}
 impl QuantifierExpr {
     pub fn quantifier(&self) -> Option<Quantifier> {
         support::child(&self.syntax)
     }
     pub fn param_list(&self) -> Option<ParamList> {
-        support::child(&self.syntax)
-    }
-    pub fn expr(&self) -> Option<Expr> {
         support::child(&self.syntax)
     }
 }
@@ -2480,10 +2458,8 @@ impl AstNode for ArgList {
 pub struct Arg {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasExpr for Arg {}
 impl Arg {
-    pub fn expr(&self) -> Option<Expr> {
-        support::child(&self.syntax)
-    }
     pub fn comma_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T ! [,])
     }
@@ -2508,12 +2484,10 @@ pub struct StructExprField {
     pub(crate) syntax: SyntaxNode,
 }
 impl crate::ast::HasName for StructExprField {}
+impl crate::ast::HasExpr for StructExprField {}
 impl StructExprField {
     pub fn colon_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T ! [:])
-    }
-    pub fn expr(&self) -> Option<Expr> {
-        support::child(&self.syntax)
     }
     pub fn comma_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T ! [,])

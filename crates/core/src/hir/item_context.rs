@@ -51,9 +51,6 @@ pub struct ItemContext {
     pub(super) self_ty: Option<TypeSrcId>,
     #[new(default)]
     pub(super) self_invariants: Vec<ExprIdx>,
-
-    pub(super) error_ty: TypeId,
-    pub(super) int_ty: TypeId,
 }
 
 impl std::ops::Index<ExprIdx> for ItemContext {
@@ -168,12 +165,6 @@ impl ItemContext {
     }
     pub fn struct_ty(&self, s: Struct) -> TypeSrcId {
         self.struct_types[&s]
-    }
-    pub fn error_ty(&self) -> TypeId {
-        self.error_ty
-    }
-    pub fn int_ty(&self) -> TypeId {
-        self.int_ty
     }
 
     pub fn ty_table(&self) -> Arc<TypeTable> {

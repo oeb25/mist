@@ -7,7 +7,7 @@ mod traits;
 pub use expr_ext::LiteralKind;
 pub use generated::*;
 pub use items_ext::AttrFlags;
-pub use traits::{HasAttrs, HasName};
+pub use traits::{HasAttrs, HasExpr, HasName};
 
 use crate::{support::AstNode, SourceSpan, SyntaxElement, SyntaxNode, SyntaxToken};
 

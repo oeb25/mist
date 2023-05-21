@@ -23,7 +23,7 @@ use crate::{
 };
 
 pub use item_context::{ItemContext, ItemSourceMap, SpanOrAstPtr};
-use typecheck::{TypeCheckError, TypeCheckErrorKind, TypeChecker};
+use typecheck::{builtin::*, TypeCheckError, TypeCheckErrorKind, TypeChecker};
 pub use types::TypeTable;
 
 pub mod pretty;
@@ -212,10 +212,10 @@ pub fn item_lower(
                     for ty_inv in related_invs {
                         if let Some(ast_body) = ty_inv.body(db, &root) {
                             let body = checker.check_block(&ast_body, |f| f);
-                            let ret = checker.bool().ghost();
+                            let ret = ghost_bool();
                             checker.expect_ty(ty_inv.name(db).span(), ret, body.return_ty);
                             let body_expr = checker.alloc_expr(
-                                Expr::new(body.return_ty, ExprData::Block(body)),
+                                ExprData::Block(body).typed(ret),
                                 &ast::Expr::from(ast_body),
                             );
                             checker.cx.self_invariants.push(body_expr);
@@ -230,7 +230,7 @@ pub fn item_lower(
             let mut checker = TypeChecker::init(db, program, &root, item_id);
             if let Some(ast_body) = ty_inv.body(db, &root) {
                 let body = checker.check_block(&ast_body, |f| f);
-                let ret = checker.bool().ghost();
+                let ret = bool().ghost();
                 checker.expect_ty(ty_inv.name(db).span(), ret, body.return_ty);
                 let ret_ty = checker.unsourced_ty(ret);
                 checker.set_return_ty(ret_ty);
@@ -262,7 +262,7 @@ pub fn item_lower(
                 } else {
                     checker.expect_ty(
                         function.name(db).span(),
-                        checker.void().with_ghost(is_ghost),
+                        void().with_ghost(is_ghost),
                         body.return_ty,
                     );
                 }
@@ -476,10 +476,24 @@ pub enum Decreases {
 }
 
 impl_idx!(ExprIdx, Expr, default_debug);
-#[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Expr {
     pub ty: TypeId,
     pub data: ExprData,
+}
+impl Expr {
+    fn new_block(block: Block) -> Expr {
+        Expr {
+            ty: block.return_ty,
+            data: ExprData::Block(block),
+        }
+    }
+    fn new_if(if_expr: IfExpr) -> Expr {
+        Expr {
+            ty: if_expr.return_ty,
+            data: ExprData::If(if_expr),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -536,6 +550,11 @@ pub enum ExprData {
     },
     Return(Option<ExprIdx>),
     NotNull(ExprIdx),
+}
+impl ExprData {
+    fn typed(self, ty: TypeId) -> Expr {
+        Expr { ty, data: self }
+    }
 }
 #[derive(Debug, Display, Clone, PartialEq, Eq, Hash)]
 pub enum Literal {

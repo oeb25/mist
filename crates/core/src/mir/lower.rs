@@ -4,8 +4,8 @@ use tracing::debug;
 
 use crate::{
     hir::{
-        self, pretty, AssertionKind, ExprData, ExprIdx, IfExpr, ItemContext, Program, Statement,
-        StatementData, TypeData, TypeId, VariableIdx,
+        self, pretty, typecheck::builtin::error, AssertionKind, ExprData, ExprIdx, IfExpr,
+        ItemContext, Program, Statement, StatementData, TypeData, TypeId, VariableIdx,
     },
     mir::{MirError, MirErrors, Operand},
 };
@@ -482,7 +482,7 @@ impl MirLower<'_> {
                 }
             }
             ExprData::Struct { .. } => todo!(),
-            ExprData::Missing => (bid, self.alloc_tmp(self.cx.error_ty())),
+            ExprData::Missing => (bid, self.alloc_tmp(error())),
             ExprData::If(_) => todo!(),
             ExprData::Call { .. } => todo!(),
             ExprData::Unary { .. } => todo!(),

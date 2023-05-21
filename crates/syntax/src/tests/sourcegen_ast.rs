@@ -551,6 +551,7 @@ fn extract_struct_traits(ast: &mut AstSrc) {
     let traits: &[(&str, &[&str])] = &[
         ("HasAttrs", &["attrs"]),
         ("HasName", &["name"]),
+        ("HasExpr", &["expr"]),
         // ("HasVisibility", &["visibility"]),
         // ("HasGenericParams", &["generic_param_list", "where_clause"]),
         // ("HasTypeBounds", &["type_bound_list", "colon_token"]),

@@ -1,5 +1,5 @@
 use crate::{
-    ast::{HasName, Item, Stmt},
+    ast::{HasExpr, HasName, Item, Stmt},
     parser::Parser,
 };
 

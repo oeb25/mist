@@ -205,7 +205,7 @@ IndexExpr =
   base:Expr '[' index:Expr ']'
 
 NotNullExpr =
-  base:Expr '!'
+  Expr '!'
 
 FieldExpr =
   Expr '.' field:Name

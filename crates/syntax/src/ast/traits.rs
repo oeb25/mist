@@ -1,6 +1,6 @@
 use crate::support::{self, AstNode};
 
-use super::{Attr, AttrFlags, Attrs, Name};
+use super::{Attr, AttrFlags, Attrs, Expr, Name};
 
 pub trait HasAttrs: AstNode {
     fn attrs(&self) -> Option<Attrs> {
@@ -29,6 +29,11 @@ pub trait HasAttrs: AstNode {
 
 pub trait HasName: AstNode {
     fn name(&self) -> Option<Name> {
+        support::child(self.syntax())
+    }
+}
+pub trait HasExpr: AstNode {
+    fn expr(&self) -> Option<Expr> {
         support::child(self.syntax())
     }
 }

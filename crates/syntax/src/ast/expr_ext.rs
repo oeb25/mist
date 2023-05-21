@@ -105,12 +105,6 @@ impl ast::IndexExpr {
     }
 }
 
-impl ast::NotNullExpr {
-    pub fn base(&self) -> Option<ast::Expr> {
-        support::children(self.syntax()).next()
-    }
-}
-
 impl ast::IfExpr {
     pub fn condition(&self) -> Option<ast::Expr> {
         support::children(self.syntax()).next()
