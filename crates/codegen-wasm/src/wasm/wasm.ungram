@@ -1,0 +1,32 @@
+// WASM Un-Grammar.
+
+Module = ModuleItem*
+
+ModuleItem =
+  Func
+| Mem
+
+Func = '(' 'func' Id? FuncExport? TypeUse Local* Instr* ')'
+
+FuncExport = '(' 'export' Name ')'
+
+TypeUse = '(' 'type' TypeIdx ')' Param* Result*
+
+TypeIdx = idx:'u32' | Id
+
+Param = '(' 'param' Id? ty:ValType ')'
+
+Result = '(' 'result' ty:ValType ')'
+
+Local = '(' 'local' Id? ty:ValType ')'
+
+Mem = '(' 'memory' Id? MemType ')'
+
+MemType = Limits
+
+Limits = min:'u32' max:'u32'?
+
+Id = 'id'
+Name = 'name'
+ValType = 'valtype'
+Instr = 'instr'

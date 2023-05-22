@@ -15,6 +15,7 @@ mist-syntax.workspace = true
 owo-colors = "3.5.0"
 petgraph = "0.6.3"
 salsa.workspace = true
+smol_str.workspace = true
 thiserror.workspace = true
 tracing-test.workspace = true
 tracing.workspace = true

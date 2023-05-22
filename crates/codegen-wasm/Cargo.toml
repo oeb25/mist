@@ -1,0 +1,28 @@
+[package]
+name = "mist-codegen-wasm"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+itertools.workspace = true
+la-arena = "0.3.0"
+miette.workspace = true
+mist-core.workspace = true
+mist-syntax.workspace = true
+salsa.workspace = true
+silvers.workspace = true
+thiserror.workspace = true
+tracing-subscriber.workspace = true
+tracing.workspace = true
+wasmer = "3.3.0"
+wasmer-compiler = { version = "3.3.0", features = ["compiler"] }
+wasmer-compiler-cranelift = "3.3.0"
+wasmer-types = "3.3.0"
+
+[dev-dependencies]
+heck = "0.4.0"
+proc-macro2 = "1.0.50"
+quote = "1.0.23"
+ungrammar = "1.16.1"
