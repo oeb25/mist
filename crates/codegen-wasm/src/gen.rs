@@ -69,7 +69,7 @@ impl<'a> FunctionLowerer<'a> {
                 layout
                     .field_offsets
                     .push((layout.types.len(), current_offset));
-                let next = self.compute_ty_layout(self.body.field_ty(f));
+                let next = self.compute_ty_layout(self.body.field_ty(f.field()));
                 let size: u32 = next.iter().map(|ty| ty.num_bytes()).sum();
                 let next_offset = current_offset + size;
                 layout.types.extend(next);

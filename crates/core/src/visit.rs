@@ -1,23 +1,23 @@
 use std::{ops::ControlFlow, sync::Arc};
 
 use derive_new::new;
-use mist_syntax::ast;
+use mist_syntax::ast::{self, HasName};
 
 use crate::hir::{
-    self, Block, Decreases, ExprData, ExprIdx, Field, Function, Ident, IfExpr, ItemContext,
-    ItemSourceMap, Param, Program, Statement, StatementData, TypeData, TypeDecl, TypeInvariant,
-    TypeSrcId, VariableIdx, VariableRef,
+    self, Block, Decreases, ExprData, ExprIdx, Field, Function, IfExpr, ItemContext, ItemSourceMap,
+    Param, Program, Statement, StatementData, TypeData, TypeDecl, TypeInvariant, TypeSrcId,
+    VariableIdx, VariableRef,
 };
 
 pub trait Walker<'db>: Sized {
-    fn init(db: &'db dyn crate::Db, vcx: VisitContext) -> Self
+    fn init(db: &'db dyn crate::Db, root: &'db ast::SourceFile, vcx: VisitContext) -> Self
     where
         Self:;
     #[must_use]
     fn walk_program<'v, V: Visitor>(
         db: &'db dyn crate::Db,
         program: Program,
-        root: &ast::SourceFile,
+        root: &'db ast::SourceFile,
         visitor: &'v mut V,
     ) -> ControlFlow<V::Item> {
         for &item_id in program.items(db) {
@@ -25,7 +25,7 @@ pub trait Walker<'db>: Sized {
             let Some((cx, source_map)) = hir::item_lower(db, program, item_id, item) else { continue };
             let cx = Arc::new(cx);
             let source_map = Arc::new(source_map);
-            let mut walker = Self::init(db, VisitContext { cx, source_map });
+            let mut walker = Self::init(db, root, VisitContext { cx, source_map });
             match item {
                 hir::Item::Type(ty_decl) => {
                     walker.walk_ty_decl(visitor, ty_decl)?;
@@ -58,7 +58,7 @@ pub trait Walker<'db>: Sized {
         &mut self,
         visitor: &mut V,
         field: Field,
-        reference: &Ident,
+        reference: &ast::NameOrNameRef,
     ) -> ControlFlow<V::Item>;
     #[must_use]
     fn walk_function<V: Visitor>(
@@ -124,7 +124,7 @@ pub trait Visitor {
         &mut self,
         vcx: &VisitContext,
         field: Field,
-        reference: &Ident,
+        reference: &ast::NameOrNameRef,
     ) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
@@ -173,6 +173,7 @@ pub trait Visitor {
 #[derive(new)]
 pub struct OrderedWalk<'db, O> {
     db: &'db dyn crate::Db,
+    root: &'db ast::SourceFile,
     vcx: VisitContext,
     order: O,
 }
@@ -222,9 +223,10 @@ impl<'db, O> Walker<'db> for OrderedWalk<'db, O>
 where
     O: Order + Default,
 {
-    fn init(db: &'db dyn crate::Db, vcx: VisitContext) -> Self {
+    fn init(db: &'db dyn crate::Db, root: &'db ast::SourceFile, vcx: VisitContext) -> Self {
         Self {
             db,
+            root,
             vcx,
             order: O::default(),
         }
@@ -243,7 +245,10 @@ where
             hir::TypeDeclData::Struct(s) => {
                 self.walk_ty(visitor, self.vcx.cx.struct_ty(s))?;
                 for f in s.fields(self.db) {
-                    self.walk_field(visitor, f, &f.name(self.db))?
+                    let f_ast = f.ast_node(self.db, self.root);
+                    if let Some(name) = f_ast.name() {
+                        self.walk_field(visitor, f.field(), &ast::NameOrNameRef::Name(name))?
+                    }
                 }
             }
         }
@@ -273,7 +278,7 @@ where
         &mut self,
         visitor: &mut V,
         field: Field,
-        reference: &Ident,
+        reference: &ast::NameOrNameRef,
     ) -> ControlFlow<V::Item> {
         if self.pre() {
             visitor.visit_field(&self.vcx, field, reference)?;
@@ -403,19 +408,27 @@ where
                 visitor.visit_self(&self.vcx, &self.vcx.source_map[expr])?;
             }
             ExprData::Field {
-                expr,
-                field,
-                field_name,
-                ..
+                expr: inner, field, ..
             } => {
-                self.walk_expr(visitor, expr)?;
-                if let Some(field) = field {
-                    self.walk_field(visitor, field, &field_name)?;
+                self.walk_expr(visitor, inner)?;
+                let expr_src = self.vcx.source_map.expr_src(expr);
+
+                // TODO: This should be replaces with a try-block when stable
+                let res: Option<_> = (|| {
+                    let field = field?;
+                    let src: ast::FieldExpr =
+                        expr_src.into_ptr()?.cast()?.to_node(self.root.syntax());
+                    let field_ref = ast::NameOrNameRef::NameRef(src.field().unwrap());
+                    Some(self.walk_field(visitor, field, &field_ref))
+                })();
+                if let Some(res) = res {
+                    res?;
                 }
             }
             ExprData::Struct { fields, .. } => {
                 for f in fields {
-                    self.walk_field(visitor, f.decl, &f.name)?;
+                    let field_ref = ast::NameOrNameRef::NameRef(f.name.to_node(self.root.syntax()));
+                    self.walk_field(visitor, f.decl, &field_ref)?;
                     self.walk_expr(visitor, f.value)?;
                 }
             }

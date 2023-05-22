@@ -1,12 +1,11 @@
 use itertools::Itertools;
 
 use super::{
-    pretty, Expr, ExprData, ExprIdx, Ident, Literal, Param, TypeData, TypeId, TypeSrcId,
-    VariableIdx,
+    pretty, Expr, ExprData, ExprIdx, Literal, Name, Param, TypeData, TypeId, TypeSrcId, VariableIdx,
 };
 
 pub trait PrettyPrint {
-    fn resolve_var(&self, idx: VariableIdx) -> Ident;
+    fn resolve_var(&self, idx: VariableIdx) -> Name;
     fn resolve_var_ty(&self, idx: VariableIdx) -> TypeId;
     fn resolve_ty(&self, ty: TypeId) -> TypeData;
     fn resolve_src_ty(&self, ts: TypeSrcId) -> TypeId;
@@ -32,7 +31,7 @@ pub fn params(
     pp: &impl PrettyPrint,
     db: &dyn crate::Db,
     strip_ghost: bool,
-    params: impl IntoIterator<Item = Param<Ident>>,
+    params: impl IntoIterator<Item = Param<Name>>,
 ) -> String {
     format!(
         "({})",
@@ -113,7 +112,7 @@ pub fn expr(pp: &impl PrettyPrint, db: &dyn crate::Db, expr: ExprIdx) -> String 
             struct_declaration.name(db),
             fields
                 .iter()
-                .map(|f| format!("{}: {}", f.name, pp_expr(pp, db, f.value)))
+                .map(|f| format!("{}: {}", f.decl.name(db), pp_expr(pp, db, f.value)))
                 .format(", ")
         ),
         ExprData::NotNull(it) => format!("{}!", pp_expr(pp, db, *it)),

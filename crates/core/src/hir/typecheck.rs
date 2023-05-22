@@ -7,19 +7,19 @@ use std::{
 };
 
 use bitflags::bitflags;
-use derive_new::new;
 use itertools::Itertools;
 use miette::Diagnostic;
 use mist_syntax::{
     ast::{self, HasAttrs, HasExpr, HasName, Spanned},
+    ptr::AstPtr,
     SourceSpan,
 };
 use thiserror::Error;
 use tracing::error;
 
 use crate::hir::{
-    self, AssertionKind, Block, Condition, Decreases, Expr, ExprData, ExprIdx, Field, Ident,
-    ItemId, Param, Primitive, Program, Statement, StatementData, TypeData, Variable, VariableId,
+    self, AssertionKind, Block, Condition, Decreases, Expr, ExprData, ExprIdx, Field, ItemId, Name,
+    Param, Primitive, Program, Statement, StatementData, TypeData, Variable, VariableId,
     VariableIdx, VariableRef,
 };
 
@@ -29,7 +29,7 @@ use typer::{builtin::*, Typer};
 use super::{
     item_context::{FunctionContext, SpanOrAstPtr},
     types::TypeProvider,
-    ItemContext, ItemSourceMap, TypeSrc, TypeSrcId, TypeTable,
+    ItemContext, ItemSourceMap, StructFieldRef, TypeSrc, TypeSrcId, TypeTable,
 };
 
 fn id<T>(t: T) -> T {
@@ -44,28 +44,56 @@ pub enum VariableDeclarationKind {
     Undefined,
 }
 
-#[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VariableDeclaration {
-    name: Ident,
+    name: Name,
+    ast: AstPtr<ast::NameOrNameRef>,
     kind: VariableDeclarationKind,
 }
 
 impl VariableDeclaration {
-    pub(crate) fn new_let(name: impl Into<Ident>) -> Self {
-        VariableDeclaration::new(name.into(), VariableDeclarationKind::Let)
+    pub(crate) fn new_let(name: ast::Name) -> Self {
+        let name = ast::NameOrNameRef::Name(name);
+        let ast = AstPtr::new(&name);
+        VariableDeclaration {
+            ast,
+            name: name.into(),
+            kind: VariableDeclarationKind::Let,
+        }
     }
-    pub(crate) fn new_param(name: impl Into<Ident>) -> Self {
-        VariableDeclaration::new(name.into(), VariableDeclarationKind::Parameter)
+    pub(crate) fn new_param(name: ast::Name) -> Self {
+        let name = ast::NameOrNameRef::Name(name);
+        let ast = AstPtr::new(&name);
+        VariableDeclaration {
+            ast,
+            name: name.into(),
+            kind: VariableDeclarationKind::Parameter,
+        }
     }
-    pub(crate) fn new_function(name: impl Into<Ident>) -> Self {
-        VariableDeclaration::new(name.into(), VariableDeclarationKind::Function)
+    pub(crate) fn new_function(name: ast::Name) -> Self {
+        let name = ast::NameOrNameRef::Name(name);
+        let ast = AstPtr::new(&name);
+        VariableDeclaration {
+            ast,
+            name: name.into(),
+            kind: VariableDeclarationKind::Function,
+        }
     }
-    pub(crate) fn new_undefined(name: impl Into<Ident>) -> Self {
-        VariableDeclaration::new(name.into(), VariableDeclarationKind::Undefined)
+    pub(crate) fn new_undefined(name: ast::NameRef) -> Self {
+        let name = ast::NameOrNameRef::NameRef(name);
+        let ast = AstPtr::new(&name);
+        VariableDeclaration {
+            ast,
+            name: name.into(),
+            kind: VariableDeclarationKind::Undefined,
+        }
     }
 
-    pub fn name(&self) -> &Ident {
-        &self.name
+    pub fn ast_name_or_name_ref(&self, root: &ast::SourceFile) -> ast::NameOrNameRef {
+        self.ast.to_node(root.syntax())
+    }
+    pub fn name(&self) -> Name {
+        self.name.clone()
     }
 
     pub fn kind(&self) -> VariableDeclarationKind {
@@ -75,7 +103,7 @@ impl VariableDeclaration {
 
 impl Spanned for &'_ VariableDeclaration {
     fn span(self) -> SourceSpan {
-        self.name.span()
+        (&self.ast).span()
     }
 }
 
@@ -119,17 +147,17 @@ impl Default for ScopeFlags {
 #[derive(Debug, Default, Clone)]
 pub struct Scope {
     flags: ScopeFlags,
-    vars: HashMap<String, VariableIdx>,
+    vars: HashMap<Name, VariableIdx>,
 }
 
 impl Scope {
     pub fn is_ghost(&self) -> bool {
         self.flags.is_ghost()
     }
-    pub fn insert(&mut self, name: String, var: VariableIdx) {
+    pub fn insert(&mut self, name: Name, var: VariableIdx) {
         self.vars.insert(name, var);
     }
-    pub fn get(&mut self, name: &str) -> Option<VariableIdx> {
+    pub fn get(&mut self, name: &Name) -> Option<VariableIdx> {
         self.vars.get(name).copied()
     }
 }
@@ -153,7 +181,7 @@ impl From<TypeChecker<'_>> for (ItemContext, ItemSourceMap) {
             tc.cx
                 .structs
                 .values()
-                .flat_map(|fields| fields.iter().copied())
+                .flat_map(|fields| fields.iter().map(|(f, ty_src)| (f.field(), *ty_src)))
                 .chain(tc.field_tys.iter().map(|(f, ty)| (*f, *ty)))
                 .collect_vec()
                 .into_iter()
@@ -204,26 +232,31 @@ impl<'a> TypeChecker<'a> {
                 Some(hir::Item::Function(f)) => f,
                 Some(hir::Item::Type(t)) => match t.data(db) {
                     hir::TypeDeclData::Struct(s) => {
+                        let s_ast = s.ast_node(db, root);
+
                         let s_ty = *checker
                             .cx
                             .named_types
-                            .entry(t.name(db).to_string())
+                            .entry(s.name(db))
                             .or_insert_with(|| checker.typer.ty_id(TypeData::Struct(s)));
-                        let ts = checker.alloc_type_src(
-                            TypeSrc {
-                                data: Some(TypeData::Struct(s)),
-                                ty: s_ty,
-                            },
-                            s.name(db).span(),
-                        );
-                        checker.cx.struct_types.insert(s, ts);
+                        if let Some(name) = s_ast.name() {
+                            let ts = checker.alloc_type_src(
+                                TypeSrc {
+                                    data: Some(TypeData::Struct(s)),
+                                    ty: s_ty,
+                                },
+                                name.span(),
+                            );
+                            checker.cx.struct_types.insert(s, ts);
+                        }
 
                         let fields = s
                             .fields(db)
                             .map(|f| {
-                                let data = f.ty(db, root);
+                                let data = f.ast_node(db, root).ty();
                                 let ty = checker.expect_find_type_src(&data);
-                                let ty_id = *checker.field_tys.entry(f).or_insert_with(|| ty);
+                                let ty_id =
+                                    *checker.field_tys.entry(f.field()).or_insert_with(|| ty);
                                 (f, ty_id)
                             })
                             .collect();
@@ -235,6 +268,7 @@ impl<'a> TypeChecker<'a> {
                 _ => continue,
             };
             let is_ghost = f.attrs(db).is_ghost();
+            let f_ast = f.ast_node(db, root);
 
             let params = f
                 .param_list(db, root)
@@ -242,12 +276,12 @@ impl<'a> TypeChecker<'a> {
                     let ty = checker.expect_find_type_src(&param.ty);
                     Param {
                         is_ghost: param.is_ghost,
-                        name: param.name,
+                        name: param.name.into(),
                         ty: checker.ghostify(ty, is_ghost),
                     }
                 })
                 .collect();
-            let return_ty_src = f.ret(db, root).map(|ty| {
+            let return_ty_src = f_ast.ret().map(|ty| {
                 checker
                     .find_type_src(&ty)
                     .with_ghost(is_ghost)
@@ -259,31 +293,35 @@ impl<'a> TypeChecker<'a> {
                 .with_ghost(is_ghost)
                 .ty(&mut checker);
 
-            let var_span = f.name(db).span();
-            let ty = checker.ty_id(TypeData::Function {
-                attrs: f.attrs(db),
-                name: Some(f.name(db).clone()),
-                params,
-                return_ty,
-            });
-            let ts = checker.unsourced_ty(ty);
-            let var = checker.declare_variable(
-                VariableDeclaration::new_function(f.name(db).clone()),
-                ts,
-                var_span,
-            );
-
-            if let hir::ItemData::Fn { .. } = &item_data {
-                checker.cx.function_context = Some(FunctionContext {
-                    function_var: VariableRef::new(var, var_span),
-                    decreases: Default::default(),
-                    conditions: vec![],
-                    return_ty_src,
+            if let Some(name) = f_ast.name() {
+                let ty = checker.ty_id(TypeData::Function {
+                    attrs: f.attrs(db),
+                    name: Some(f.name(db).clone()),
+                    params,
+                    return_ty,
                 });
+                let ts = checker.unsourced_ty(ty);
+                let name_span = name.span();
+                let var = checker.declare_variable(
+                    VariableDeclaration::new_function(name),
+                    ts,
+                    name_span,
+                );
+
+                if let hir::ItemData::Fn { .. } = &item_data {
+                    checker.cx.function_context = Some(FunctionContext {
+                        function_var: VariableRef::new(var, name_span),
+                        decreases: Default::default(),
+                        conditions: vec![],
+                        return_ty_src,
+                    });
+                }
             }
         }
 
         if let Some(hir::Item::Function(f)) = item {
+            let f_ast = f.ast_node(db, root);
+
             checker.cx.params = f
                 .param_list(db, root)
                 .map(|p| {
@@ -307,13 +345,13 @@ impl<'a> TypeChecker<'a> {
                 })
                 .collect();
 
-            checker.cx.return_ty = f.ret(db, root).map(|ty| {
+            checker.cx.return_ty = f_ast.ret().map(|ty| {
                 let ty = checker.find_type_src(&ty);
                 checker.ghostify(ty, is_ghost)
             });
 
-            let conditions = f
-                .conditions(db, root)
+            let conditions = f_ast
+                .conditions()
                 .map(|c| match c {
                     ast::Condition::Requires(r) => {
                         Condition::Requires(checker.check_boolean_exprs(r.comma_exprs()))
@@ -324,7 +362,7 @@ impl<'a> TypeChecker<'a> {
                 })
                 .collect();
 
-            let decreases = checker.check_decreases(f.decreases(db, root));
+            let decreases = checker.check_decreases(f_ast.decreases());
 
             if let Some(cx) = &mut checker.cx.function_context {
                 cx.conditions = conditions;
@@ -334,13 +372,14 @@ impl<'a> TypeChecker<'a> {
 
         checker.cx.self_ty = match item {
             Some(hir::Item::TypeInvariant(ty_inv)) => {
-                let name = ty_inv.name(db);
-                Some(checker.unsourced_ty(checker.find_named_type(name)))
+                ty_inv.ast_node(db, root).name_ref().map(|name| {
+                    checker.unsourced_ty(checker.find_named_type(name.span(), name.into()))
+                })
             }
             Some(hir::Item::Type(ty)) => match ty.data(db) {
-                hir::TypeDeclData::Struct(st) => {
-                    Some(checker.unsourced_ty(checker.find_named_type(st.name(db))))
-                }
+                hir::TypeDeclData::Struct(st) => st.ast_node(db, root).name().map(|name| {
+                    checker.unsourced_ty(checker.find_named_type(name.span(), name.into()))
+                }),
             },
             Some(hir::Item::Function(_)) => None,
             None => None,
@@ -510,33 +549,11 @@ impl<'a> TypeChecker<'a> {
             },
         )
     }
-    fn check_param_list(&mut self, param_list: Option<ast::ParamList>) -> Vec<Param<Ident>> {
-        param_list
-            .into_iter()
-            .flat_map(|pl| pl.params())
-            .map(|p| Param {
-                is_ghost: p.is_ghost(),
-                name: if let Some(name) = p.name() {
-                    name.into()
-                } else {
-                    todo!()
-                },
-                ty: if let Some(ty) = p.ty() {
-                    self.find_type_src(&ty)
-                } else {
-                    let t = self.new_free();
-                    self.unsourced_ty(t)
-                }
-                .with_ghost(p.is_ghost())
-                .ts(self),
-            })
-            .collect()
-    }
     pub(super) fn find_type_src(&mut self, ast_ty: &ast::Type) -> TypeSrcId {
         let (td, ty) = match ast_ty {
-            mist_syntax::ast::Type::NamedType(name) => {
-                let name = name.name().unwrap().into();
-                let ty = self.find_named_type(name);
+            mist_syntax::ast::Type::NamedType(ast_name) => {
+                let name = ast_name.name().unwrap();
+                let ty = self.find_named_type(ast_name, name.into());
                 let td = match self.ty_data(ty) {
                     TypeData::Struct(s) => TypeData::Struct(s),
                     TypeData::Error => TypeData::Error,
@@ -757,7 +774,7 @@ impl<'a> TypeChecker<'a> {
         ty: TypeSrcId,
         ty_span: impl Into<SpanOrAstPtr<ast::Type>>,
     ) -> VariableIdx {
-        let name = decl.name.to_string();
+        let name = decl.name();
         let var = self.cx.declarations.alloc(
             decl,
             Variable::new(self.db, VariableId::new(self.db, name.clone())),
@@ -778,7 +795,7 @@ impl<'a> TypeChecker<'a> {
         .ty
     }
     pub fn lookup_name(&mut self, name: &ast::NameRef) -> VariableIdx {
-        if let Some(var) = self.scope.get(&name.to_string()) {
+        if let Some(var) = self.scope.get(&name.clone().into()) {
             var
         } else {
             let err_ty = self.push_error(
@@ -796,22 +813,18 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    pub(super) fn find_named_type(&self, name: Ident) -> TypeId {
-        self.cx
-            .named_types
-            .get(&name.to_string())
-            .copied()
-            .unwrap_or_else(|| {
-                self.push_error(
-                    &name,
-                    None,
-                    None,
-                    TypeCheckErrorKind::UndefinedType(name.to_string()),
-                )
-            })
+    pub(super) fn find_named_type(&self, span: impl Spanned, name: Name) -> TypeId {
+        self.cx.named_types.get(&name).copied().unwrap_or_else(|| {
+            self.push_error(
+                span,
+                None,
+                None,
+                TypeCheckErrorKind::UndefinedType(name.to_string()),
+            )
+        })
     }
 
-    fn struct_fields(&self, s: crate::hir::Struct) -> impl Iterator<Item = Field> + 'a {
+    fn struct_fields(&self, s: crate::hir::Struct) -> impl Iterator<Item = StructFieldRef> + 'a {
         s.fields(self.db)
     }
 
@@ -912,7 +925,7 @@ impl<T: Typed> Typed for Ghosted<T> {
 }
 
 impl hir::pretty::PrettyPrint for ItemContext {
-    fn resolve_var(&self, idx: VariableIdx) -> Ident {
+    fn resolve_var(&self, idx: VariableIdx) -> Name {
         self.declarations.map[idx].name.clone()
     }
 
@@ -939,7 +952,7 @@ impl hir::pretty::PrettyPrint for ItemContext {
 }
 
 impl hir::pretty::PrettyPrint for TypeChecker<'_> {
-    fn resolve_var(&self, idx: VariableIdx) -> Ident {
+    fn resolve_var(&self, idx: VariableIdx) -> Name {
         self.cx.declarations.map[idx].name.clone()
     }
 
@@ -1008,11 +1021,11 @@ pub enum TypeCheckErrorKind {
     #[error("returned valued in function that did not return anything")]
     ReturnedValueWithNoReturnValue,
     #[error("the field `{field}` does not exist on struct `{strukt}`")]
-    UnknownStructField { field: Ident, strukt: Ident },
+    UnknownStructField { field: Name, strukt: Name },
     #[error("not yet implemented: {0}")]
     NotYetImplemented(String),
     #[error("no struct with name `{name}` was found")]
-    UnknownStruct { name: Ident },
+    UnknownStruct { name: Name },
     #[error("`ghost` was used where only non-ghost can be used")]
     GhostUsedInNonGhost,
     #[error("only `ghost` functions can be declared without a body")]

@@ -373,7 +373,7 @@ impl BodyLower<'_> {
     ) -> Result<Exp<VExprId>> {
         Ok(match &*self.body[fid] {
             mir::FunctionData::Named(v) => Exp::new_func_app(
-                self.cx.var_ident(*v).to_string(),
+                self.cx.var_name(*v).to_string(),
                 args.iter()
                     .map(|s| self.operand_to_ref(source, s))
                     .collect::<Result<_>>()?,
@@ -428,7 +428,7 @@ impl BodyLower<'_> {
     pub(super) fn slot_to_var(&mut self, x: mir::SlotId) -> Result<LocalVar> {
         Ok(match &self.body[x] {
             mir::Slot::Local(var) => LocalVar::new(
-                format!("{}_{}", self.cx.var_ident(*var), x.into_raw()),
+                format!("{}_{}", self.cx.var_name(*var), x.into_raw()),
                 self.lower_type(self.body.slot_ty(x))?.vty,
             ),
             _ => LocalVar::new(

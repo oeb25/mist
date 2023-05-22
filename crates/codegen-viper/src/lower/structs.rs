@@ -30,7 +30,7 @@ impl BodyLower<'_> {
         let field_invs: Vec<_> = s
             .fields(self.db)
             .map(|f| {
-                let field_ty = self.body.field_ty(f);
+                let field_ty = self.body.field_ty(f.field());
                 let ty = self.lower_type(field_ty)?;
                 let viper_field = Field {
                     name: f.name(self.db).to_string(),

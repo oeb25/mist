@@ -35,7 +35,7 @@ pub fn lower_item(db: &dyn crate::Db, cx: ItemContext) -> (Body, BodySourceMap) 
             tracing::Level::DEBUG,
             "mir::lower_item",
             "{}",
-            cx.var_ident(fvar)
+            cx.var_name(fvar)
         )
     });
     let _enter = span.as_ref().map(|span| span.enter());
@@ -205,7 +205,7 @@ impl<'a> MirLower<'a> {
                 MirError::SlotUseBeforeAlloc {
                     item_id: self.cx.item_id(),
                     var,
-                    span: Some(self.cx.var_span(var)),
+                    span: None,
                 },
             );
             self.alloc_tmp(self.cx.var_ty(var))

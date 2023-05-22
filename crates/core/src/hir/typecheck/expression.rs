@@ -1,18 +1,19 @@
-use std::ops::Deref;
-
 use itertools::{
     Either::{self, Left, Right},
     Itertools,
 };
-use mist_syntax::ast::{
-    self,
-    operators::{ArithOp, BinaryOp, CmpOp},
-    HasExpr, Spanned,
+use mist_syntax::{
+    ast::{
+        self,
+        operators::{ArithOp, BinaryOp, CmpOp},
+        HasAttrs, HasExpr, HasName, Spanned,
+    },
+    ptr::AstPtr,
 };
 
 use crate::{
     hir::{
-        Expr, ExprData, ExprIdx, Field, FieldParent, Ident, IfExpr, Literal, Param, Primitive,
+        Expr, ExprData, ExprIdx, Field, FieldParent, IfExpr, Literal, Name, Param, Primitive,
         Quantifier, SpanOrAstPtr, StructExprField, TypeData, TypeId, VariableRef,
     },
     VariableDeclaration,
@@ -429,8 +430,9 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
         }
         ast::Expr::FieldExpr(it) => {
             let expr = check_inner(tc, it);
-            let field = if let Some(field) = it.field() {
-                Ident::from(field)
+            let (field_ast, field) = if let Some(field_ast) = it.field() {
+                let field = Name::from(&field_ast);
+                (field_ast, field)
             } else {
                 todo!()
             };
@@ -446,15 +448,15 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                             .find(|f| f.name(tc.db).as_str() == field.as_str())
                         {
                             (
-                                Some(field),
-                                tc.expect_find_type(&field.ty(tc.db, tc.root))
+                                Some(field.field()),
+                                tc.expect_find_type(&field.ast_node(tc.db, tc.root).ty())
                                     .with_ghost(field.is_ghost(tc.db))
                                     .ty(tc),
                             )
                         } else {
                             return Left(expr_error(
                                 tc,
-                                field.span(),
+                                field_ast.span(),
                                 TypeCheckErrorKind::UnknownStructField {
                                     field,
                                     strukt: s.name(tc.db),
@@ -475,14 +477,14 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                     }
                 },
                 TypeData::Struct(s) => {
-                    if let Some(field) = tc
-                        .struct_fields(s)
-                        .find(|f| f.name(tc.db).deref() == field.deref())
-                    {
-                        (Some(field), tc.expect_find_type(&field.ty(tc.db, tc.root)))
+                    if let Some(field) = tc.struct_fields(s).find(|f| f.name(tc.db) == field) {
+                        (
+                            Some(field.field()),
+                            tc.expect_find_type(&field.ast_node(tc.db, tc.root).ty()),
+                        )
                     } else {
                         tc.push_error(
-                            &field,
+                            &field_ast,
                             None,
                             None,
                             TypeCheckErrorKind::UnknownStructField {
@@ -496,7 +498,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 TypeData::List(ty) => match field.as_str() {
                     "len" => {
                         let field =
-                            Field::new(tc.db, FieldParent::List(ty), field.clone(), false, None);
+                            Field::new(tc.db, None, FieldParent::List(ty), field.clone(), false);
                         let int_ty = int();
                         let int_ty_src = tc.unsourced_ty(int_ty);
                         tc.field_tys.entry(field).or_insert(int_ty_src);
@@ -523,6 +525,10 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                     ));
                 }
             };
+
+            let field_ty = field_ty
+                .with_ghost(expr_ty.tc_is_ghost(&mut tc.typer))
+                .ty(tc);
 
             ExprData::Field {
                 expr,
@@ -555,12 +561,12 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             ExprData::NotNull(inner).typed(ty)
         }
         ast::Expr::StructExpr(it) => {
-            let name: Ident = if let Some(name) = it.name_ref() {
-                name.into()
+            let name_ref = if let Some(name_ref) = it.name_ref() {
+                name_ref
             } else {
                 todo!()
             };
-            let struct_ty = tc.find_named_type(name.clone());
+            let struct_ty = tc.find_named_type(&name_ref, (&name_ref).into());
 
             let s = match tc.ty_data(struct_ty) {
                 TypeData::Struct(s) => s,
@@ -572,8 +578,10 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
 
                     return Left(expr_error(
                         tc,
-                        name.span(),
-                        TypeCheckErrorKind::UnknownStruct { name },
+                        name_ref.span(),
+                        TypeCheckErrorKind::UnknownStruct {
+                            name: name_ref.into(),
+                        },
                     ));
                 }
             };
@@ -584,12 +592,17 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             for f in it.fields() {
                 let mut matched = false;
                 for sf in &fields {
-                    let field_name = Ident::from(f.name_ref().unwrap());
-                    if field_name.as_str() == sf.name(tc.db).as_str() {
+                    let name_ref_ast = f.name_ref().unwrap();
+                    let field_name = Name::from(&name_ref_ast);
+                    if field_name == sf.name(tc.db) {
                         let value = check_inner(tc, &f);
-                        let expected = tc.expect_find_type(&sf.ty(tc.db, tc.root));
+                        let expected = tc.expect_find_type(&sf.ast_node(tc.db, tc.root).ty());
                         tc.expect_ty(tc.expr_span(value), expected, tc.expr_ty(value));
-                        present_fields.push(StructExprField::new(*sf, field_name, value));
+                        present_fields.push(StructExprField::new(
+                            sf.field(),
+                            AstPtr::new(&name_ref_ast),
+                            value,
+                        ));
                         matched = true;
                     }
                 }
@@ -611,7 +624,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 ty: struct_ty,
                 data: ExprData::Struct {
                     struct_declaration: s,
-                    struct_span: name.span(),
+                    struct_span: name_ref.span(),
                     fields: present_fields,
                 },
             }
@@ -679,22 +692,37 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 None => todo!(),
                 _ => todo!(),
             };
-            let params = tc.check_param_list(it.param_list());
-
             tc.push_scope(|f| f);
-            let params = params
+
+            let params = it
+                .param_list()
                 .into_iter()
-                .map(|param| {
-                    let var = tc.declare_variable(
-                        VariableDeclaration::new_param(param.name.clone()),
-                        param.ty,
-                        // TODO: Should this not be the ty?
-                        param.name.span(),
-                    );
+                .flat_map(|pl| pl.params())
+                .map(|p| {
+                    let name = if let Some(name) = p.name() {
+                        name
+                    } else {
+                        todo!()
+                    };
+                    let ty = if let Some(ty) = p.ty() {
+                        tc.find_type_src(&ty)
+                    } else {
+                        let t = tc.new_free();
+                        tc.unsourced_ty(t)
+                    }
+                    .with_ghost(p.is_ghost())
+                    .ts(tc);
+
+                    let var_decl = VariableDeclaration::new_param(name.clone());
+                    let name = if let Some(ty_ast) = p.ty() {
+                        tc.declare_variable(var_decl, ty, &ty_ast)
+                    } else {
+                        tc.declare_variable(var_decl, ty, name.span())
+                    };
                     Param {
                         is_ghost: true,
-                        name: var,
-                        ty: param.ty,
+                        name,
+                        ty,
                     }
                 })
                 .collect();

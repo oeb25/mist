@@ -7,7 +7,7 @@ use mist_core::{
     hir, mir,
     util::{impl_idx, IdxMap, IdxWrap},
 };
-use mist_syntax::{ast::Spanned, SourceSpan};
+use mist_syntax::SourceSpan;
 use silvers::{
     expression::{AbstractLocalVar, Exp, LocationAccess, QuantifierExp, ResourceAccess, SeqExp},
     program::{Domain, ExtensionMember, Field, Function, Method, Predicate, Program},
@@ -172,7 +172,9 @@ fn internal_viper_item(
                             msg: "function had no return type".to_owned(),
                             item_id: cx.item_id(),
                             block_or_inst: None,
-                            span: Some(function.name(db).span()),
+                            span: None,
+                            // TODO: find a way to pass the span here
+                            // span: Some(function.name(db).span()),
                         })?
                         .typ,
                     pres,

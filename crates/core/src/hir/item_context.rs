@@ -14,8 +14,8 @@ use crate::{
 
 use super::{
     types::{TypeDataPtr, TypeProvider, TypePtr, TypeTable},
-    Condition, Decreases, Expr, ExprIdx, Field, Ident, ItemId, Param, Struct, TypeId, TypeSrc,
-    TypeSrcId, Variable, VariableIdx, VariableRef,
+    Condition, Decreases, Expr, ExprIdx, Field, ItemId, Name, Param, Struct, StructFieldRef,
+    TypeId, TypeSrc, TypeSrcId, Variable, VariableIdx, VariableRef,
 };
 
 #[derive(new, Debug, Clone, PartialEq, Eq)]
@@ -35,9 +35,9 @@ pub struct ItemContext {
     #[new(default)]
     pub(super) ty_table: Arc<TypeTable>,
     #[new(default)]
-    pub(super) named_types: HashMap<String, TypeId>,
+    pub(super) named_types: HashMap<Name, TypeId>,
     #[new(default)]
-    pub(super) structs: HashMap<Struct, Vec<(Field, TypeSrcId)>>,
+    pub(super) structs: HashMap<Struct, Vec<(StructFieldRef, TypeSrcId)>>,
     #[new(default)]
     pub(super) struct_types: HashMap<Struct, TypeSrcId>,
 
@@ -133,7 +133,7 @@ impl ItemContext {
     pub fn var_span(&self, var: impl Into<VariableIdx>) -> SourceSpan {
         self.declarations.map[var.into()].span()
     }
-    pub fn var_ident(&self, var: impl Into<VariableIdx>) -> &Ident {
+    pub fn var_name(&self, var: impl Into<VariableIdx>) -> Name {
         self.declarations.map[var.into()].name()
     }
     // TODO: Remove this, but for now keep it, since it seems like we have some
@@ -155,7 +155,7 @@ impl ItemContext {
             super::FieldParent::Struct(s) => {
                 self.structs[&s]
                     .iter()
-                    .find_map(|(f, ty)| if f == &field { Some(*ty) } else { None })
+                    .find_map(|(f, ty)| if f.field() == field { Some(*ty) } else { None })
             }
             super::FieldParent::List(_) => match field.name(db).as_str() {
                 "len" => None,
@@ -181,6 +181,9 @@ pub struct ItemSourceMap {
 }
 
 impl ItemSourceMap {
+    pub fn expr_src(&self, expr: ExprIdx) -> SpanOrAstPtr<ast::Expr> {
+        self.expr_map_back[expr].clone()
+    }
     pub fn expr_span(&self, expr: ExprIdx) -> SourceSpan {
         self.expr_map_back[expr].span()
     }

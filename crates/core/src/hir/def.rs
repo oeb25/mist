@@ -1,3 +1,5 @@
+mod name;
+
 use derive_more::{Display, From};
 use derive_new::new;
 use mist_syntax::{
@@ -16,60 +18,7 @@ use crate::util::impl_idx;
 pub use super::typecheck::TypeId;
 use super::ItemContext;
 
-mod ident {
-    use super::*;
-
-    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct Ident {
-        inner: String,
-        span: SourceSpan,
-    }
-    impl Ident {
-        pub fn as_str(&self) -> &str {
-            self
-        }
-    }
-    impl From<ast::Name> for Ident {
-        fn from(value: ast::Name) -> Self {
-            Ident {
-                inner: value.to_string(),
-                span: value.span(),
-            }
-        }
-    }
-    impl From<ast::NameRef> for Ident {
-        fn from(value: ast::NameRef) -> Self {
-            Ident {
-                inner: value.to_string(),
-                span: value.span(),
-            }
-        }
-    }
-    impl std::fmt::Display for Ident {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            self.inner.fmt(f)
-        }
-    }
-    impl std::fmt::Debug for Ident {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            self.inner.fmt(f)
-        }
-    }
-    impl std::ops::Deref for Ident {
-        type Target = str;
-
-        fn deref(&self) -> &Self::Target {
-            &self.inner
-        }
-    }
-    impl Spanned for &'_ Ident {
-        fn span(self) -> SourceSpan {
-            self.span
-        }
-    }
-}
-
-pub use ident::*;
+pub use name::Name;
 
 #[salsa::interned]
 pub struct ItemId {
@@ -110,19 +59,18 @@ pub enum Item {
 }
 
 impl Item {
-    pub fn name(&self, db: &dyn crate::Db) -> Ident {
+    pub fn name(&self, db: &dyn crate::Db) -> Name {
         match self {
-            Item::Type(t) => t.name(db).clone(),
+            Item::Type(t) => t.name(db),
             Item::TypeInvariant(t) => t.name(db),
-            Item::Function(f) => f.name(db).clone(),
+            Item::Function(f) => f.name(db),
         }
     }
 }
 
 #[salsa::tracked]
 pub struct TypeDecl {
-    #[return_ref]
-    pub name: Ident,
+    pub name: Name,
     pub data: TypeDeclData,
 }
 
@@ -135,20 +83,19 @@ pub enum TypeDeclData {
 pub struct Function {
     #[return_ref]
     syntax: AstPtr<ast::Fn>,
-    #[return_ref]
-    pub name: Ident,
+    pub name: Name,
     pub attrs: AttrFlags,
 }
 
 impl Function {
-    pub fn body(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> Option<ast::BlockExpr> {
-        self.syntax(db).to_node(root.syntax()).body()
+    pub fn ast_node(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> ast::Fn {
+        self.syntax(db).to_node(root.syntax())
     }
     pub fn param_list(
         &self,
         db: &dyn crate::Db,
         root: &ast::SourceFile,
-    ) -> impl Iterator<Item = Param<Ident, Option<ast::Type>>> + '_ {
+    ) -> impl Iterator<Item = Param<ast::Name, Option<ast::Type>>> + '_ {
         self.syntax(db)
             .to_node(root.syntax())
             .param_list()
@@ -156,37 +103,21 @@ impl Function {
             .flat_map(|param_list| {
                 param_list
                     .params()
-                    .map(|param| -> Param<Ident, Option<ast::Type>> {
+                    .map(|param| -> Param<ast::Name, Option<ast::Type>> {
                         Param {
                             is_ghost: param.is_ghost(),
-                            name: param
-                                .name()
-                                .map(Ident::from)
-                                .expect("param did not have a name"),
+                            name: param.name().expect("param did not have a name"),
                             ty: param.ty(),
                         }
                     })
             })
-    }
-    pub fn ret(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> Option<ast::Type> {
-        self.syntax(db).to_node(root.syntax()).ret()
-    }
-    pub fn conditions(
-        &self,
-        db: &dyn crate::Db,
-        root: &ast::SourceFile,
-    ) -> impl Iterator<Item = ast::Condition> {
-        self.syntax(db).to_node(root.syntax()).conditions()
-    }
-    pub fn decreases(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> Option<ast::Decreases> {
-        self.syntax(db).to_node(root.syntax()).decreases()
     }
 }
 
 #[salsa::interned]
 pub struct VariableId {
     #[return_ref]
-    pub text: String,
+    pub text: Name,
 }
 
 #[salsa::tracked]
@@ -298,7 +229,7 @@ pub enum ExprData {
     Block(Block),
     Field {
         expr: ExprIdx,
-        field_name: Ident,
+        field_name: Name,
         field: Option<Field>,
     },
     Struct {
@@ -387,7 +318,7 @@ pub enum Quantifier {
 #[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StructExprField {
     pub decl: Field,
-    pub name: Ident,
+    pub name: AstPtr<ast::NameRef>,
     pub value: ExprIdx,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -468,8 +399,8 @@ pub enum TypeData<T = TypeId> {
     Null,
     Function {
         attrs: AttrFlags,
-        name: Option<Ident>,
-        params: Vec<Param<Ident>>,
+        name: Option<Name>,
+        params: Vec<Param<Name>>,
         return_ty: T,
     },
     Range(T),
@@ -547,32 +478,63 @@ impl TypeData<TypeSrcId> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StructFieldInner {
     // TODO: remove the visibility modifier
-    pub(super) name: Ident,
+    pub(super) node: AstPtr<ast::StructField>,
+    pub(super) name: Name,
     pub(super) is_ghost: bool,
-    pub(super) ty: Option<AstPtr<ast::Type>>,
 }
 
 #[salsa::interned]
 pub struct Struct {
     #[return_ref]
     node: AstPtr<ast::Struct>,
-    pub name: Ident,
+    pub name: Name,
     #[return_ref]
     fields_inner: Vec<StructFieldInner>,
 }
 
 impl Struct {
-    pub fn fields<'db>(&self, db: &'db dyn crate::Db) -> impl Iterator<Item = Field> + 'db {
+    pub fn ast_node(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> ast::Struct {
+        self.node(db).to_node(root.syntax())
+    }
+    pub fn fields<'db>(
+        &self,
+        db: &'db dyn crate::Db,
+    ) -> impl Iterator<Item = StructFieldRef> + 'db {
         let s = *self;
-        self.fields_inner(db).iter().map(move |f| {
-            Field::new(
+        self.fields_inner(db).iter().map(move |f| StructFieldRef {
+            inner: Field::new(
                 db,
+                Some(f.node.clone()),
                 FieldParent::Struct(s),
                 f.name.clone(),
                 f.is_ghost,
-                f.ty.clone(),
-            )
+            ),
         })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StructFieldRef {
+    inner: Field,
+}
+
+impl StructFieldRef {
+    pub fn field(&self) -> Field {
+        self.inner
+    }
+    pub fn ast_node(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> ast::StructField {
+        self.inner
+            .ast_node(db, root)
+            .expect("this is aways okay, since it's been constructed by the parent")
+    }
+    pub fn parent(&self, db: &dyn crate::Db) -> FieldParent {
+        self.inner.parent(db)
+    }
+    pub fn name(&self, db: &dyn crate::Db) -> Name {
+        self.inner.name(db)
+    }
+    pub fn is_ghost(&self, db: &dyn crate::Db) -> bool {
+        self.inner.is_ghost(db)
     }
 }
 
@@ -585,27 +547,31 @@ pub enum FieldParent {
 // #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[salsa::interned]
 pub struct Field {
+    node: Option<AstPtr<ast::StructField>>,
     pub parent: FieldParent,
-    pub name: Ident,
+    pub name: Name,
     pub is_ghost: bool,
-    ast_ty: Option<AstPtr<ast::Type>>,
+    // ast_ty: Option<AstPtr<ast::Type>>,
 }
 
 impl Field {
-    pub fn ty(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> Option<ast::Type> {
-        self.ast_ty(db).as_ref().map(|ty| ty.to_node(root.syntax()))
+    pub fn ast_node(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> Option<ast::StructField> {
+        self.node(db).map(|node| node.to_node(root.syntax()))
     }
+    // pub fn ty(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> Option<ast::Type> {
+    //     self.ast_ty(db).as_ref().map(|ty| ty.to_node(root.syntax()))
+    // }
 }
 
 #[salsa::interned]
 pub struct TypeInvariant {
     #[return_ref]
     node: AstPtr<ast::TypeInvariant>,
-    pub name: Ident,
+    pub name: Name,
 }
 
 impl TypeInvariant {
-    pub fn body(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> Option<ast::BlockExpr> {
-        self.node(db).to_node(root.syntax()).block_expr()
+    pub fn ast_node(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> ast::TypeInvariant {
+        self.node(db).to_node(root.syntax())
     }
 }

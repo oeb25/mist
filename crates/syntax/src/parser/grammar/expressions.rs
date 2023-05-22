@@ -30,7 +30,7 @@ fn expr_bp(p: &mut Parser, loc: Location, min_bp: u8) -> Option<BlockLike> {
         T![result] => p.start_node(RESULT_EXPR, |p| p.bump()),
         T![ident] | T![self] => {
             let checkpoint = p.checkpoint();
-            name(p);
+            name_ref(p);
 
             match p.current() {
                 T!['{'] if !loc.contains(Location::NO_STRUCT) => {
@@ -43,7 +43,7 @@ fn expr_bp(p: &mut Parser, loc: Location, min_bp: u8) -> Option<BlockLike> {
                             |p| match p.current() {
                                 T![ident] => {
                                     p.start_node(STRUCT_EXPR_FIELD, |p| {
-                                        name(p);
+                                        name_ref(p);
                                         p.expect(T![:]);
                                         expr_bp(p, Location::NONE, 0);
                                     });
@@ -156,7 +156,7 @@ fn expr_bp(p: &mut Parser, loc: Location, min_bp: u8) -> Option<BlockLike> {
                 T![.] => {
                     p.start_node_at(lhs, FIELD_EXPR, |p| {
                         p.bump();
-                        name(p);
+                        name_ref(p);
                     });
                 }
                 _ => todo!(),

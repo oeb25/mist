@@ -180,9 +180,9 @@ impl Serializer<'_> {
 
     fn slot(&mut self, cx: Option<&ItemContext>, s: SlotId) {
         match (&self.body.slots[s], cx) {
-            (Slot::Param(v), Some(cx)) => w!(self, Cyan, "{s}_{}", cx.var_ident(*v)),
-            (Slot::Quantified(v), Some(cx)) => w!(self, Cyan, "{s}_{}", cx.var_ident(*v)),
-            (Slot::Local(v), Some(cx)) => w!(self, Cyan, "{s}_{}", cx.var_ident(*v)),
+            (Slot::Param(v), Some(cx)) => w!(self, Cyan, "{s}_{}", cx.var_name(*v)),
+            (Slot::Quantified(v), Some(cx)) => w!(self, Cyan, "{s}_{}", cx.var_name(*v)),
+            (Slot::Local(v), Some(cx)) => w!(self, Cyan, "{s}_{}", cx.var_name(*v)),
             (Slot::Result, _) => w!(self, Magenta, "%result"),
             (Slot::Self_, _) => w!(self, Magenta, "%self"),
             _ => w!(self, Cyan, "{s}"),
@@ -299,7 +299,7 @@ impl Serializer<'_> {
         match &self.body.functions[f].data {
             FunctionData::Named(var) => {
                 if let Some(cx) = cx {
-                    w!(self, Default, "{}", cx.var_ident(*var))
+                    w!(self, Default, "{}", cx.var_name(*var))
                 } else {
                     w!(self, Default, "{var:?}")
                 }

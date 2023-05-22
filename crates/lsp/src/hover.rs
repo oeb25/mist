@@ -3,14 +3,17 @@ use std::ops::ControlFlow;
 use derive_new::new;
 use mist_core::{
     hir::{
-        self, pretty, types::TypeProvider, ExprData, ExprIdx, Field, FieldParent, Ident, Param,
+        self, pretty, types::TypeProvider, ExprData, ExprIdx, Field, FieldParent, Param,
         SourceProgram, TypeData, TypeSrcId, VariableIdx, VariableRef,
     },
     salsa,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
     VariableDeclarationKind,
 };
-use mist_syntax::{ast::Spanned, SourceSpan};
+use mist_syntax::{
+    ast::{self, Spanned},
+    SourceSpan,
+};
 
 #[salsa::tracked]
 pub fn hover(db: &dyn crate::Db, source: SourceProgram, byte_offset: usize) -> Option<HoverResult> {
@@ -54,7 +57,7 @@ impl<'a> Visitor for HoverFinder<'a> {
         &mut self,
         vcx: &VisitContext,
         field: Field,
-        reference: &Ident,
+        reference: &ast::NameOrNameRef,
     ) -> ControlFlow<Option<HoverResult>> {
         if reference.contains_pos(self.byte_offset) {
             match field.parent(self.db) {
@@ -89,7 +92,7 @@ impl<'a> Visitor for HoverFinder<'a> {
         var: VariableRef,
     ) -> ControlFlow<Option<HoverResult>> {
         if var.contains_pos(self.byte_offset) {
-            let name = vcx.cx.var_ident(var);
+            let name = vcx.cx.var_name(var);
             let ty = pretty::ty(&*vcx.cx, self.db, vcx.cx.var_ty(var).id());
 
             break_code(
@@ -111,8 +114,9 @@ impl<'a> Visitor for HoverFinder<'a> {
         vcx: &VisitContext,
         param: &Param<VariableIdx>,
     ) -> ControlFlow<Option<HoverResult>> {
-        let name = vcx.cx.var_ident(param.name);
-        if name.contains_pos(self.byte_offset) {
+        let name_span = vcx.cx.var_span(param.name);
+        let name = vcx.cx.var_name(param.name);
+        if name_span.contains_pos(self.byte_offset) {
             let ty = pretty::ty(&*vcx.cx, self.db, vcx.cx[param.ty].ty);
             break_code([format!("{name}: {ty}")], None)
         } else {

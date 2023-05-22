@@ -2,11 +2,14 @@ use std::ops::ControlFlow;
 
 use derive_new::new;
 use mist_core::{
-    hir::{self, types::TypeProvider, Ident, SourceProgram, VariableRef},
+    hir::{self, types::TypeProvider, SourceProgram, VariableRef},
     salsa,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
 };
-use mist_syntax::{ast::Spanned, SourceSpan};
+use mist_syntax::{
+    ast::{self, HasName, Spanned},
+    SourceSpan,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeclarationSpans {
@@ -23,7 +26,7 @@ pub fn goto_declaration(
     let program = hir::parse_program(db, source);
     let root = program.parse(db).tree();
 
-    let mut visitor = DeclarationFinder::new(db, byte_offset);
+    let mut visitor = DeclarationFinder::new(db, &root, byte_offset);
     match PostOrderWalk::walk_program(db, program, &root, &mut visitor) {
         ControlFlow::Break(result) => result,
         ControlFlow::Continue(()) => None,
@@ -33,6 +36,7 @@ pub fn goto_declaration(
 #[derive(new)]
 struct DeclarationFinder<'a> {
     db: &'a dyn crate::Db,
+    root: &'a ast::SourceFile,
     byte_offset: usize,
 }
 
@@ -42,18 +46,19 @@ impl Visitor for DeclarationFinder<'_> {
         &mut self,
         _: &VisitContext,
         field: hir::Field,
-        reference: &Ident,
+        reference: &ast::NameOrNameRef,
     ) -> ControlFlow<Option<DeclarationSpans>> {
         if reference.contains_pos(self.byte_offset) {
             let original_span = reference.span();
-            let target_span = field.name(self.db).span();
-            ControlFlow::Break(Some(DeclarationSpans {
-                original_span,
-                target_span,
-            }))
-        } else {
-            ControlFlow::Continue(())
+            if let Some(target) = field.ast_node(self.db, self.root) {
+                let target_span = target.name().unwrap().span();
+                return ControlFlow::Break(Some(DeclarationSpans {
+                    original_span,
+                    target_span,
+                }));
+            }
         }
+        ControlFlow::Continue(())
     }
 
     fn visit_ty(
@@ -65,7 +70,7 @@ impl Visitor for DeclarationFinder<'_> {
         if original_span.contains(self.byte_offset) {
             match vcx.cx.ty_data(vcx.cx[ty].ty) {
                 hir::TypeData::Struct(s) => {
-                    let target_span = s.name(self.db).span();
+                    let target_span = s.ast_node(self.db, self.root).name().unwrap().span();
                     ControlFlow::Break(Some(DeclarationSpans {
                         original_span,
                         target_span,

@@ -85,16 +85,16 @@ pub fn item(db: &dyn crate::Db, root: &ast::SourceFile, item_id: ItemId) -> Opti
         }
         ItemData::Struct { ast } => {
             let s = ast.to_node(root.syntax());
-            let name = Ident::from(s.name().unwrap());
+            let name = Name::from(s.name().unwrap());
             let fields = s
                 .struct_fields()
                 .map(|f| {
                     let is_ghost = f.is_ghost();
                     let name = f.name().unwrap();
                     StructFieldInner {
+                        node: AstPtr::new(&f),
                         name: name.into(),
                         is_ghost,
-                        ty: f.ty().as_ref().map(AstPtr::new),
                     }
                 })
                 .collect();
@@ -103,7 +103,7 @@ pub fn item(db: &dyn crate::Db, root: &ast::SourceFile, item_id: ItemId) -> Opti
         }
         ItemData::TypeInvariant { ast } => {
             let i = ast.to_node(root.syntax());
-            let name = Ident::from(i.name_ref().unwrap());
+            let name = Name::from(i.name_ref().unwrap());
             TypeInvariant::new(db, ast, name).into()
         }
         ItemData::Macro { .. } => return None,
@@ -140,7 +140,9 @@ pub fn item_lower(
                             if let Some(hir::Item::TypeInvariant(inv)) =
                                 hir::item(db, &root, item_id)
                             {
-                                if checker.find_named_type(inv.name(db)) == self_ty {
+                                if checker.find_named_type(&inv.ast_node(db, &root), inv.name(db))
+                                    == self_ty
+                                {
                                     return Some(inv);
                                 }
                             }
@@ -149,10 +151,12 @@ pub fn item_lower(
                         .collect_vec();
 
                     for ty_inv in related_invs {
-                        if let Some(ast_body) = ty_inv.body(db, &root) {
+                        let ty_inv_ast = ty_inv.ast_node(db, &root);
+                        if let Some(ast_body) = ty_inv_ast.block_expr() {
                             let body = checker.check_block(&ast_body, |f| f);
                             let ret = ghost_bool();
-                            checker.expect_ty(ty_inv.name(db).span(), ret, body.return_ty);
+                            let name_span = ty_inv_ast.name_ref().unwrap().span();
+                            checker.expect_ty(name_span, ret, body.return_ty);
                             let body_expr = checker.alloc_expr(
                                 ExprData::Block(body).typed(ret),
                                 &ast::Expr::from(ast_body),
@@ -167,10 +171,11 @@ pub fn item_lower(
         },
         Item::TypeInvariant(ty_inv) => {
             let mut checker = TypeChecker::init(db, program, &root, item_id);
-            if let Some(ast_body) = ty_inv.body(db, &root) {
+            let ty_inv_ast = ty_inv.ast_node(db, &root);
+            if let Some(ast_body) = ty_inv_ast.block_expr() {
                 let body = checker.check_block(&ast_body, |f| f);
-                let ret = bool().ghost();
-                checker.expect_ty(ty_inv.name(db).span(), ret, body.return_ty);
+                let name_span = ty_inv_ast.name_ref().unwrap().span();
+                let ret = checker.expect_ty(name_span, bool().ghost(), body.return_ty);
                 let ret_ty = checker.unsourced_ty(ret);
                 checker.set_return_ty(ret_ty);
                 checker.set_body_expr_from_block(body, ast_body);
@@ -179,37 +184,31 @@ pub fn item_lower(
         }
         Item::Function(function) => {
             let mut checker = TypeChecker::init(db, program, &root, item_id);
-            let ast_body = function.body(db, &root);
-            let body = ast_body
-                .as_ref()
-                .map(|ast_body| checker.check_block(ast_body, |f| f));
+            let fn_ast = function.ast_node(db, &root);
+            let body = fn_ast.body().map(|ast_body| {
+                let ty = checker.check_block(&ast_body, |f| f);
+                (ast_body, ty)
+            });
             let is_ghost = function.attrs(db).is_ghost();
-            if let Some(body) = body {
-                if let Some(ret) = function.ret(db, &root) {
-                    let ret = checker
-                        .find_type_src(&ret)
-                        .with_ghost(is_ghost)
-                        .ts(&mut checker);
-                    checker.expect_ty(
-                        function
-                            .ret(db, &root)
-                            .map(|ret| ret.span())
-                            .unwrap_or_else(|| function.name(db).span()),
-                        checker.cx[ret].ty,
-                        body.return_ty,
-                    );
-                } else {
-                    checker.expect_ty(
-                        function.name(db).span(),
-                        void().with_ghost(is_ghost),
-                        body.return_ty,
-                    );
-                }
-                checker.set_body_expr_from_block(body, ast_body.unwrap());
-            }
-            if let Some(ret) = function.ret(db, &root) {
-                let ret_ty = checker.find_type_src(&ret);
+            let ret_ty = if let Some(ret_ast) = fn_ast.ret() {
+                let ret_ty = checker.find_type_src(&ret_ast);
                 checker.set_return_ty(ret_ty);
+                Some((ret_ast, ret_ty))
+            } else {
+                None
+            };
+            if let Some((ast_body, body)) = body {
+                let name_span = fn_ast
+                    .name()
+                    .map(|n| n.span())
+                    .unwrap_or_else(|| fn_ast.fn_token().unwrap().span());
+                if let Some((ret_ast, ret_ty)) = ret_ty {
+                    let ret_ty = ret_ty.with_ghost(is_ghost).ts(&mut checker);
+                    checker.expect_ty(ret_ast.span(), checker.cx[ret_ty].ty, body.return_ty);
+                } else {
+                    checker.expect_ty(name_span, void().with_ghost(is_ghost), body.return_ty);
+                }
+                checker.set_body_expr_from_block(body, ast_body);
             }
             Some(checker.into())
         }
