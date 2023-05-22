@@ -2221,7 +2221,7 @@ impl FieldExpr {
     pub fn dot_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T ! [.])
     }
-    pub fn field(&self) -> Option<Name> {
+    pub fn field(&self) -> Option<NameRef> {
         support::child(&self.syntax)
     }
 }
@@ -2244,8 +2244,10 @@ impl AstNode for FieldExpr {
 pub struct StructExpr {
     pub(crate) syntax: SyntaxNode,
 }
-impl crate::ast::HasName for StructExpr {}
 impl StructExpr {
+    pub fn name_ref(&self) -> Option<NameRef> {
+        support::child(&self.syntax)
+    }
     pub fn l_curly_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T!['{'])
     }
@@ -2331,8 +2333,11 @@ impl AstNode for RefExpr {
 pub struct IdentExpr {
     pub(crate) syntax: SyntaxNode,
 }
-impl crate::ast::HasName for IdentExpr {}
-impl IdentExpr {}
+impl IdentExpr {
+    pub fn name_ref(&self) -> Option<NameRef> {
+        support::child(&self.syntax)
+    }
+}
 impl AstNode for IdentExpr {
     fn can_cast(kind: SyntaxKind) -> bool {
         kind == IDENT_EXPR
@@ -2483,9 +2488,11 @@ impl AstNode for Arg {
 pub struct StructExprField {
     pub(crate) syntax: SyntaxNode,
 }
-impl crate::ast::HasName for StructExprField {}
 impl crate::ast::HasExpr for StructExprField {}
 impl StructExprField {
+    pub fn name_ref(&self) -> Option<NameRef> {
+        support::child(&self.syntax)
+    }
     pub fn colon_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T ! [:])
     }

@@ -7,7 +7,7 @@ use itertools::{
 use mist_syntax::ast::{
     self,
     operators::{ArithOp, BinaryOp, CmpOp},
-    HasExpr, HasName, Spanned,
+    HasExpr, Spanned,
 };
 
 use crate::{
@@ -555,7 +555,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             ExprData::NotNull(inner).typed(ty)
         }
         ast::Expr::StructExpr(it) => {
-            let name: Ident = if let Some(name) = it.name() {
+            let name: Ident = if let Some(name) = it.name_ref() {
                 name.into()
             } else {
                 todo!()
@@ -584,7 +584,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             for f in it.fields() {
                 let mut matched = false;
                 for sf in &fields {
-                    let field_name = Ident::from(f.name().unwrap());
+                    let field_name = Ident::from(f.name_ref().unwrap());
                     if field_name.as_str() == sf.name(tc.db).as_str() {
                         let value = check_inner(tc, &f);
                         let expected = tc.expect_find_type(&sf.ty(tc.db, tc.root));
@@ -600,7 +600,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                         None,
                         TypeCheckErrorKind::NotYetImplemented(format!(
                             "field '{}' does not exist on '{}'",
-                            f.name().unwrap(),
+                            f.name_ref().unwrap(),
                             s.name(tc.db)
                         )),
                     );
@@ -630,7 +630,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             ExprData::Ref { is_mut, expr }.typed(ty)
         }
         ast::Expr::IdentExpr(it) => {
-            let name = if let Some(name) = it.name() {
+            let name = if let Some(name) = it.name_ref() {
                 name
             } else {
                 todo!()

@@ -1,12 +1,14 @@
 mod expr_ext;
 mod generated;
 mod items_ext;
+mod node_ext;
 pub mod operators;
 mod traits;
 
 pub use expr_ext::LiteralKind;
 pub use generated::*;
 pub use items_ext::AttrFlags;
+pub use node_ext::NameOrNameRef;
 pub use traits::{HasAttrs, HasExpr, HasName};
 
 use crate::{support::AstNode, SourceSpan, SyntaxElement, SyntaxNode, SyntaxToken};

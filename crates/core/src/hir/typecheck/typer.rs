@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Mutex};
 use ena::unify::InPlaceUnificationTable;
 
 use crate::{
-    hir::{Primitive, TypeData, TypeDataIdx, TypeId},
+    hir::{Primitive, TypeData, TypeDataIdx},
     util::IdxWrap,
 };
 
@@ -51,6 +51,31 @@ macro_rules! type_prelude {
             }
         }
     };
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TypeId(TypeDataIdx);
+
+impl TypeId {
+    pub fn data_idx(self) -> TypeDataIdx {
+        self.0
+    }
+}
+
+impl ena::unify::UnifyKey for TypeId {
+    type Value = TypeData;
+
+    fn index(&self) -> u32 {
+        self.0.into_raw().into()
+    }
+
+    fn from_index(u: u32) -> Self {
+        Self(TypeDataIdx::from_raw(u.into()))
+    }
+
+    fn tag() -> &'static str {
+        "TypeId"
+    }
 }
 
 type_prelude! {

@@ -19,11 +19,11 @@ use tracing::error;
 
 use crate::hir::{
     self, AssertionKind, Block, Condition, Decreases, Expr, ExprData, ExprIdx, Field, Ident,
-    ItemId, Param, Primitive, Program, Statement, StatementData, TypeData, TypeId, Variable,
-    VariableId, VariableIdx, VariableRef,
+    ItemId, Param, Primitive, Program, Statement, StatementData, TypeData, Variable, VariableId,
+    VariableIdx, VariableRef,
 };
 
-pub use typer::builtin;
+pub use typer::{builtin, TypeId};
 use typer::{builtin::*, Typer};
 
 use super::{
@@ -777,7 +777,7 @@ impl<'a> TypeChecker<'a> {
             .expect("VariableIdx was not in types map")]
         .ty
     }
-    pub fn lookup_name(&mut self, name: &ast::Name) -> VariableIdx {
+    pub fn lookup_name(&mut self, name: &ast::NameRef) -> VariableIdx {
         if let Some(var) = self.scope.get(&name.to_string()) {
             var
         } else {

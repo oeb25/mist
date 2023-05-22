@@ -208,13 +208,13 @@ NotNullExpr =
   Expr '!'
 
 FieldExpr =
-  Expr '.' field:Name
+  Expr '.' field:NameRef
 
 StructExpr =
-  Name '{' fields:StructExprField* '}'
+  NameRef '{' fields:StructExprField* '}'
 
 StructExprField =
-  Name ':' Expr ','?
+  NameRef ':' Expr ','?
 
 ParenExpr =
   '(' Expr ')'
@@ -223,7 +223,7 @@ RefExpr =
   '&' 'mut'? Expr
 
 IdentExpr =
-  Name
+  NameRef
 
 NullExpr = 'null'
 

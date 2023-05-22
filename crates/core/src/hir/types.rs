@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::util::IdxMap;
 
-use super::{Field, Struct, TypeData, TypeDataIdx, TypeId};
+use crate::hir::{Field, Struct, TypeData, TypeDataIdx, TypeId};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct TypeTable {
@@ -16,13 +16,16 @@ impl TypeTable {
         field_types: impl IntoIterator<Item = (Field, TypeId)>,
     ) -> Self {
         Self {
-            type_data: type_data.into_iter().map(|(ty, td)| (ty.0, td)).collect(),
+            type_data: type_data
+                .into_iter()
+                .map(|(ty, td)| (ty.data_idx(), td))
+                .collect(),
             field_types: field_types.into_iter().collect(),
         }
     }
 
     pub fn contains_ty(&self, ty: TypeId) -> bool {
-        self.type_data.contains_idx(ty.0)
+        self.type_data.contains_idx(ty.data_idx())
     }
 }
 
@@ -137,6 +140,6 @@ impl TypeProvider for TypeTable {
     }
 
     fn ty_data(&self, ty: TypeId) -> TypeData<TypePtr<Self>> {
-        self.type_data[ty.0].map(|id| id.wrap(self))
+        self.type_data[ty.data_idx()].map(|id| id.wrap(self))
     }
 }

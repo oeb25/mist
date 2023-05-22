@@ -100,7 +100,7 @@ pub fn expr(pp: &impl PrettyPrint, db: &dyn crate::Db, expr: ExprIdx) -> String 
             Literal::Bool(b) => b.to_string(),
         },
         ExprData::Self_ => "self".to_string(),
-        ExprData::Ident(i) => pp.resolve_var(i.idx).to_string(),
+        ExprData::Ident(i) => pp.resolve_var(i.idx()).to_string(),
         ExprData::Field {
             expr, field_name, ..
         } => format!("{}.{field_name}", pp_expr(pp, db, *expr)),
