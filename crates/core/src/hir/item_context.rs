@@ -136,20 +136,6 @@ impl ItemContext {
     pub fn var_name(&self, var: impl Into<VariableIdx>) -> Name {
         self.declarations.map[var.into()].name()
     }
-    // TODO: Remove this, but for now keep it, since it seems like we have some
-    // regressions when hovering `len` in `[].len`.
-    // pub fn field_ty(&self, db: &dyn crate::Db, field: &Field) -> TypeId {
-    //     match field.parent(db) {
-    //         super::FieldParent::Struct(s) => self.structs[&s]
-    //             .iter()
-    //             .find_map(|(f, ty)| if f == field { Some(self[*ty].ty) } else { None })
-    //             .unwrap(),
-    //         super::FieldParent::List(_) => match field.name(db).as_str() {
-    //             "len" => self.int_ty(),
-    //             _ => todo!(),
-    //         },
-    //     }
-    // }
     pub fn field_ty_src(&self, db: &dyn crate::Db, field: Field) -> Option<TypeSrcId> {
         match field.parent(db) {
             super::FieldParent::Struct(s) => {
