@@ -48,7 +48,7 @@ impl IsorecursivePass<'_> {
             }
         }
 
-        let folding_liveness = liveness::FoldingAnalysisResults::compute(self.body);
+        let folding_analysis = liveness::FoldingAnalysisResults::compute(self.body);
         let mut internal_foldings: Vec<InternalFolding> = Vec::new();
 
         let cfg = Cfg::compute(self.body);
@@ -57,12 +57,12 @@ impl IsorecursivePass<'_> {
 
         for entry in self.body.entry_blocks() {
             cfg.visit_reverse_post_order(entry, |bid| {
-                let mut current = folding_liveness.entry(bid).clone();
+                let mut current = folding_analysis.entry(bid).clone();
 
                 for &inst in self.body[bid].instructions.iter() {
                     let mut prev = current.clone();
                     current.forwards_instruction_transition(self.body, inst);
-                    for folding in prev.compute_transition_into(self.body, &current) {
+                    for folding in prev.compute_transition_into(&current) {
                         internal_foldings.push(InternalFolding::new(
                             BodyLocation::new(bid, BlockLocation::Instruction(inst)),
                             folding,
@@ -72,7 +72,7 @@ impl IsorecursivePass<'_> {
                 if let Some(terminator) = &self.body[bid].terminator {
                     let mut prev = current.clone();
                     current.forwards_terminator_transition(self.body, terminator);
-                    for folding in prev.compute_transition_into(self.body, &current) {
+                    for folding in prev.compute_transition_into(&current) {
                         internal_foldings.push(InternalFolding::new(
                             BodyLocation::new(bid, BlockLocation::Terminator),
                             folding,
@@ -84,8 +84,7 @@ impl IsorecursivePass<'_> {
 
                 if self.body.succeeding_blocks(bid).next().is_none() {
                     let mut outgoing = outgoing;
-                    let foldings =
-                        outgoing.compute_transition_into(self.body, &termination_folding);
+                    let foldings = outgoing.compute_transition_into(&termination_folding);
                     if !foldings.is_empty() {
                         external_foldings.push((bid, None, foldings));
                     }
@@ -93,7 +92,7 @@ impl IsorecursivePass<'_> {
                     for next in self.body.succeeding_blocks(bid) {
                         let foldings = outgoing
                             .clone()
-                            .compute_transition_into(self.body, folding_liveness.entry(next));
+                            .compute_transition_into(folding_analysis.entry(next));
                         if !foldings.is_empty() {
                             external_foldings.push((bid, Some(next), foldings));
                         }
@@ -116,7 +115,7 @@ impl IsorecursivePass<'_> {
                 .unwrap_or(BlockLocation::Terminator);
             for folding in tree_from_params
                 .clone()
-                .compute_transition_into(self.body, folding_liveness.entry(bid))
+                .compute_transition_into(folding_analysis.entry(bid))
             {
                 internal_foldings.push(InternalFolding::new(
                     BodyLocation::new(bid, first_inst_or_terminator),

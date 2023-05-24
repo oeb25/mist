@@ -1487,6 +1487,7 @@ dependencies = [
  "derive-new",
  "derive_more",
  "ena",
+ "folding-tree",
  "itertools",
  "la-arena",
  "miette",

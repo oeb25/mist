@@ -106,22 +106,7 @@ async fn cli() -> Result<()> {
                     if dump_liveness {
                         mir::analysis::cfg::dot_imgcat(&cfg.analysis_dot(
                             &mir::analysis::liveness::FoldingAnalysisResults::compute(&mir),
-                            |x| {
-                                format!(
-                                    "{:?}",
-                                    x.leafs()
-                                        .map(|p| {
-                                            mir::serialize::serialize_place(
-                                                mir::serialize::Color::No,
-                                                Some(&db),
-                                                Some(&cx),
-                                                &mir,
-                                                &p,
-                                            )
-                                        })
-                                        .collect::<std::collections::HashSet<_>>()
-                                )
-                            },
+                            |x| x.debug_str(Some(&db), &mir),
                         ));
                     }
                 }

@@ -8,6 +8,7 @@ bitflags = "2.0.1"
 derive_more = "0.99.17"
 derive-new = "0.5.9"
 ena = "0.14.0"
+folding-tree.workspace = true
 itertools.workspace = true
 la-arena = "0.3.0"
 miette.workspace = true

@@ -223,8 +223,8 @@ impl SwitchTargets {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Folding {
-    Fold { consume: Vec<Place>, into: Place },
-    Unfold { consume: Place, into: Vec<Place> },
+    Fold { into: Place },
+    Unfold { consume: Place },
 }
 
 impl_idx!(InstructionId, Instruction, default_debug);
@@ -810,20 +810,14 @@ pub enum BlockLocation {
 impl Instruction {
     pub fn places(&self) -> impl Iterator<Item = Place> + '_ {
         match self {
-            Instruction::Assign(target, expr) => Either::Left(Either::Left(Either::Left(
-                [*target].into_iter().chain(expr.places()),
-            ))),
-            Instruction::Assertion(_, expr) => {
-                Either::Left(Either::Left(Either::Right(expr.places())))
+            Instruction::Assign(target, expr) => {
+                Either::Left(Either::Left([*target].into_iter().chain(expr.places())))
             }
-            Instruction::PlaceMention(p) => Either::Left(Either::Right([*p].into_iter())),
+            Instruction::Assertion(_, expr) => Either::Left(Either::Right(expr.places())),
+            Instruction::PlaceMention(p) => Either::Right([*p].into_iter()),
             Instruction::Folding(folding) => match folding {
-                Folding::Fold { consume, into } => {
-                    Either::Right(Either::Left(consume.iter().copied().chain([*into])))
-                }
-                Folding::Unfold { consume, into } => Either::Right(Either::Right(
-                    [*consume].into_iter().chain(into.iter().copied()),
-                )),
+                Folding::Fold { into } => Either::Right([*into].into_iter()),
+                Folding::Unfold { consume } => Either::Right([*consume].into_iter()),
             },
         }
     }
@@ -833,30 +827,26 @@ impl Instruction {
             Instruction::Assign(_, expr) => {
                 // TODO: Perhaps the targets parent should be part of the
                 // referenced as well?
-                Either::Left(Either::Left(None.into_iter().chain(expr.places())))
+                Either::Left(None.into_iter().chain(expr.places()))
             }
-            Instruction::Assertion(_, expr) => {
-                Either::Left(Either::Left(None.into_iter().chain(expr.places())))
-            }
-            Instruction::PlaceMention(p) => Either::Left(Either::Right([*p].into_iter())),
-            Instruction::Folding(folding) => match folding {
-                Folding::Fold { consume, into } => {
-                    Either::Right(Either::Left(consume.iter().copied().chain([*into])))
-                }
-                Folding::Unfold { consume, into } => Either::Right(Either::Right(
-                    [*consume].into_iter().chain(into.iter().copied()),
-                )),
+            Instruction::Assertion(_, expr) => Either::Left(None.into_iter().chain(expr.places())),
+            Instruction::PlaceMention(p) => Either::Right([*p]),
+            Instruction::Folding(folding) => match *folding {
+                Folding::Fold { into } => Either::Right([into]),
+                Folding::Unfold { consume } => Either::Right([consume]),
             },
         }
+        .into_iter()
     }
 
     fn places_written_to(&self) -> impl Iterator<Item = Place> + '_ {
         match self {
-            Instruction::Assign(target, _) => Either::Left([*target].into_iter()),
+            Instruction::Assign(target, _) => Either::Left([*target]),
             Instruction::Assertion(_, _)
             | Instruction::PlaceMention(_)
-            | Instruction::Folding(_) => Either::Right([].into_iter()),
+            | Instruction::Folding(_) => Either::Right([]),
         }
+        .into_iter()
     }
 }
 

@@ -1,41 +1,63 @@
-use std::{
-    collections::{HashMap, HashSet},
-    iter,
-};
+use itertools::Itertools;
 
-use tracing::warn;
-
-use crate::{hir, mir};
+use crate::{hir, mir, util::IdxMap};
 
 use super::monotone::Lattice;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum FoldingNode {
-    Unfolded { children: HashSet<mir::Place> },
-    Folded,
+/// A [`FoldingTree`] maintains the the state of foldings and unfoldings of
+/// [slots](crate::mir::Slot) and their projections.
+#[derive(Default, Debug, Clone, Eq)]
+pub struct FoldingTree {
+    inner: IdxMap<mir::SlotId, folding_tree::FoldingTree<mir::ProjectionList>>,
 }
 
-impl Default for FoldingNode {
-    fn default() -> Self {
-        FoldingNode::Unfolded {
-            children: HashSet::new(),
-        }
+impl PartialEq for FoldingTree {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner == other.inner
+            || (self.inner.iter().all(|(slot, a_ft)| {
+                if let Some(b_ft) = other.inner.get(slot) {
+                    a_ft == b_ft
+                } else {
+                    a_ft.is_folded()
+                }
+            }) && other.inner.iter().all(|(slot, b_ft)| {
+                if let Some(a_ft) = self.inner.get(slot) {
+                    b_ft == a_ft
+                } else {
+                    b_ft.is_folded()
+                }
+            }))
     }
 }
 
-/// A [`FoldingTree`] maintains the the state of foldings and unfoldings of
-/// [slots](crate::mir::Slot) and their projections.
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub struct FoldingTree {
-    nodes: HashMap<mir::Place, (Option<mir::BlockLocation>, FoldingNode)>,
-}
-
 impl FoldingTree {
-    pub fn leafs(&self) -> impl Iterator<Item = mir::Place> + '_ {
-        self.nodes.iter().filter_map(|(k, (_, v))| match v {
-            FoldingNode::Folded => Some(*k),
-            FoldingNode::Unfolded { .. } => None,
-        })
+    pub fn debug_str(&self, db: Option<&dyn crate::Db>, body: &mir::Body) -> String {
+        let entries = self
+            .inner
+            .iter()
+            .map(|(slot, ft)| {
+                let new_ft = ft.map_edges(|e| match body[e].last() {
+                    Some(mir::Projection::Field(f, _)) => {
+                        if let Some(db) = db {
+                            format!(".{}", f.name(db))
+                        } else {
+                            format!(".?")
+                        }
+                    }
+                    Some(mir::Projection::Index(idx, _)) => format!(
+                        "[{}]",
+                        mir::serialize::serialize_slot(mir::serialize::Color::No, None, body, *idx)
+                    ),
+                    None => "#".to_string(),
+                });
+
+                let slot =
+                    mir::serialize::serialize_slot(mir::serialize::Color::No, None, body, slot);
+
+                format!("{slot}: {new_ft}")
+            })
+            .format(", ");
+        format!("{{{entries}}}")
     }
     /// Computes the nessesary foldings and unfoldings for the given place to be
     /// accessible.
@@ -45,53 +67,27 @@ impl FoldingTree {
         loc: Option<mir::BlockLocation>,
         place: mir::Place,
     ) -> Vec<mir::Folding> {
+        // TODO: Potentially use the `loc` to determine locations where we
+        // require something to be both folded and unfolded.
+        let _ = loc;
+
         let mut foldings = vec![];
 
-        match self.nodes.insert(place, (loc, FoldingNode::Folded)) {
-            Some((prev_loc, FoldingNode::Folded)) => {
-                // NOTE: Already folded, nothing to do
-                if prev_loc.is_some() && loc == prev_loc {
-                    warn!("unfolding something that was folded at same loc");
-                }
-            }
-            Some((_, FoldingNode::Unfolded { children })) => {
-                // NOTE: Was unfolded, need to fold children
-                for child in children {
-                    foldings.extend(self.require(body, loc, child));
-                    self.nodes.remove(&child);
-                }
-                foldings.push(mir::Folding::Fold {
-                    consume: vec![],
-                    into: place,
-                });
-            }
-            None => {
-                if let Some(parent) = place.parent(body) {
-                    // NOTE: Need to unfold parent
-                    if let Some((_, FoldingNode::Unfolded { children })) =
-                        self.nodes.get_mut(&parent)
-                    {
-                        children.insert(place);
-                    } else {
-                        foldings.extend(self.require(body, loc, parent));
-                        match self.nodes.get_mut(&parent) {
-                            Some((_, folding @ FoldingNode::Folded)) => {
-                                *folding = FoldingNode::Unfolded {
-                                    children: [place].into_iter().collect(),
-                                };
-                                foldings.push(mir::Folding::Unfold {
-                                    consume: parent,
-                                    into: vec![],
-                                });
-                            }
-                            x => todo!("{x:?}"),
-                        }
-                    }
+        let ft = self.inner.entry(place.slot).or_default();
+        ft.require(
+            |kind, path| {
+                let p = if let Some(pl) = path.last() {
+                    place.replace_projection(*pl)
                 } else {
-                    // NOTE: At root, so all done
-                }
-            }
-        }
+                    place.without_projection()
+                };
+                foldings.push(match kind {
+                    folding_tree::EventKind::Unfold => mir::Folding::Unfold { consume: p },
+                    folding_tree::EventKind::Fold => mir::Folding::Fold { into: p },
+                })
+            },
+            body.projection_path_iter(place.projection).skip(1),
+        );
 
         foldings
     }
@@ -100,72 +96,110 @@ impl FoldingTree {
     ///
     /// This is useful when performing an assignment to a place, where all
     /// previous unfoldings into that place are lost.
-    pub fn drop(&mut self, place: mir::Place) {
-        let mut drop_queue = vec![place];
-        while let Some(place) = drop_queue.pop() {
-            match self.nodes.remove(&place) {
-                None | Some((_, FoldingNode::Folded)) => {}
-                Some((_, FoldingNode::Unfolded { children })) => {
-                    drop_queue.extend(children);
-                }
-            }
+    pub fn drop(&mut self, body: &mir::Body, place: mir::Place) {
+        if let Some(ft) = self.inner.get_mut(place.slot) {
+            ft.drop(body.projection_path_iter(place.projection).skip(1))
         }
     }
 
-    pub fn compute_transition_into(
-        &mut self,
-        body: &mir::Body,
-        target: &FoldingTree,
-    ) -> Vec<mir::Folding> {
-        target
-            .leafs()
-            .flat_map(|k| self.require(body, None, k))
-            .collect()
+    pub fn compute_transition_into(&mut self, target: &FoldingTree) -> Vec<mir::Folding> {
+        let mut foldings = vec![];
+        for (slot, target_ft) in target.inner.iter() {
+            self.inner.entry(slot).or_default().transition_into(
+                |kind, path| {
+                    let p = if let Some(&projection) = path.last() {
+                        mir::Place { slot, projection }
+                    } else {
+                        slot.into()
+                    };
+                    foldings.push(match kind {
+                        folding_tree::EventKind::Unfold => mir::Folding::Unfold { consume: p },
+                        folding_tree::EventKind::Fold => mir::Folding::Fold { into: p },
+                    })
+                },
+                target_ft,
+            );
+        }
+        foldings
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn forwards_instruction_transition(&mut self, body: &mir::Body, inst: mir::InstructionId) {
+        // debug!(inst=?&body[inst], "Starting with: {}", self.debug_str(None, body));
         for p in body[inst].places_referenced() {
             let _ = self.require(body, None, p);
         }
         for p in body[inst].places_written_to() {
-            self.drop(p);
+            self.drop(body, p);
             let _ = self.require(body, None, p);
         }
+        // debug!("Ending with:   {}", self.debug_str(None, body));
     }
+    #[tracing::instrument(skip_all)]
     pub fn forwards_terminator_transition(
         &mut self,
         body: &mir::Body,
         terminator: &mir::Terminator,
     ) {
+        // debug!(?terminator, "Starting with: {}", self.debug_str(None, body));
         for p in terminator.places_referenced() {
             let _ = self.require(body, None, p);
         }
         for p in terminator.places_written_to() {
-            self.drop(p);
+            self.drop(body, p);
             let _ = self.require(body, None, p);
         }
+        // debug!("Ending with:   {}", self.debug_str(None, body));
     }
+    #[tracing::instrument(skip_all)]
     pub fn backwards_instruction_transition(&mut self, body: &mir::Body, inst: mir::InstructionId) {
+        // debug!(inst=?&body[inst], "Starting with: {}", self.debug_str(None, body));
         for p in body[inst].places_written_to() {
-            self.drop(p);
+            self.drop(body, p);
             let _ = self.require(body, None, p);
         }
         for p in body[inst].places_referenced() {
             let _ = self.require(body, None, p);
         }
+        // debug!("Ending with:   {}", self.debug_str(None, body));
     }
+    #[tracing::instrument(skip_all)]
     pub fn backwards_terminator_transition(
         &mut self,
         body: &mir::Body,
         terminator: &mir::Terminator,
     ) {
+        // debug!(?terminator, "Starting with: {}", self.debug_str(None, body));
         for p in terminator.places_written_to() {
-            self.drop(p);
+            self.drop(body, p);
             let _ = self.require(body, None, p);
         }
         for p in terminator.places_referenced() {
             let _ = self.require(body, None, p);
         }
+        // debug!("Ending with:   {}", self.debug_str(None, body));
+    }
+
+    fn zip<'a, 'b>(
+        &'a self,
+        other: &'b FoldingTree,
+    ) -> impl Iterator<
+        Item = (
+            mir::SlotId,
+            Option<&'a folding_tree::FoldingTree<mir::ProjectionList>>,
+            Option<&'b folding_tree::FoldingTree<mir::ProjectionList>>,
+        ),
+    > {
+        self.inner
+            .iter()
+            .map(|(slot, a_ft)| (slot, Some(a_ft), other.inner.get(slot)))
+            .chain(other.inner.iter().filter_map(|(slot, b_ft)| {
+                if self.inner.contains_idx(slot) {
+                    None
+                } else {
+                    Some((slot, None, Some(b_ft)))
+                }
+            }))
     }
 }
 
@@ -174,30 +208,30 @@ impl Lattice<mir::Body> for FoldingTree {
         Default::default()
     }
 
-    fn lub(&self, body: &mir::Body, other: &Self) -> Self {
-        let mut new = FoldingTree::default();
-        for p1 in self.leafs() {
-            if !other.leafs().any(|p2| {
-                iter::successors(p1.parent(body), |p1| p1.parent(body)).any(|p1| p1 == p2)
-            }) {
-                let _ = new.require(body, None, p1);
-            }
-        }
-        for p1 in other.leafs() {
-            if !self.leafs().any(|p2| {
-                iter::successors(p1.parent(body), |p1| p1.parent(body)).any(|p1| p1 == p2)
-            }) {
-                let _ = new.require(body, None, p1);
-            }
-        }
-        new
+    #[tracing::instrument(skip_all)]
+    fn lub(&self, _body: &mir::Body, other: &Self) -> Self {
+        let inner = self
+            .zip(other)
+            .filter_map(|(slot, a_ft, b_ft)| {
+                let new_ft = match (a_ft, b_ft) {
+                    (Some(a_ft), Some(b_ft)) => a_ft.meet(b_ft),
+                    (None, Some(x_ft)) | (Some(x_ft), None) => x_ft.clone(),
+                    (None, None) => return None,
+                };
+                Some((slot, new_ft))
+            })
+            .collect();
+
+        FoldingTree { inner }
     }
 
-    fn contains(&self, body: &mir::Body, other: &Self) -> bool {
-        other.leafs().all(|p1| {
-            self.leafs().any(|p2| p1 == p2)
-                || iter::successors(p1.parent(body), |p1| p1.parent(body))
-                    .any(|p1| self.leafs().any(|p2| p1 == p2))
+    #[tracing::instrument(skip_all)]
+    fn contains(&self, _body: &mir::Body, other: &Self) -> bool {
+        self.zip(other).all(|(_, a_ft, b_ft)| match (a_ft, b_ft) {
+            (Some(a_ft), Some(b_ft)) => a_ft.contains(b_ft),
+            (None, Some(_)) => false,
+            (Some(_), None) => true,
+            (None, None) => true,
         })
     }
 }
@@ -208,10 +242,8 @@ pub(crate) fn debug_folding_tree(
     cx: Option<&hir::ItemContext>,
     body: &mir::Body,
     tree: &FoldingTree,
-) -> HashSet<String> {
-    tree.leafs()
-        .map(|p| mir::serialize::serialize_place(mir::serialize::Color::No, db, cx, body, &p))
-        .collect::<std::collections::HashSet<_>>()
+) -> String {
+    tree.debug_str(db, body)
 }
 
 #[cfg(test)]
@@ -224,54 +256,6 @@ mod test {
     use crate::{hir, mir::Place};
 
     use super::*;
-
-    #[derive(Debug, PartialEq, Eq)]
-    enum InvariantError {
-        ChildrenEmpty,
-        ChildMissing,
-        ParentDoesNotContainChild,
-        ParentMissing,
-        ParentFolded,
-    }
-
-    impl FoldingTree {
-        fn invariant(&self, body: &mir::Body) -> Result<(), InvariantError> {
-            for (p, (_, folding)) in &self.nodes {
-                match folding {
-                    FoldingNode::Unfolded { children } => {
-                        if children.is_empty() {
-                            return Err(InvariantError::ChildrenEmpty);
-                        }
-                        for child in children {
-                            if !self.nodes.contains_key(child) {
-                                return Err(InvariantError::ChildMissing);
-                            }
-                        }
-                    }
-                    FoldingNode::Folded => {
-                        if let Some(parent) = p.parent(body) {
-                            if let Some((_, parent_folding)) = self.nodes.get(&parent) {
-                                match parent_folding {
-                                    FoldingNode::Unfolded { children } => {
-                                        if !children.contains(p) {
-                                            return Err(InvariantError::ParentDoesNotContainChild);
-                                        }
-                                    }
-                                    FoldingNode::Folded => {
-                                        return Err(InvariantError::ParentFolded)
-                                    }
-                                }
-                            } else {
-                                return Err(InvariantError::ParentMissing);
-                            }
-                        }
-                    }
-                }
-            }
-
-            Ok(())
-        }
-    }
 
     #[derive(Clone)]
     struct Context {
@@ -317,7 +301,7 @@ mod test {
             Context { db: Arc::new(db), cx, body }
         }
     }
-    fn debug_folding_tree_ctx(ctx: &Context, tree: &FoldingTree) -> HashSet<String> {
+    fn debug_folding_tree_ctx(ctx: &Context, tree: &FoldingTree) -> String {
         debug_folding_tree(Some(&*ctx.db), Some(&ctx.cx), &ctx.body, tree)
     }
 
@@ -369,11 +353,9 @@ mod test {
         fn folding_tree_lattice_lub_idempotent(Input { ctx, trees } in arb_ctx_trees(1)) {
             let [tree]: [_; 1] = trees.try_into().unwrap();
             let lub = tree.lub(&ctx.body, &tree);
-            dbg!(&tree);
-            dbg!(&lub);
             prop_assert!(
                 lub == tree,
-                "{:?} != {:?}",
+                "{} != {}",
                 debug_folding_tree_ctx(&ctx, &lub),
                 debug_folding_tree_ctx(&ctx, &tree),
             );
@@ -387,13 +369,13 @@ mod test {
             let lub_2 = FoldingTree::default().lub(&ctx.body, &tree);
             prop_assert!(
                 lub_1 == tree,
-                "{:?} != {:?}",
+                "{} != {}",
                 debug_folding_tree_ctx(&ctx, &lub_1),
                 debug_folding_tree_ctx(&ctx, &tree),
             );
             prop_assert!(
                 lub_2 == tree,
-                "{:?} != {:?}",
+                "{} != {}",
                 debug_folding_tree_ctx(&ctx, &lub_2),
                 debug_folding_tree_ctx(&ctx, &tree),
             );
@@ -407,19 +389,14 @@ mod test {
             let lub_lr = lhs.lub(&ctx.body, &rhs);
             let lub_rl = rhs.lub(&ctx.body, &lhs);
 
-            dbg!(&lhs);
-            dbg!(&rhs);
-            dbg!(&lub_lr);
-            dbg!(&lub_rl);
-
             eprintln!(
-                "lub({:?}, {:?}) = {:?}",
+                "lub({}, {}) = {}",
                 debug_folding_tree_ctx(&ctx, &lhs),
                 debug_folding_tree_ctx(&ctx, &rhs),
                 debug_folding_tree_ctx(&ctx, &lub_lr),
             );
             eprintln!(
-                "lub({:?}, {:?}) = {:?}",
+                "lub({}, {}) = {}",
                 debug_folding_tree_ctx(&ctx, &rhs),
                 debug_folding_tree_ctx(&ctx, &lhs),
                 debug_folding_tree_ctx(&ctx, &lub_rl),
@@ -427,7 +404,7 @@ mod test {
 
             prop_assert!(
                 lub_lr == lub_rl,
-                "{:?} != {:?}",
+                "{} != {}",
                 debug_folding_tree_ctx(&ctx, &lub_lr),
                 debug_folding_tree_ctx(&ctx, &lub_rl),
             );
@@ -446,11 +423,9 @@ mod test {
                 .collect_vec();
 
             for (x, y) in cases.iter().tuple_windows() {
-                dbg!(x);
-                dbg!(y);
                 prop_assert!(
                     x == y,
-                    "{:?} != {:?}",
+                    "{} != {}",
                     debug_folding_tree_ctx(&ctx, x),
                     debug_folding_tree_ctx(&ctx, y),
                 );
@@ -474,11 +449,9 @@ mod test {
                 .collect_vec();
 
             for (x, y) in cases.iter() {
-                dbg!(x);
-                dbg!(y);
                 prop_assert!(
                     x == y,
-                    "{:?} != {:?}",
+                    "{} != {}",
                     debug_folding_tree_ctx(&ctx, x),
                     debug_folding_tree_ctx(&ctx, y),
                 );
@@ -494,7 +467,7 @@ mod test {
             let lub = lhs.lub(&ctx.body, &rhs);
 
             eprintln!(
-                "lub({:?}, {:?}) = {:?}",
+                "lub({}, {}) = {}",
                 debug_folding_tree_ctx(&ctx, &lhs),
                 debug_folding_tree_ctx(&ctx, &rhs),
                 debug_folding_tree_ctx(&ctx, &lub),
@@ -505,13 +478,13 @@ mod test {
 
             prop_assert!(
                 lub.contains(&ctx.body, &lhs),
-                "{:?} ⋣ {:?}",
+                "{} ⋣ {}",
                 debug_folding_tree_ctx(&ctx, &lub),
                 debug_folding_tree_ctx(&ctx, &lhs),
             );
             prop_assert!(
                 lub.contains(&ctx.body, &rhs),
-                "{:?} ⋣ {:?}",
+                "{} ⋣ {}",
                 debug_folding_tree_ctx(&ctx, &lub),
                 debug_folding_tree_ctx(&ctx, &rhs),
             );
@@ -536,38 +509,11 @@ mod test {
                 for t in ts {
                     prop_assert!(
                         lub.contains(&ctx.body, t),
-                        "{:?} ⋣ {:?}",
+                        "{} ⋣ {}",
                         debug_folding_tree_ctx(&ctx, lub),
                         debug_folding_tree_ctx(&ctx, t),
                     );
                 }
-            }
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn folding_tree_lattice_invariant(Input { ctx, trees } in arb_ctx_trees(1)) {
-            let [tree]: [_; 1] = trees.try_into().unwrap();
-            dbg!(&tree);
-            prop_assert_eq!(tree.invariant(&ctx.body), Ok(()));
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn folding_tree_lattice_lub_invariant(Input { ctx, trees } in arb_ctx_trees(3)) {
-            let [a, b, c]: [_; 3] = trees.try_into().unwrap();
-
-            let cases = [a, b, c].into_iter().permutations(3);
-
-            for ts in cases {
-                for t in &ts {
-                    dbg!(t);
-                    prop_assert_eq!(t.invariant(&ctx.body), Ok(()));
-                }
-                let lub = ts[0].lub(&ctx.body, &ts[1]).lub(&ctx.body, &ts[2]);
-                prop_assert_eq!(lub.invariant(&ctx.body), Ok(()));
             }
         }
     }

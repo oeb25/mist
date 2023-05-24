@@ -336,8 +336,6 @@ impl BodyLower<'_> {
                         mir::Folding::Fold { .. } => Stmt::Fold { acc },
                         mir::Folding::Unfold { .. } => Stmt::Unfold { acc },
                     });
-                } else {
-                    warn!("no struct found for {:?}", self.body.place_ty(place).data());
                 }
             }
         }

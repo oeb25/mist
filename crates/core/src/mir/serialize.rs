@@ -224,26 +224,14 @@ impl Serializer<'_> {
 
     fn folding(&mut self, db: Option<&dyn crate::Db>, cx: Option<&ItemContext>, f: &Folding) {
         match f {
-            Folding::Fold { consume, into } => {
+            Folding::Fold { into } => {
                 w!(self, Red, "fold ");
-                w!(self, BrightWhite, "[");
-                for s in consume {
-                    self.place(db, cx, s);
-                }
-                w!(self, BrightWhite, "]");
-                w!(self, Red, " into ");
                 self.place(db, cx, into);
                 wln!(self, Default, "");
             }
-            Folding::Unfold { consume, into } => {
+            Folding::Unfold { consume } => {
                 w!(self, Red, "unfold ");
                 self.place(db, cx, consume);
-                w!(self, Red, " into ");
-                w!(self, BrightWhite, "[");
-                for s in into {
-                    self.place(db, cx, s);
-                }
-                w!(self, BrightWhite, "]");
                 wln!(self, Default, "");
             }
         }
