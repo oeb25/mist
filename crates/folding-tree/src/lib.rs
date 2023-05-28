@@ -3,7 +3,7 @@ use std::{fmt, hash::Hash, iter};
 use indexmap::{map::Entry, IndexMap};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum Folding {
+pub enum Folding {
     Uninitialized,
     Folded,
     Unfolded,
@@ -35,30 +35,119 @@ pub struct FoldingTree<E> {
 
 impl<E: fmt::Display> fmt::Display for FoldingTree<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fn print_node<E: fmt::Display>(
-            ft: &FoldingTree<E>,
-            edge: Option<&E>,
-            idx: usize,
-            f: &mut fmt::Formatter<'_>,
-        ) -> fmt::Result {
-            if let Some(edge) = edge {
-                write!(f, "{edge} ")?
-            }
-            match ft.nodes[idx] {
-                Folding::Uninitialized => write!(f, "@"),
-                Folding::Folded => write!(f, "X"),
-                Folding::Unfolded => {
-                    write!(f, "{{ ")?;
-                    for (edge, idx) in &ft.children[idx] {
-                        print_node(ft, Some(edge), *idx, f)?;
-                        write!(f, " ")?;
+        for event in self.preorder() {
+            match event {
+                WalkEvent::Enter((edge, folding)) => {
+                    if let Some(edge) = edge {
+                        write!(f, "{edge} ")?
                     }
-                    write!(f, "}}")
+
+                    match folding {
+                        Folding::Uninitialized => write!(f, "@ ")?,
+                        Folding::Folded => write!(f, "X ")?,
+                        Folding::Unfolded => write!(f, "{{ ")?,
+                    }
+                }
+                WalkEvent::Leave((_, folding)) => match folding {
+                    Folding::Unfolded => write!(f, "}} ")?,
+                    _ => {}
+                },
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<'a> TryFrom<&'a str> for FoldingTree<&'a str> {
+    type Error = std::fmt::Error;
+
+    fn try_from(s: &'a str) -> Result<Self, Self::Error> {
+        #[derive(Debug)]
+        enum Token<'a> {
+            LBra,
+            RBra,
+            Word(&'a str),
+        }
+
+        struct Tokenizer<'a> {
+            src: &'a str,
+            chars: std::str::CharIndices<'a>,
+        }
+
+        impl<'a> Tokenizer<'a> {
+            fn new(src: &str) -> Tokenizer {
+                Tokenizer {
+                    src,
+                    chars: src.char_indices(),
                 }
             }
         }
 
-        print_node(self, None, 0, f)
+        impl<'a> Iterator for Tokenizer<'a> {
+            type Item = Token<'a>;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                let mut start = None;
+                while let Some((idx, c)) = self.chars.next() {
+                    match c {
+                        c if c.is_whitespace() => {
+                            if let Some(start) = start {
+                                return Some(Token::Word(&self.src[start..idx]));
+                            }
+                        }
+                        '{' => return Some(Token::LBra),
+                        '}' => return Some(Token::RBra),
+                        _ => {
+                            if start.is_none() {
+                                start = Some(idx)
+                            }
+                        }
+                    }
+                }
+                if let Some(start) = start {
+                    return Some(Token::Word(&self.src[start..self.src.len()]));
+                }
+                None
+            }
+        }
+
+        let mut tokens = Tokenizer::new(s);
+
+        fn parse_block<'a>(
+            prefix: &[&'a str],
+            t: &mut Tokenizer<'a>,
+            ft: &mut FoldingTree<&'a str>,
+        ) -> Option<Folding> {
+            match t.next()? {
+                Token::LBra => {
+                    ft.require(|_, _| {}, prefix.iter().copied());
+                    loop {
+                        match t.next()? {
+                            Token::LBra => todo!("unexpected nesting"),
+                            Token::RBra => break,
+                            Token::Word(f) => {
+                                let mut prefix = prefix.to_vec();
+                                prefix.push(f);
+                                let _ = parse_block(&prefix, t, ft)?;
+                            }
+                        }
+                    }
+                    Some(Folding::Unfolded)
+                }
+                Token::RBra => todo!(),
+                Token::Word("X") => {
+                    ft.require(|_, _| {}, prefix.iter().copied());
+                    Some(Folding::Folded)
+                }
+                Token::Word(w) => todo!("word: {w:?}"),
+            }
+        }
+
+        let mut ft = FoldingTree::folded();
+
+        parse_block(&[], &mut tokens, &mut ft);
+
+        Ok(ft)
     }
 }
 
@@ -298,6 +387,40 @@ impl<E> FoldingTree<E> {
 
     pub fn is_folded(&self) -> bool {
         self.nodes[0].is_folded()
+    }
+
+    pub fn preorder(&self) -> impl Iterator<Item = WalkEvent<(Option<&E>, Folding)>> {
+        let mut stack = vec![WalkEvent::Enter((None, 0))];
+
+        iter::from_fn(move || {
+            let event = stack.pop()?;
+
+            if let WalkEvent::Enter((edge, idx)) = event {
+                stack.push(WalkEvent::Leave((edge, idx)));
+                if let Folding::Unfolded = self.nodes[idx] {
+                    for (edge, child) in self.children[idx].iter().rev() {
+                        stack.push(WalkEvent::Enter((Some(edge), *child)))
+                    }
+                }
+            }
+
+            Some(event.map(|(edge, idx)| (*edge, self.nodes[*idx])))
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum WalkEvent<T> {
+    Enter(T),
+    Leave(T),
+}
+
+impl<T> WalkEvent<T> {
+    pub fn map<S>(&self, f: impl Fn(&T) -> S) -> WalkEvent<S> {
+        match self {
+            WalkEvent::Enter(e) => WalkEvent::Enter(f(e)),
+            WalkEvent::Leave(e) => WalkEvent::Leave(f(e)),
+        }
     }
 }
 
