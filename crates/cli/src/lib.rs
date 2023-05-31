@@ -2,6 +2,7 @@
 
 pub mod db;
 
+use itertools::Itertools;
 use miette::Diagnostic;
 use mist_codegen_viper::{
     gen::ViperOutput,
@@ -48,18 +49,27 @@ impl MistError {
     }
 }
 
+#[allow(unused)]
+#[salsa::tracked]
+fn lower_file_for_errors(db: &dyn crate::Db, file: hir::SourceFile) {
+    for def in hir::file_definitions(db, file) {
+        let _ = def.hir_mir(db);
+    }
+}
+
 pub fn accumulated_errors(
     db: &dyn crate::Db,
-    program: hir::Program,
+    file: hir::SourceFile,
 ) -> impl Iterator<Item = MistError> + '_ {
-    let parse_errors = program.parse(db).errors();
-    let type_errors = mir::lower_program::accumulated::<mist_core::TypeCheckErrors>(db, program);
-    let mir_errors = mir::lower_program::accumulated::<mir::MirErrors>(db, program);
+    let parse = hir::file::parse_file(db, file);
+    let parse_errors = parse.errors();
+    let type_errors = lower_file_for_errors::accumulated::<mist_core::TypeCheckErrors>(db, file);
+    let mir_errors = lower_file_for_errors::accumulated::<mir::MirErrors>(db, file);
     let viper_errors = if parse_errors.is_empty() && type_errors.is_empty() && mir_errors.is_empty()
     {
         mist_codegen_viper::gen::viper_file::accumulated::<
             mist_codegen_viper::lower::ViperLowerErrors,
-        >(db, program)
+        >(db, file)
     } else {
         vec![]
     };
@@ -75,32 +85,24 @@ pub fn accumulated_errors(
             MistError::Parse(_) => {}
             MistError::TypeCheck(_) => {}
             MistError::Mir(err) => err.populate_spans(
-                |item_id, expr| {
-                    let item = hir::intern_item(db, program, item_id).unwrap();
-                    let (_cx, source_map) = hir::item_lower(db, program, item_id, item).unwrap();
-                    Some(source_map.expr_span(expr))
-                },
-                |item_id, var| {
-                    let item = hir::intern_item(db, program, item_id).unwrap();
-                    let (cx, _source_map) = hir::item_lower(db, program, item_id, item).unwrap();
-                    Some(cx.var_span(var))
-                },
+                |def, expr| Some(def.hir(db)?.source_map(db).expr_span(expr)),
+                |def, var| Some(def.hir(db)?.cx(db).var_span(var)),
             ),
             MistError::ViperLower(err) => {
-                err.populate_spans(|item_id, block_or_instr| {
-                    let item = hir::intern_item(db, program, item_id).unwrap();
-                    let (cx, source_map) = hir::item_lower(db, program, item_id, item).unwrap();
-                    let (_mir, mir_source_span) = mir::lower_item(db, cx);
-                    Some(source_map.expr_span(mir_source_span.trace_expr(block_or_instr).unwrap()))
+                err.populate_spans(|def, block_or_instr| {
+                    let (source_map, mir_source_map) = def.hir_mir_source_map(db)?;
+                    Some(source_map.expr_span(mir_source_map.trace_expr(block_or_instr).unwrap()))
                 });
             }
         }
         err
     })
+    .collect_vec()
+    .into_iter()
 }
 
 pub struct VerificationContext<'a> {
-    pub program: hir::Program,
+    pub file: hir::SourceFile,
     pub mist_src_path: &'a std::path::Path,
     pub mist_src: &'a str,
     pub viper_path: &'a std::path::Path,
@@ -158,10 +160,8 @@ impl VerificationContext<'_> {
 
     fn trace_span(&self, db: &dyn crate::Db, viper_span: SourceSpan) -> Option<SourceSpan> {
         if let Some(back) = self.viper_output.trace_expr(viper_span) {
-            if let Some((item_id, back)) = self.viper_source_map.trace_exp(back) {
-                let item = hir::intern_item(db, self.program, item_id).unwrap();
-                let (cx, source_map) = hir::item_lower(db, self.program, item_id, item).unwrap();
-                let (_mir, mir_source_map) = mir::lower_item(db, cx);
+            if let Some((def, back)) = self.viper_source_map.trace_exp(back) {
+                let (source_map, mir_source_map) = def.hir_mir_source_map(db)?;
                 if let Some(back) = mir_source_map.trace_expr(back) {
                     Some(source_map.expr_span(back))
                 } else {
@@ -274,7 +274,7 @@ fn viper_position_to_internal(
 }
 
 #[salsa::jar(db=Db)]
-pub struct Jar();
+pub struct Jar(lower_file_for_errors);
 
 pub trait Db: mist_core::Db + mist_codegen_viper::Db + salsa::DbWithJar<Jar> {}
 

@@ -1,6 +1,7 @@
 #![feature(control_flow_enum, get_many_mut)]
 
 mod db;
+pub mod def;
 pub mod hir;
 pub mod mir;
 pub mod util;
@@ -13,22 +14,23 @@ pub use salsa;
 
 #[salsa::jar(db = Db)]
 pub struct Jar(
-    crate::hir::SourceProgram,
-    crate::hir::Program,
-    crate::hir::ItemId,
-    crate::hir::Function,
-    crate::hir::Struct,
-    crate::hir::Field,
-    crate::hir::TypeInvariant,
-    crate::hir::TypeDecl,
+    crate::def::Def,
+    crate::def::Function,
+    crate::def::Struct,
+    crate::def::StructField,
+    crate::def::TypeInvariant,
+    crate::hir::file::parse_file,
+    crate::hir::file::ast_map,
+    crate::hir::SourceFile,
     crate::hir::VariableId,
     crate::hir::Variable,
-    crate::hir::parse_program,
-    crate::hir::item_lower,
-    crate::hir::intern_item,
+    crate::hir::file_definitions,
+    crate::hir::DefinitionHir,
+    crate::hir::lower_def,
     crate::hir::typecheck::TypeCheckErrors,
     crate::mir::MirErrors,
-    crate::mir::lower_program,
+    crate::mir::DefinitionMir,
+    crate::mir::lower_item,
 );
 
 pub trait Db: salsa::DbWithJar<Jar> {}

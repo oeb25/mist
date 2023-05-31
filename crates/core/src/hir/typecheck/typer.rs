@@ -62,6 +62,17 @@ impl TypeId {
     }
 }
 
+impl PartialOrd for TypeId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.0.into_raw().partial_cmp(&other.0.into_raw())
+    }
+}
+impl Ord for TypeId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.into_raw().cmp(&other.0.into_raw())
+    }
+}
+
 impl ena::unify::UnifyKey for TypeId {
     type Value = TypeData;
 

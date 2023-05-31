@@ -4,7 +4,7 @@ use derive_more::From;
 use derive_new::new;
 use itertools::Itertools;
 use mist_core::{
-    hir, mir,
+    def, hir, mir,
     util::{impl_idx, IdxMap, IdxWrap},
 };
 use mist_syntax::SourceSpan;
@@ -21,10 +21,8 @@ type Result<T> = std::result::Result<T, ViperLowerError>;
 #[salsa::tracked]
 pub fn viper_file(
     db: &dyn crate::Db,
-    program: hir::Program,
+    file: hir::SourceFile,
 ) -> Result<(Program<VExprId>, ViperBody, ViperSourceMap)> {
-    let root = program.parse(db).tree();
-
     let mut domains = vec![];
     let mut fields = vec![];
     let mut predicates = vec![];
@@ -34,12 +32,11 @@ pub fn viper_file(
 
     let mut lowerer = ViperLowerer::new();
 
-    for &item_id in program.items(db) {
-        let Some(item) = hir::item(db, &root, item_id) else { continue };
-        let Some((cx, _source_map)) = hir::item_lower(db, program, item_id, item) else { continue };
-        let (mut mir, _mir_source_map) = mir::lower_item(db, cx.clone());
+    for def in hir::file_definitions(db, file) {
+        let Some((cx, mir)) = def.hir_mir(db) else { return Err(ViperLowerError::EmptyBody) };
+        let mut mir = mir.clone();
         mir::analysis::isorecursive::IsorecursivePass::new(&mut mir).run();
-        match internal_viper_item(db, cx, &mut lowerer, item, &mir) {
+        match internal_viper_item(db, cx, &mut lowerer, def, &mir) {
             Ok(items) => {
                 for item in items {
                     match item {
@@ -59,7 +56,7 @@ pub fn viper_file(
         }
     }
 
-    let program = Program {
+    let file = Program {
         domains,
         fields,
         functions,
@@ -69,39 +66,42 @@ pub fn viper_file(
     };
     let (viper_body, viper_source_map) = lowerer.finish();
 
-    Ok((program, viper_body, viper_source_map))
+    Ok((file, viper_body, viper_source_map))
 }
 
+#[salsa::tracked]
 pub fn viper_item(
     db: &dyn crate::Db,
-    cx: hir::ItemContext,
-    item: hir::Item,
-    mir: &mir::Body,
+    def: def::Def,
 ) -> Result<(Vec<ViperItem<VExprId>>, ViperBody, ViperSourceMap)> {
+    // TODO: Perhaps we need to run isorecursive pass here?
+    let Some((cx, body)) = def.hir_mir(db) else { return Err(ViperLowerError::EmptyBody) };
     let mut lowerer = ViperLowerer::new();
-    let items = internal_viper_item(db, cx, &mut lowerer, item, mir)?;
+    let items = internal_viper_item(db, cx, &mut lowerer, def, body)?;
     let (viper_body, viper_source_map) = lowerer.finish();
     Ok((items, viper_body, viper_source_map))
 }
 fn internal_viper_item(
     db: &dyn crate::Db,
-    cx: hir::ItemContext,
+    cx: &hir::ItemContext,
     lowerer: &mut ViperLowerer,
-    item: hir::Item,
+    def: def::Def,
     mir: &mir::Body,
 ) -> Result<Vec<ViperItem<VExprId>>> {
-    match item {
-        hir::Item::Type(ty_decl) => match ty_decl.data(db) {
-            hir::TypeDeclData::Struct(s) => {
-                let mut lower = lowerer.body_lower(db, &cx, mir, false);
-                lower.struct_lower(s, mir.invariants().iter().copied())
-            }
-        },
-        hir::Item::TypeInvariant(_) => Ok(vec![]),
-        hir::Item::Function(function) => {
+    match def.kind(db) {
+        def::DefKind::Struct(s) => {
+            let mut lower = lowerer.body_lower(db, cx, mir, false);
+            lower.struct_lower(s, mir.invariants().iter().copied())
+        }
+        def::DefKind::StructField(_) => {
+            // TODO: We should perhaps emit the field here instead of in struct?
+            Ok(vec![])
+        }
+        def::DefKind::TypeInvariant(_) => Ok(vec![]),
+        def::DefKind::Function(function) => {
             let is_method = !function.attrs(db).is_pure();
 
-            let mut lower = lowerer.body_lower(db, &cx, mir, is_method);
+            let mut lower = lowerer.body_lower(db, cx, mir, is_method);
 
             let mut pres = vec![];
             let mut posts = vec![];
@@ -170,7 +170,7 @@ fn internal_viper_item(
                     typ: return_ty
                         .ok_or_else(|| ViperLowerError::NotYetImplemented {
                             msg: "function had no return type".to_owned(),
-                            item_id: cx.item_id(),
+                            def: cx.def(),
                             block_or_inst: None,
                             span: None,
                             // TODO: find a way to pass the span here
@@ -204,7 +204,7 @@ fn internal_viper_item(
     }
 }
 
-#[derive(new, Debug, Clone, From)]
+#[derive(new, Debug, Clone, PartialEq, Eq, From)]
 pub enum ViperItem<E> {
     Domain(Domain<E>),
     Field(Field),

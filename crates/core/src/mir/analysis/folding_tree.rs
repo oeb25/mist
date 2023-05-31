@@ -293,10 +293,10 @@ mod test {
                 x.a.b.b;
                 x.b.b.b;
             }";
-            let source = hir::SourceProgram::new(&db, source.to_string());
-            let program = hir::parse_program(&db, source);
-            let (_, cx, _, body, _) =
-                mir::lower_program(&db, program).into_iter().nth(1).unwrap();
+            let file = hir::SourceFile::new(&db, source.to_string());
+            let def = hir::file_definitions(&db, file).into_iter().nth(1).unwrap();
+            let (cx, body) = def.hir_mir(&db).unwrap();
+            let (cx, body) = (cx.clone(), body.clone());
 
             Context { db: Arc::new(db), cx, body }
         }

@@ -1,10 +1,7 @@
 mod expression;
 mod typer;
 
-use std::{
-    collections::{BTreeMap, HashMap},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use bitflags::bitflags;
 use itertools::Itertools;
@@ -17,10 +14,13 @@ use mist_syntax::{
 use thiserror::Error;
 use tracing::error;
 
-use crate::hir::{
-    self, AssertionKind, Block, Condition, Decreases, Expr, ExprData, ExprIdx, Field, ItemId, Name,
-    Param, Primitive, Program, Statement, StatementData, TypeData, Variable, VariableId,
-    VariableIdx, VariableRef,
+use crate::{
+    def::StructField,
+    hir::{
+        self, AssertionKind, Block, Condition, Decreases, Expr, ExprData, ExprIdx, Field, Name,
+        Param, Primitive, Statement, StatementData, TypeData, Variable, VariableId, VariableIdx,
+        VariableRef,
+    },
 };
 
 pub use typer::{builtin, TypeId};
@@ -29,7 +29,7 @@ use typer::{builtin::*, Typer};
 use super::{
     item_context::{FunctionContext, SpanOrAstPtr},
     types::TypeProvider,
-    ItemContext, ItemSourceMap, StructFieldRef, TypeSrc, TypeSrcId, TypeTable,
+    ItemContext, ItemSourceMap, TypeSrc, TypeSrcId, TypeTable,
 };
 
 fn id<T>(t: T) -> T {
@@ -164,114 +164,98 @@ impl Scope {
 
 pub struct TypeChecker<'w> {
     db: &'w dyn crate::Db,
-    program: Program,
-    root: &'w ast::SourceFile,
     scope: Scope,
     scope_stack: Vec<Scope>,
     source_map: ItemSourceMap,
     pub(super) cx: ItemContext,
     typer: Typer,
-    field_tys: BTreeMap<Field, TypeSrcId>,
+    field_tys: HashMap<Field, TypeSrcId>,
 }
 
-impl From<TypeChecker<'_>> for (ItemContext, ItemSourceMap) {
+impl From<TypeChecker<'_>> for hir::DefinitionHir {
     fn from(mut tc: TypeChecker<'_>) -> Self {
         tc.cx.ty_table = Arc::new(TypeTable::new(
             tc.typer.canonicalized().collect_vec(),
             tc.cx
                 .structs
                 .values()
-                .flat_map(|fields| fields.iter().map(|(f, ty_src)| (f.field(), *ty_src)))
-                .chain(tc.field_tys.iter().map(|(f, ty)| (*f, *ty)))
+                .flat_map(|fields| fields.iter().map(|&(f, ty_src)| (f.into(), ty_src)))
+                .chain(tc.field_tys.iter().map(|(&f, &ty)| (f, ty)))
                 .collect_vec()
                 .into_iter()
                 .map(|(f, ty)| (f, ty.ty(&mut tc))),
         ));
 
-        (tc.cx, tc.source_map)
+        hir::DefinitionHir::new(tc.db, tc.cx.def(), tc.cx, tc.source_map)
     }
 }
 
 impl<'a> TypeChecker<'a> {
-    pub(crate) fn init(
-        db: &'a dyn crate::Db,
-        program: Program,
-        root: &'a ast::SourceFile,
-        id: ItemId,
-    ) -> Self {
+    pub(crate) fn init(db: &'a dyn crate::Db, def: hir::Def) -> Self {
         let typer = Typer::new();
         let mut checker = Self {
             db,
-            program,
-            root,
             typer,
             field_tys: Default::default(),
             scope: Default::default(),
             scope_stack: vec![],
             source_map: Default::default(),
-            cx: ItemContext::new(id),
+            cx: ItemContext::new(def),
         };
 
-        let item_data = id.data(db);
-        let item = hir::item(db, root, id);
-
-        let is_ghost = match &item_data {
-            hir::ItemData::Fn { ast } => ast.to_node(root.syntax()).attr_flags().is_ghost(),
-            hir::ItemData::TypeInvariant { .. } => true,
-            hir::ItemData::Const { .. }
-            | hir::ItemData::Struct { .. }
-            | hir::ItemData::Macro { .. } => false,
+        let is_ghost = match def.kind(db) {
+            hir::DefKind::Function(f) => f.ast_node(db).attr_flags().is_ghost(),
+            hir::DefKind::TypeInvariant(_) => true,
+            hir::DefKind::Struct(_) => false,
+            hir::DefKind::StructField(_) => false,
         };
 
         if is_ghost {
             checker = checker.ghosted();
         }
 
-        for &item_id in program.items(db) {
-            let f = match hir::item(db, root, item_id) {
-                Some(hir::Item::Function(f)) => f,
-                Some(hir::Item::Type(t)) => match t.data(db) {
-                    hir::TypeDeclData::Struct(s) => {
-                        let s_ast = s.ast_node(db, root);
+        for def in hir::file_definitions(db, def.file(db)) {
+            let f = match def.kind(db) {
+                hir::DefKind::Function(f) => f,
+                hir::DefKind::Struct(s) => {
+                    let s_ast = s.ast_node(db);
 
-                        let s_ty = *checker
-                            .cx
-                            .named_types
-                            .entry(s.name(db))
-                            .or_insert_with(|| checker.typer.ty_id(TypeData::Struct(s)));
-                        if let Some(name) = s_ast.name() {
-                            let ts = checker.alloc_type_src(
-                                TypeSrc {
-                                    data: Some(TypeData::Struct(s)),
-                                    ty: s_ty,
-                                },
-                                name.span(),
-                            );
-                            checker.cx.struct_types.insert(s, ts);
-                        }
-
-                        let fields = s
-                            .fields(db)
-                            .map(|f| {
-                                let data = f.ast_node(db, root).ty();
-                                let ty = checker.expect_find_type_src(&data);
-                                let ty_id =
-                                    *checker.field_tys.entry(f.field()).or_insert_with(|| ty);
-                                (f, ty_id)
-                            })
-                            .collect();
-                        checker.cx.structs.insert(s, fields);
-
-                        continue;
+                    let s_ty = *checker
+                        .cx
+                        .named_types
+                        .entry(s.name(db))
+                        .or_insert_with(|| checker.typer.ty_id(TypeData::Struct(s)));
+                    if let Some(name) = s_ast.name() {
+                        let ts = checker.alloc_type_src(
+                            TypeSrc {
+                                data: Some(TypeData::Struct(s)),
+                                ty: s_ty,
+                            },
+                            name.span(),
+                        );
+                        checker.cx.struct_types.insert(s, ts);
                     }
-                },
+
+                    let fields = s
+                        .fields(db)
+                        .map(|f| {
+                            let data = f.ast_node(db).ty();
+                            let ty = checker.expect_find_type_src(&data);
+                            let ty_id = *checker.field_tys.entry(f.into()).or_insert_with(|| ty);
+                            (f, ty_id)
+                        })
+                        .collect();
+                    checker.cx.structs.insert(s, fields);
+
+                    continue;
+                }
                 _ => continue,
             };
             let is_ghost = f.attrs(db).is_ghost();
-            let f_ast = f.ast_node(db, root);
+            let f_ast = f.ast_node(db);
 
             let params = f
-                .param_list(db, root)
+                .param_list(db)
                 .map(|param| {
                     let ty = checker.expect_find_type_src(&param.ty);
                     Param {
@@ -308,7 +292,7 @@ impl<'a> TypeChecker<'a> {
                     name_span,
                 );
 
-                if let hir::ItemData::Fn { .. } = &item_data {
+                if let hir::DefKind::Function(_) = def.kind(db) {
                     checker.cx.function_context = Some(FunctionContext {
                         function_var: VariableRef::new(var, name_span),
                         decreases: Default::default(),
@@ -319,11 +303,11 @@ impl<'a> TypeChecker<'a> {
             }
         }
 
-        if let Some(hir::Item::Function(f)) = item {
-            let f_ast = f.ast_node(db, root);
+        if let hir::DefKind::Function(f) = def.kind(db) {
+            let f_ast = f.ast_node(db);
 
             checker.cx.params = f
-                .param_list(db, root)
+                .param_list(db)
                 .map(|p| {
                     let ty = checker
                         .expect_find_type_src(&p.ty)
@@ -368,21 +352,29 @@ impl<'a> TypeChecker<'a> {
                 cx.conditions = conditions;
                 cx.decreases = decreases;
             }
+
+            if !f_ast.is_ghost() && f_ast.body().is_none() {
+                checker.push_error(
+                    f_ast
+                        .semicolon_token()
+                        .map(|t| t.span())
+                        .unwrap_or_else(|| f_ast.name().unwrap().span()),
+                    None,
+                    None,
+                    TypeCheckErrorKind::NonGhostFunctionWithoutBody,
+                );
+            }
         }
 
-        checker.cx.self_ty = match item {
-            Some(hir::Item::TypeInvariant(ty_inv)) => {
-                ty_inv.ast_node(db, root).name_ref().map(|name| {
-                    checker.unsourced_ty(checker.find_named_type(name.span(), name.into()))
-                })
-            }
-            Some(hir::Item::Type(ty)) => match ty.data(db) {
-                hir::TypeDeclData::Struct(st) => st.ast_node(db, root).name().map(|name| {
-                    checker.unsourced_ty(checker.find_named_type(name.span(), name.into()))
-                }),
-            },
-            Some(hir::Item::Function(_)) => None,
-            None => None,
+        checker.cx.self_ty = match def.kind(db) {
+            hir::DefKind::TypeInvariant(ty_inv) => ty_inv.ast_node(db).name_ref().map(|name| {
+                checker.unsourced_ty(checker.find_named_type(name.span(), name.into()))
+            }),
+            hir::DefKind::Struct(s) => s.ast_node(db).name().map(|name| {
+                checker.unsourced_ty(checker.find_named_type(name.span(), name.into()))
+            }),
+            hir::DefKind::StructField(_) => None,
+            hir::DefKind::Function(_) => None,
         };
 
         checker
@@ -489,7 +481,7 @@ impl<'a> TypeChecker<'a> {
     ) -> TypeId {
         let span = span.span();
         let err = TypeCheckError {
-            input: self.program.parse(self.db).tree().to_string(),
+            input: self.cx.def.file(self.db).text(self.db).clone(),
             span,
             label,
             help,
@@ -824,7 +816,7 @@ impl<'a> TypeChecker<'a> {
         })
     }
 
-    fn struct_fields(&self, s: crate::hir::Struct) -> impl Iterator<Item = StructFieldRef> + 'a {
+    fn struct_fields(&self, s: crate::hir::Struct) -> impl Iterator<Item = StructField> + 'a {
         s.fields(self.db)
     }
 

@@ -8,7 +8,7 @@ use itertools::Itertools;
 use miette::IntoDiagnostic;
 use mist_codegen_viper::gen::ViperHints;
 use mist_core::{
-    hir::SourceProgram,
+    hir::{self, SourceFile},
     salsa::{ParallelDatabase, Snapshot},
 };
 use mist_syntax::{ast::Spanned, SourceSpan};
@@ -209,7 +209,7 @@ impl Backend {
         params: SemanticTokensParams,
     ) -> Result<Option<SemanticTokensResult>> {
         let db = &*self.db();
-        let Some(source) = self.source_program(db, params.text_document.uri) else {
+        let Some(source) = self.source_file(db, params.text_document.uri) else {
             return Err(tower_lsp::jsonrpc::Error::invalid_request());
         };
         let tokens = crate::highlighting::semantic_tokens(db, source);
@@ -221,13 +221,12 @@ impl Backend {
     }
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
         let db = &*self.db();
-        let Some(source) = self.source_program(db, params.text_document.uri) else {
+        let Some(file) = self.source_file(db, params.text_document.uri) else {
             return Err(tower_lsp::jsonrpc::Error::invalid_request());
         };
-        let inlay_hints = crate::highlighting::inlay_hints(db, source);
+        let inlay_hints = crate::highlighting::inlay_hints(db, file);
 
-        let program = mist_core::hir::parse_program(db, source);
-        let hints = mist_codegen_viper::gen::viper_file::accumulated::<ViperHints>(db, program);
+        let hints = mist_codegen_viper::gen::viper_file::accumulated::<ViperHints>(db, file);
 
         Ok(Some(
             inlay_hints
@@ -238,7 +237,7 @@ impl Backend {
                         .into_iter()
                         .map(|hint| crate::highlighting::InlayHint {
                             position: mist_core::util::Position::from_byte_offset(
-                                source.text(db),
+                                file.text(db),
                                 hint.span.end(),
                             ),
                             label: hint.viper,
@@ -257,7 +256,7 @@ impl Backend {
             text_document,
             position,
         } = params.text_document_position_params;
-        let Some(source) = self.source_program(db, text_document.uri) else {
+        let Some(source) = self.source_file(db, text_document.uri) else {
             return Err(tower_lsp::jsonrpc::Error::invalid_request());
         };
         let src = source.text(db);
@@ -305,9 +304,9 @@ impl Backend {
         self.db.lock().unwrap().snapshot()
     }
 
-    fn source_program(&self, db: &dyn crate::Db, uri: Url) -> Option<SourceProgram> {
+    fn source_file(&self, db: &dyn crate::Db, uri: Url) -> Option<SourceFile> {
         let text = self.files.get(&uri)?;
-        Some(SourceProgram::new(db, text.to_string()))
+        Some(SourceFile::new(db, text.to_string()))
     }
 
     async fn update_text(&self, uri: Url, source: String, version: i32) -> Result<()> {
@@ -327,11 +326,10 @@ impl Backend {
             let db = db_arc.lock().unwrap().snapshot();
             let uri = task_uri;
 
-            let source = mist_core::hir::SourceProgram::new(&*db, text.to_string());
-            let program = mist_core::hir::parse_program(&*db, source);
-            let parse = program.parse(&*db).clone();
+            let file = mist_core::hir::SourceFile::new(&*db, text.to_string());
+            // let parse = program.parse(&*db).clone();
 
-            let errors = mist_cli::accumulated_errors(&*db, program)
+            let errors = mist_cli::accumulated_errors(&*db, file)
                 .flat_map(|e| miette_to_diagnostic(&text, e.inner_diagnostic().unwrap()))
                 .collect_vec();
 
@@ -357,7 +355,7 @@ impl Backend {
                 let verification_start = std::time::Instant::now();
 
                 let verify_file = crate::viper::VerifyFile {
-                    program,
+                    file,
                     viperserver_jar: &viperserver_jar,
                     viperserver: &viperserver,
                     working_dir: &working_dir,
@@ -396,11 +394,10 @@ impl Backend {
                         )
                         .await;
 
-                    let diagnostics = program
-                        .items(&*db)
+                    let diagnostics = hir::file_definitions(&*db, file)
                         .iter()
-                        .map(|item| {
-                            let span = item.syntax(&*db, &parse.tree()).span();
+                        .map(|def| {
+                            let span = def.syntax(&*db).span();
                             let range = span_to_range(&text, span.set_len(0));
                             Diagnostic {
                                 severity: Some(DiagnosticSeverity::HINT),
@@ -438,7 +435,7 @@ impl Backend {
             position,
         }: TextDocumentPositionParams,
     ) -> Result<Option<LocationLink>> {
-        let Some(source) = self.source_program(db, text_document.uri.clone()) else {
+        let Some(source) = self.source_file(db, text_document.uri.clone()) else {
             return Err(tower_lsp::jsonrpc::Error::invalid_request());
         };
         let src = source.text(db);

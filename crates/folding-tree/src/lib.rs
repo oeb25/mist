@@ -48,10 +48,11 @@ impl<E: fmt::Display> fmt::Display for FoldingTree<E> {
                         Folding::Unfolded => write!(f, "{{ ")?,
                     }
                 }
-                WalkEvent::Leave((_, folding)) => match folding {
-                    Folding::Unfolded => write!(f, "}} ")?,
-                    _ => {}
-                },
+                WalkEvent::Leave((_, folding)) => {
+                    if let Folding::Unfolded = folding {
+                        write!(f, "}} ")?
+                    }
+                }
             }
         }
         Ok(())
@@ -88,7 +89,7 @@ impl<'a> TryFrom<&'a str> for FoldingTree<&'a str> {
 
             fn next(&mut self) -> Option<Self::Item> {
                 let mut start = None;
-                while let Some((idx, c)) = self.chars.next() {
+                for (idx, c) in &mut self.chars {
                     match c {
                         c if c.is_whitespace() => {
                             if let Some(start) = start {

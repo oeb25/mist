@@ -161,7 +161,7 @@ impl BodyLower<'_> {
                 mir::Terminator::Return => {
                     return Err(ViperLowerError::NotYetImplemented {
                         msg: "return terminator".to_string(),
-                        item_id: self.body.item_id(),
+                        def: self.body.def(),
                         block_or_inst: Some(block.into()),
                         span: None,
                     })
@@ -203,7 +203,7 @@ impl BodyLower<'_> {
                     PureLowerResult::Empty { .. } => {
                         return Err(ViperLowerError::NotYetImplemented {
                             msg: "quantifier with empty result".into(),
-                            item_id: self.body.item_id(),
+                            def: self.body.def(),
                             block_or_inst: Some(block.into()),
                             span: None,
                         })
@@ -225,7 +225,7 @@ impl BodyLower<'_> {
                     let Some(next) = self.postdominators.get(block) else {
                         return Err(ViperLowerError::NotYetImplemented {
                             msg: format!("block {block} did not have a postdominator"),
-                            item_id: self.body.item_id(),
+                            def: self.body.def(),
                             block_or_inst: Some(block.into()),
                             span: None,
                         })
@@ -242,7 +242,7 @@ impl BodyLower<'_> {
                                 if thn_slot != els_slot {
                                     return Err(ViperLowerError::NotYetImplemented {
                                         msg: "divergent branches".to_string(),
-                                        item_id: self.body.item_id(),
+                                        def: self.body.def(),
                                         block_or_inst: Some(block.into()),
                                         span: None,
                                     });
@@ -268,7 +268,7 @@ impl BodyLower<'_> {
                             (PureLowerResult::Empty { .. }, _) => {
                                 Err(ViperLowerError::NotYetImplemented {
                                     msg: format!("divergent branches: {otherwise} is empty, and was told to stop at {block}"),
-                                    item_id: self.body.item_id(),
+                                    def: self.body.def(),
                                     block_or_inst: Some(otherwise.into()),
                                     span: None,
                                 })

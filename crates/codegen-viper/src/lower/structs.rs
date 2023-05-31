@@ -1,8 +1,4 @@
-use mist_core::{
-    hir::{self, types::TypeProvider},
-    mir::{self, BlockId},
-    util::IdxWrap,
-};
+use mist_core::{def, hir::types::TypeProvider, mir, util::IdxWrap};
 use silvers::{
     expression::{AbstractLocalVar, BinOp, Exp, FieldAccess, PermExp},
     program::{Field, Predicate},
@@ -15,12 +11,12 @@ use super::{BodyLower, Result};
 impl BodyLower<'_> {
     pub fn struct_lower(
         &mut self,
-        s: hir::Struct,
+        s: def::Struct,
         invariants: impl IntoIterator<Item = mir::BlockId>,
     ) -> Result<Vec<ViperItem<VExprId>>> {
         let mut viper_items = vec![];
 
-        let source = BlockId::from_raw(0.into());
+        let source = mir::BlockId::from_raw(0.into());
         let self_slot = self.body.self_slot().expect("self slot must be set");
         let self_var = self.slot_to_var(self_slot)?;
         let self_ = self.alloc(source, AbstractLocalVar::LocalVar(self_var.clone()));
@@ -30,7 +26,7 @@ impl BodyLower<'_> {
         let field_invs: Vec<_> = s
             .fields(self.db)
             .map(|f| {
-                let field_ty = self.body.field_ty(f.field());
+                let field_ty = self.body.field_ty(self.db, f.into());
                 let ty = self.lower_type(field_ty)?;
                 let viper_field = Field {
                     name: f.name(self.db).to_string(),

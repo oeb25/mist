@@ -1,35 +1,24 @@
-use hir::ItemSourceMap;
 use mist_syntax::ast::operators::{ArithOp, BinaryOp, CmpOp};
 use tracing::debug;
 
 use crate::{
+    def::Def,
     hir::{
         self, pretty, typecheck::builtin::error, AssertionKind, ExprData, ExprIdx, IfExpr,
-        ItemContext, Program, Statement, StatementData, TypeData, TypeId, VariableIdx,
+        ItemContext, Statement, StatementData, TypeData, TypeId, VariableIdx,
     },
     mir::{MirError, MirErrors, Operand},
 };
 
 use super::{
-    BlockId, Body, BodySourceMap, BorrowKind, Function, FunctionData, FunctionId, Instruction,
-    InstructionId, MExpr, Place, Projection, RangeKind, Slot, SlotId, SwitchTargets, Terminator,
+    BlockId, Body, BodySourceMap, BorrowKind, DefinitionMir, Function, FunctionData, FunctionId,
+    Instruction, InstructionId, MExpr, Place, Projection, RangeKind, Slot, SlotId, SwitchTargets,
+    Terminator,
 };
 
 #[salsa::tracked]
-pub fn lower_program(
-    db: &dyn crate::Db,
-    program: Program,
-) -> Vec<(hir::Item, ItemContext, ItemSourceMap, Body, BodySourceMap)> {
-    let root = program.parse(db).tree();
-    program.items(db).iter().filter_map(|&item_id| {
-        let Some(item) = hir::item(db, &root, item_id) else { return None; };
-        let Some((cx, item_source_map)) = hir::item_lower(db, program, item_id, item) else { return None; };
-        let (mir, mir_source_map) = lower_item(db, cx.clone());
-        Some((item, cx, item_source_map, mir, mir_source_map))
-    }).collect()
-}
-
-pub fn lower_item(db: &dyn crate::Db, cx: ItemContext) -> (Body, BodySourceMap) {
+pub fn lower_item(db: &dyn crate::Db, def: Def) -> Option<DefinitionMir> {
+    let cx = def.hir(db)?.cx(db);
     let span = cx.function_var().map(|fvar| {
         tracing::span!(
             tracing::Level::DEBUG,
@@ -40,7 +29,7 @@ pub fn lower_item(db: &dyn crate::Db, cx: ItemContext) -> (Body, BodySourceMap) 
     });
     let _enter = span.as_ref().map(|span| span.enter());
 
-    let mut lower = MirLower::new(db, &cx);
+    let mut lower = MirLower::new(db, cx);
 
     lower.body.params = cx
         .params()
@@ -94,7 +83,7 @@ pub fn lower_item(db: &dyn crate::Db, cx: ItemContext) -> (Body, BodySourceMap) 
         lower.body.body_block = Some(body_bid);
     }
 
-    lower.finish()
+    Some(lower.finish())
 }
 
 struct MirLower<'a> {
@@ -110,7 +99,7 @@ impl<'a> MirLower<'a> {
         Self {
             db,
             cx,
-            body: Body::new(cx.item_id(), cx.ty_table()),
+            body: Body::new(cx.def(), cx.ty_table()),
             source_map: Default::default(),
         }
     }
@@ -203,7 +192,7 @@ impl<'a> MirLower<'a> {
             MirErrors::push(
                 self.db,
                 MirError::SlotUseBeforeAlloc {
-                    item_id: self.cx.item_id(),
+                    def: self.cx.def(),
                     var,
                     span: None,
                 },
@@ -211,8 +200,8 @@ impl<'a> MirLower<'a> {
             self.alloc_tmp(self.cx.var_ty(var))
         }
     }
-    fn finish(self) -> (Body, BodySourceMap) {
-        (self.body, self.source_map)
+    fn finish(self) -> DefinitionMir {
+        DefinitionMir::new(self.db, self.body, self.source_map)
     }
 
     fn project_deeper(&mut self, mut place: Place, projection: &[Projection]) -> Place {
@@ -461,24 +450,27 @@ impl MirLower<'_> {
                 expr: base, field, ..
             } => {
                 let (bid, place) = self.lhs_expr(*base, bid, None);
-                if let Some(f) = field {
-                    let f_ty = expr_data.ty;
-                    (
-                        bid,
-                        self.project_deeper(place, &[Projection::Field(*f, f_ty)]),
-                    )
-                } else {
-                    MirErrors::push(
-                        self.db,
-                        MirError::NotYetImplemented {
-                            msg: "lhs_expr of field access".to_string(),
-                            item_id: self.cx.item_id(),
-                            expr,
-                            span: None,
-                        },
-                    );
+                match field {
+                    hir::Field::StructField(_) | hir::Field::List(_, _) => {
+                        let f_ty = expr_data.ty;
+                        (
+                            bid,
+                            self.project_deeper(place, &[Projection::Field(*field, f_ty)]),
+                        )
+                    }
+                    hir::Field::Undefined => {
+                        MirErrors::push(
+                            self.db,
+                            MirError::NotYetImplemented {
+                                msg: "lhs_expr of field access".to_string(),
+                                def: self.cx.def(),
+                                expr,
+                                span: None,
+                            },
+                        );
 
-                    (bid, place)
+                        (bid, place)
+                    }
                 }
             }
             ExprData::Struct { .. } => todo!(),
@@ -570,7 +562,7 @@ impl MirLower<'_> {
                     MirErrors::push(
                         self.db,
                         MirError::SelfInItemWithout {
-                            item_id: self.cx.item_id(),
+                            def: self.cx.def(),
                             expr,
                             span: None,
                         },
@@ -593,8 +585,8 @@ impl MirLower<'_> {
                 expr: base,
                 field_name: _,
                 field,
-            } => {
-                if let Some(field) = field {
+            } => match field {
+                hir::Field::StructField(_) | hir::Field::List(_, _) => {
                     let tmp = self.expr_into_operand(*base, &mut bid, None);
                     if let Some(place) = tmp.place() {
                         let f_ty = expr_data.ty;
@@ -610,12 +602,13 @@ impl MirLower<'_> {
                     } else {
                         todo!()
                     }
-                } else {
+                }
+                hir::Field::Undefined => {
                     if !self.cx.expr_ty(*base).data().is_error() {
                         MirErrors::push(
                             self.db,
                             MirError::NotYetImplemented {
-                                item_id: self.cx.item_id(),
+                                def: self.cx.def(),
                                 msg: "missing field".to_string(),
                                 expr,
                                 span: None,
@@ -624,7 +617,7 @@ impl MirLower<'_> {
                     }
                     bid
                 }
-            }
+            },
             ExprData::NotNull(it) => {
                 // NOTE: It the MIR level `!` is a noop
                 self.expr(*it, bid, target, dest)
@@ -770,7 +763,7 @@ impl MirLower<'_> {
                     MirErrors::push(
                         self.db,
                         MirError::ResultWithoutReturnSlot {
-                            item_id: self.cx.item_id(),
+                            def: self.cx.def(),
                             expr,
                             span: None,
                         },
@@ -806,7 +799,7 @@ impl MirLower<'_> {
                             MirErrors::push(
                                 self.db,
                                 MirError::ResultWithoutReturnSlot {
-                                    item_id: self.cx.item_id(),
+                                    def: self.cx.def(),
                                     expr,
                                     span: None,
                                 },

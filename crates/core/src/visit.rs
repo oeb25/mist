@@ -3,37 +3,41 @@ use std::{ops::ControlFlow, sync::Arc};
 use derive_new::new;
 use mist_syntax::ast::{self, HasName};
 
-use crate::hir::{
-    self, Block, Decreases, ExprData, ExprIdx, Field, Function, IfExpr, ItemContext, ItemSourceMap,
-    Param, Program, Statement, StatementData, TypeData, TypeDecl, TypeInvariant, TypeSrcId,
-    VariableIdx, VariableRef,
+use crate::{
+    def::{DefKind, Function, Struct, TypeInvariant},
+    hir::{
+        self, Block, Decreases, ExprData, ExprIdx, Field, IfExpr, ItemContext, ItemSourceMap,
+        Param, SourceFile, Statement, StatementData, TypeData, TypeSrcId, VariableIdx, VariableRef,
+    },
 };
 
 pub trait Walker<'db>: Sized {
-    fn init(db: &'db dyn crate::Db, root: &'db ast::SourceFile, vcx: VisitContext) -> Self
+    fn init(db: &'db dyn crate::Db, vcx: VisitContext) -> Self
     where
         Self:;
     #[must_use]
     fn walk_program<'v, V: Visitor>(
         db: &'db dyn crate::Db,
-        program: Program,
-        root: &'db ast::SourceFile,
+        file: SourceFile,
         visitor: &'v mut V,
     ) -> ControlFlow<V::Item> {
-        for &item_id in program.items(db) {
-            let Some(item) = hir::item(db, root, item_id) else { continue };
-            let Some((cx, source_map)) = hir::item_lower(db, program, item_id, item) else { continue };
-            let cx = Arc::new(cx);
-            let source_map = Arc::new(source_map);
-            let mut walker = Self::init(db, root, VisitContext { cx, source_map });
-            match item {
-                hir::Item::Type(ty_decl) => {
-                    walker.walk_ty_decl(visitor, ty_decl)?;
+        for def in hir::file_definitions(db, file) {
+            let Some(hir) = def.hir(db) else { continue };
+            let cx = Arc::new(hir.cx(db).clone());
+            let source_map = Arc::new(hir.source_map(db).clone());
+            let mut walker = Self::init(db, VisitContext { cx, source_map });
+            match def.kind(db) {
+                DefKind::Struct(st) => {
+                    walker.walk_struct(visitor, st)?;
                 }
-                hir::Item::TypeInvariant(ty_inv) => {
-                    walker.walk_ty_inv(visitor, program, ty_inv)?;
+                DefKind::StructField(_) => {
+                    // TODO: Should we walk it here?
+                    // walker.walk_struct(visitor, st)?;
                 }
-                hir::Item::Function(f) => {
+                DefKind::TypeInvariant(ty_inv) => {
+                    walker.walk_ty_inv(visitor, file, ty_inv)?;
+                }
+                DefKind::Function(f) => {
                     walker.walk_function(visitor, f)?;
                 }
             }
@@ -41,16 +45,12 @@ pub trait Walker<'db>: Sized {
         ControlFlow::Continue(())
     }
     #[must_use]
-    fn walk_ty_decl<V: Visitor>(
-        &mut self,
-        visitor: &mut V,
-        ty_decl: TypeDecl,
-    ) -> ControlFlow<V::Item>;
+    fn walk_struct<V: Visitor>(&mut self, visitor: &mut V, st: Struct) -> ControlFlow<V::Item>;
     #[must_use]
     fn walk_ty_inv<V: Visitor>(
         &mut self,
         visitor: &mut V,
-        program: Program,
+        file: SourceFile,
         ty_inv: TypeInvariant,
     ) -> ControlFlow<V::Item>;
     #[must_use]
@@ -108,7 +108,7 @@ pub trait Visitor {
     type Item;
 
     #[must_use]
-    fn visit_ty_decl(&mut self, vcx: &VisitContext, ty_decl: TypeDecl) -> ControlFlow<Self::Item> {
+    fn visit_ty_decl(&mut self, vcx: &VisitContext, st: Struct) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
     #[must_use]
@@ -173,7 +173,7 @@ pub trait Visitor {
 #[derive(new)]
 pub struct OrderedWalk<'db, O> {
     db: &'db dyn crate::Db,
-    root: &'db ast::SourceFile,
+    root: ast::SourceFile,
     vcx: VisitContext,
     order: O,
 }
@@ -223,7 +223,8 @@ impl<'db, O> Walker<'db> for OrderedWalk<'db, O>
 where
     O: Order + Default,
 {
-    fn init(db: &'db dyn crate::Db, root: &'db ast::SourceFile, vcx: VisitContext) -> Self {
+    fn init(db: &'db dyn crate::Db, vcx: VisitContext) -> Self {
+        let root = hir::file::parse_file(db, vcx.cx.def().file(db)).tree();
         Self {
             db,
             root,
@@ -233,27 +234,19 @@ where
     }
 
     #[must_use]
-    fn walk_ty_decl<V: Visitor>(
-        &mut self,
-        visitor: &mut V,
-        ty_decl: TypeDecl,
-    ) -> ControlFlow<V::Item> {
+    fn walk_struct<V: Visitor>(&mut self, visitor: &mut V, s: Struct) -> ControlFlow<V::Item> {
         if self.pre() {
-            visitor.visit_ty_decl(&self.vcx, ty_decl)?;
+            visitor.visit_ty_decl(&self.vcx, s)?;
         }
-        match ty_decl.data(self.db) {
-            hir::TypeDeclData::Struct(s) => {
-                self.walk_ty(visitor, self.vcx.cx.struct_ty(s))?;
-                for f in s.fields(self.db) {
-                    let f_ast = f.ast_node(self.db, self.root);
-                    if let Some(name) = f_ast.name() {
-                        self.walk_field(visitor, f.field(), &ast::NameOrNameRef::Name(name))?
-                    }
-                }
+        self.walk_ty(visitor, self.vcx.cx.struct_ty(s))?;
+        for f in s.fields(self.db) {
+            let f_ast = f.ast_node(self.db);
+            if let Some(name) = f_ast.name() {
+                self.walk_field(visitor, f.into(), &ast::NameOrNameRef::Name(name))?
             }
         }
         if self.post() {
-            visitor.visit_ty_decl(&self.vcx, ty_decl)?;
+            visitor.visit_ty_decl(&self.vcx, s)?;
         }
         ControlFlow::Continue(())
     }
@@ -262,7 +255,7 @@ where
     fn walk_ty_inv<V: Visitor>(
         &mut self,
         visitor: &mut V,
-        _program: Program,
+        _program: SourceFile,
         _ty_inv: TypeInvariant,
     ) -> ControlFlow<V::Item> {
         // TODO: Walk the name of the invariant
@@ -415,7 +408,6 @@ where
 
                 // TODO: This should be replaces with a try-block when stable
                 let res: Option<_> = (|| {
-                    let field = field?;
                     let src: ast::FieldExpr =
                         expr_src.into_ptr()?.cast()?.to_node(self.root.syntax());
                     let field_ref = ast::NameOrNameRef::NameRef(src.field().unwrap());
@@ -428,7 +420,7 @@ where
             ExprData::Struct { fields, .. } => {
                 for f in fields {
                     let field_ref = ast::NameOrNameRef::NameRef(f.name.to_node(self.root.syntax()));
-                    self.walk_field(visitor, f.decl, &field_ref)?;
+                    self.walk_field(visitor, f.decl.into(), &field_ref)?;
                     self.walk_expr(visitor, f.value)?;
                 }
             }

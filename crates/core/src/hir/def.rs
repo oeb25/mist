@@ -1,119 +1,29 @@
 mod name;
 
+use std::fmt;
+
 use derive_more::{Display, From};
 use derive_new::new;
 use mist_syntax::{
     ast::{
         self,
         operators::{BinaryOp, UnaryOp},
-        AttrFlags, HasAttrs, HasName, Spanned,
+        AttrFlags, Spanned,
     },
     ptr::AstPtr,
-    AstNode, SourceSpan,
+    SourceSpan,
 };
 use tracing::error;
 
-use crate::util::impl_idx;
+use crate::{
+    def::{Struct, StructField},
+    util::impl_idx,
+};
 
 pub use super::typecheck::TypeId;
 use super::ItemContext;
 
 pub use name::Name;
-
-#[salsa::interned]
-pub struct ItemId {
-    pub data: ItemData,
-}
-
-impl ItemId {
-    pub fn syntax(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> mist_syntax::SyntaxNode {
-        self.data(db).syntax(root)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, From)]
-pub enum ItemData {
-    Const { ast: AstPtr<ast::Const> },
-    Fn { ast: AstPtr<ast::Fn> },
-    Struct { ast: AstPtr<ast::Struct> },
-    TypeInvariant { ast: AstPtr<ast::TypeInvariant> },
-    Macro { ast: AstPtr<ast::Macro> },
-}
-impl ItemData {
-    fn syntax(&self, root: &ast::SourceFile) -> mist_syntax::SyntaxNode {
-        match self {
-            ItemData::Const { ast } => ast.to_node(root.syntax()).syntax().clone(),
-            ItemData::Fn { ast } => ast.to_node(root.syntax()).syntax().clone(),
-            ItemData::Struct { ast } => ast.to_node(root.syntax()).syntax().clone(),
-            ItemData::TypeInvariant { ast } => ast.to_node(root.syntax()).syntax().clone(),
-            ItemData::Macro { ast } => ast.to_node(root.syntax()).syntax().clone(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, From)]
-pub enum Item {
-    Type(TypeDecl),
-    TypeInvariant(TypeInvariant),
-    Function(Function),
-}
-
-impl Item {
-    pub fn name(&self, db: &dyn crate::Db) -> Name {
-        match self {
-            Item::Type(t) => t.name(db),
-            Item::TypeInvariant(t) => t.name(db),
-            Item::Function(f) => f.name(db),
-        }
-    }
-}
-
-#[salsa::tracked]
-pub struct TypeDecl {
-    pub name: Name,
-    pub data: TypeDeclData,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum TypeDeclData {
-    Struct(Struct),
-}
-
-#[salsa::interned]
-pub struct Function {
-    #[return_ref]
-    syntax: AstPtr<ast::Fn>,
-    pub name: Name,
-    pub attrs: AttrFlags,
-}
-
-impl Function {
-    pub fn ast_node(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> ast::Fn {
-        self.syntax(db).to_node(root.syntax())
-    }
-    pub fn param_list(
-        &self,
-        db: &dyn crate::Db,
-        root: &ast::SourceFile,
-    ) -> impl Iterator<Item = Param<ast::Name, Option<ast::Type>>> + '_ {
-        self.syntax(db)
-            .to_node(root.syntax())
-            .param_list()
-            .into_iter()
-            .flat_map(|param_list| {
-                param_list
-                    .params()
-                    .map(|param| -> Param<ast::Name, Option<ast::Type>> {
-                        Param {
-                            is_ghost: param.is_ghost(),
-                            name: param.name().expect("param did not have a name"),
-                            ty: param.ty(),
-                        }
-                    })
-            })
-    }
-}
-
 #[salsa::interned]
 pub struct VariableId {
     #[return_ref]
@@ -221,6 +131,36 @@ impl Expr {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, From)]
+pub enum Field {
+    StructField(StructField),
+    List(TypeId, ListField),
+    Undefined,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, From)]
+pub enum ListField {
+    Len,
+}
+
+impl Field {
+    pub fn name(&self, db: &dyn crate::Db) -> Name {
+        match self {
+            Field::StructField(sf) => sf.name(db),
+            Field::List(_, lf) => Name::new(&lf.to_string()),
+            Field::Undefined => Name::new("?undefined"),
+        }
+    }
+}
+
+impl fmt::Display for ListField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ListField::Len => write!(f, "len"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ExprData {
     Literal(Literal),
@@ -230,7 +170,7 @@ pub enum ExprData {
     Field {
         expr: ExprIdx,
         field_name: Name,
-        field: Option<Field>,
+        field: Field,
     },
     Struct {
         struct_declaration: Struct,
@@ -317,7 +257,8 @@ pub enum Quantifier {
 }
 #[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StructExprField {
-    pub decl: Field,
+    pub decl: StructField,
+    // TODO: remove this as it could be computed using the source map
     pub name: AstPtr<ast::NameRef>,
     pub value: ExprIdx,
 }
@@ -472,106 +413,5 @@ impl<T> TypeData<T> {
 impl TypeData<TypeSrcId> {
     pub fn canonical(&self, cx: &ItemContext) -> TypeData {
         self.map(|&id| cx[id].ty)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StructFieldInner {
-    // TODO: remove the visibility modifier
-    pub(super) node: AstPtr<ast::StructField>,
-    pub(super) name: Name,
-    pub(super) is_ghost: bool,
-}
-
-#[salsa::interned]
-pub struct Struct {
-    #[return_ref]
-    node: AstPtr<ast::Struct>,
-    pub name: Name,
-    #[return_ref]
-    fields_inner: Vec<StructFieldInner>,
-}
-
-impl Struct {
-    pub fn ast_node(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> ast::Struct {
-        self.node(db).to_node(root.syntax())
-    }
-    pub fn fields<'db>(
-        &self,
-        db: &'db dyn crate::Db,
-    ) -> impl Iterator<Item = StructFieldRef> + 'db {
-        let s = *self;
-        self.fields_inner(db).iter().map(move |f| StructFieldRef {
-            inner: Field::new(
-                db,
-                Some(f.node.clone()),
-                FieldParent::Struct(s),
-                f.name.clone(),
-                f.is_ghost,
-            ),
-        })
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct StructFieldRef {
-    inner: Field,
-}
-
-impl StructFieldRef {
-    pub fn field(&self) -> Field {
-        self.inner
-    }
-    pub fn ast_node(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> ast::StructField {
-        self.inner
-            .ast_node(db, root)
-            .expect("this is aways okay, since it's been constructed by the parent")
-    }
-    pub fn parent(&self, db: &dyn crate::Db) -> FieldParent {
-        self.inner.parent(db)
-    }
-    pub fn name(&self, db: &dyn crate::Db) -> Name {
-        self.inner.name(db)
-    }
-    pub fn is_ghost(&self, db: &dyn crate::Db) -> bool {
-        self.inner.is_ghost(db)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum FieldParent {
-    Struct(Struct),
-    List(TypeId),
-}
-
-// #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[salsa::interned]
-pub struct Field {
-    node: Option<AstPtr<ast::StructField>>,
-    pub parent: FieldParent,
-    pub name: Name,
-    pub is_ghost: bool,
-    // ast_ty: Option<AstPtr<ast::Type>>,
-}
-
-impl Field {
-    pub fn ast_node(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> Option<ast::StructField> {
-        self.node(db).map(|node| node.to_node(root.syntax()))
-    }
-    // pub fn ty(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> Option<ast::Type> {
-    //     self.ast_ty(db).as_ref().map(|ty| ty.to_node(root.syntax()))
-    // }
-}
-
-#[salsa::interned]
-pub struct TypeInvariant {
-    #[return_ref]
-    node: AstPtr<ast::TypeInvariant>,
-    pub name: Name,
-}
-
-impl TypeInvariant {
-    pub fn ast_node(&self, db: &dyn crate::Db, root: &ast::SourceFile) -> ast::TypeInvariant {
-        self.node(db).to_node(root.syntax())
     }
 }

@@ -3,8 +3,8 @@ use std::ops::ControlFlow;
 use derive_new::new;
 use mist_core::{
     hir::{
-        self, pretty, types::TypeProvider, ExprData, ExprIdx, Field, FieldParent, Param,
-        SourceProgram, TypeData, TypeSrcId, VariableIdx, VariableRef,
+        self, pretty, types::TypeProvider, ExprData, ExprIdx, Field, Param, SourceFile, TypeData,
+        TypeSrcId, VariableIdx, VariableRef,
     },
     salsa,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
@@ -16,12 +16,9 @@ use mist_syntax::{
 };
 
 #[salsa::tracked]
-pub fn hover(db: &dyn crate::Db, source: SourceProgram, byte_offset: usize) -> Option<HoverResult> {
-    let program = hir::parse_program(db, source);
-    let root = program.parse(db).tree();
-
+pub fn hover(db: &dyn crate::Db, file: SourceFile, byte_offset: usize) -> Option<HoverResult> {
     let mut visitor = HoverFinder::new(db, byte_offset);
-    match PostOrderWalk::walk_program(db, program, &root, &mut visitor) {
+    match PostOrderWalk::walk_program(db, file, &mut visitor) {
         ControlFlow::Break(result) => result,
         ControlFlow::Continue(()) => None,
     }
@@ -60,10 +57,11 @@ impl<'a> Visitor for HoverFinder<'a> {
         reference: &ast::NameOrNameRef,
     ) -> ControlFlow<Option<HoverResult>> {
         if reference.contains_pos(self.byte_offset) {
-            match field.parent(self.db) {
-                FieldParent::Struct(s) => {
+            match field {
+                Field::StructField(sf) => {
+                    let s = sf.parent_struct(self.db);
                     let struct_ty = pretty::ty(&*vcx.cx, self.db, vcx.cx[vcx.cx.struct_ty(s)].ty);
-                    let ty = pretty::ty(&*vcx.cx, self.db, vcx.cx.field_ty(field).id());
+                    let ty = pretty::ty(&*vcx.cx, self.db, vcx.cx.field_ty(self.db, field).id());
                     break_code(
                         [
                             format!("struct {struct_ty}"),
@@ -72,14 +70,15 @@ impl<'a> Visitor for HoverFinder<'a> {
                         Some(reference.span()),
                     )
                 }
-                FieldParent::List(list_ty) => {
+                Field::List(list_ty, hir::ListField::Len) => {
                     let list_ty = pretty::ty(&*vcx.cx, self.db, list_ty);
-                    let ty = pretty::ty(&*vcx.cx, self.db, vcx.cx.field_ty(field).id());
+                    let ty = pretty::ty(&*vcx.cx, self.db, vcx.cx.field_ty(self.db, field).id());
                     break_code(
-                        [format!("[{list_ty}]"), format!("len: {ty}")],
+                        [format!("{list_ty}"), format!("len: {ty}")],
                         Some(reference.span()),
                     )
                 }
+                Field::Undefined => break_code(["?undefined".to_string()], Some(reference.span())),
             }
         } else {
             ControlFlow::Continue(())

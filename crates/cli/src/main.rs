@@ -77,16 +77,19 @@ async fn cli() -> Result<()> {
             let source = std::fs::read_to_string(&file)
                 .into_diagnostic()
                 .wrap_err_with(|| format!("failed to read `{}`", file.display()))?;
-            let source = hir::SourceProgram::new(&db, source);
-            let program = hir::parse_program(&db, source);
-            for (item, cx, _, mut mir, _) in mir::lower_program(&db, program) {
-                info!("{}", item.name(&db));
-                let span = tracing::span!(Level::DEBUG, "dump", item = item.name(&db).to_string());
+            let file = hir::SourceFile::new(&db, source);
+            for def in file.definitions(&db) {
+                info!("{}", def.display(&db));
+                let span = tracing::span!(Level::DEBUG, "dump", def = def.display(&db).to_string());
                 let _enter = span.enter();
+
+                let Some((cx, mir)) = def.hir_mir(&db) else { continue };
+                let mut mir = mir.clone();
+
                 if dump_mir {
                     println!(
                         "{}",
-                        mir.serialize(&db, Some(&cx), mir::serialize::Color::Yes)
+                        mir.serialize(&db, Some(cx), mir::serialize::Color::Yes)
                     );
                 }
                 if dump_isorecursive {
@@ -94,13 +97,13 @@ async fn cli() -> Result<()> {
                     if dump_mir {
                         println!(
                             "{}",
-                            mir.serialize(&db, Some(&cx), mir::serialize::Color::Yes)
+                            mir.serialize(&db, Some(cx), mir::serialize::Color::Yes)
                         );
                     }
                 }
                 if dump_cfg {
                     let cfg = mir::analysis::cfg::Cfg::compute(&mir);
-                    let dot = cfg.dot(&db, &cx, &mir);
+                    let dot = cfg.dot(&db, cx, &mir);
                     mir::analysis::cfg::dot_imgcat(&dot);
 
                     if dump_liveness {
@@ -111,7 +114,7 @@ async fn cli() -> Result<()> {
                     }
                 }
                 if dump_viper {
-                    match mist_codegen_viper::gen::viper_item(&db, cx, item, &mir) {
+                    match mist_codegen_viper::gen::viper_item(&db, def) {
                         Ok((viper_items, viper_body, _viper_source_map)) => {
                             if viper_items.is_empty() {
                                 warn!("no viper code generated")
@@ -128,20 +131,19 @@ async fn cli() -> Result<()> {
         }
         Cli::Viper {
             viperserver_jar,
-            file,
+            file: src_file,
         } => {
             let db = Database::default();
 
-            let src = std::fs::read_to_string(&file)
+            let src = std::fs::read_to_string(&src_file)
                 .into_diagnostic()
-                .wrap_err_with(|| format!("failed to read `{}`", file.display()))?;
-            let source = hir::SourceProgram::new(&db, src.clone());
-            let program = hir::parse_program(&db, source);
+                .wrap_err_with(|| format!("failed to read `{}`", src_file.display()))?;
+            let file = hir::SourceFile::new(&db, src.clone());
 
-            dump_errors(&db, &file, &src, program)?;
+            dump_errors(&db, &src_file, &src, file)?;
 
             let (viper_program, viper_body, viper_source_map) =
-                mist_codegen_viper::gen::viper_file(&db, program)?;
+                mist_codegen_viper::gen::viper_file(&db, file)?;
             let viper_output = ViperOutput::generate(&viper_body, &viper_program);
             let viper_src = &viper_output.buf;
 
@@ -177,8 +179,8 @@ async fn cli() -> Result<()> {
             let res = client.post(req).await.into_diagnostic()?;
 
             let ctx = VerificationContext {
-                program,
-                mist_src_path: &file,
+                file,
+                mist_src_path: &src_file,
                 mist_src: &src,
                 viper_path: viper_file.path(),
                 viper_source_map: &viper_source_map,
@@ -211,9 +213,9 @@ fn dump_errors(
     db: &dyn crate::Db,
     path: &std::path::Path,
     src: &str,
-    program: hir::Program,
+    file: hir::SourceFile,
 ) -> Result<()> {
-    let errors = accumulated_errors(db, program).collect_vec();
+    let errors = accumulated_errors(db, file).collect_vec();
 
     if !errors.is_empty() {
         let num_errors = errors.len();

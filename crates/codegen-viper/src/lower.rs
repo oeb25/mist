@@ -7,6 +7,7 @@ use derive_new::new;
 
 use miette::Diagnostic;
 use mist_core::{
+    def,
     hir::{
         self,
         types::{TypeProvider, TypePtr},
@@ -121,14 +122,14 @@ impl std::ops::Index<VExprId> for ViperBody {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ViperSourceMap {
-    pub inst_expr: HashMap<(hir::ItemId, mir::InstructionId), VExprId>,
-    pub inst_expr_back: IdxMap<VExprId, (hir::ItemId, mir::InstructionId)>,
-    pub block_expr: HashMap<(hir::ItemId, mir::BlockId), VExprId>,
-    pub block_expr_back: IdxMap<VExprId, (hir::ItemId, mir::BlockId)>,
+    pub inst_expr: HashMap<(def::Def, mir::InstructionId), VExprId>,
+    pub inst_expr_back: IdxMap<VExprId, (def::Def, mir::InstructionId)>,
+    pub block_expr: HashMap<(def::Def, mir::BlockId), VExprId>,
+    pub block_expr_back: IdxMap<VExprId, (def::Def, mir::BlockId)>,
 }
 
 impl ViperSourceMap {
-    pub fn trace_exp(&self, exp: VExprId) -> Option<(hir::ItemId, mir::BlockOrInstruction)> {
+    pub fn trace_exp(&self, exp: VExprId) -> Option<(def::Def, mir::BlockOrInstruction)> {
         if let Some(&(item_id, instr)) = self.inst_expr_back.get(exp) {
             return Some((item_id, instr.into()));
         }
@@ -146,7 +147,7 @@ pub enum ViperLowerError {
     #[error("not yet implemented: {msg}")]
     NotYetImplemented {
         msg: String,
-        item_id: hir::ItemId,
+        def: def::Def,
         block_or_inst: Option<mir::BlockOrInstruction>,
         #[label]
         span: Option<SourceSpan>,
@@ -158,11 +159,11 @@ pub enum ViperLowerError {
 impl ViperLowerError {
     pub fn populate_spans(
         &mut self,
-        f: impl Fn(hir::ItemId, mir::BlockOrInstruction) -> Option<SourceSpan>,
+        f: impl Fn(def::Def, mir::BlockOrInstruction) -> Option<SourceSpan>,
     ) {
         match self {
             ViperLowerError::NotYetImplemented {
-                item_id,
+                def: item_id,
                 block_or_inst: Some(block_or_inst),
                 span,
                 ..
@@ -185,7 +186,7 @@ pub struct ViperType {
     pub is_mut: bool,
     pub inner: Option<Box<ViperType>>,
     pub is_ref: bool,
-    pub strukt: Option<hir::Struct>,
+    pub strukt: Option<def::Struct>,
 }
 
 impl From<VTy> for ViperType {
@@ -311,7 +312,7 @@ impl<'a> BodyLower<'a> {
             hir::TypeData::Function { .. } => {
                 return Err(ViperLowerError::NotYetImplemented {
                     msg: "lower_type(Function)".to_string(),
-                    item_id: self.body.item_id(),
+                    def: self.body.def(),
                     block_or_inst: None,
                     span: None,
                 })
@@ -347,7 +348,7 @@ impl BodyLower<'_> {
         source: impl Into<BlockOrInstruction>,
         vexpr: impl Into<Exp<VExprId>>,
     ) -> VExprId {
-        let item_id = self.body.item_id();
+        let item_id = self.body.def();
         let id = self.viper_body.arena.alloc(VExpr::new(vexpr.into()));
         match source.into() {
             BlockOrInstruction::Block(block_id) => {
@@ -529,7 +530,7 @@ impl BodyLower<'_> {
                 // ));
             }
             mir::MExpr::Use(s) => {
-                let item_id = self.body.item_id();
+                let item_id = self.body.def();
                 let id = self.operand_to_ref(inst, s)?;
                 self.source_map.inst_expr.insert((item_id, inst), id);
                 self.source_map.inst_expr_back.insert(id, (item_id, inst));
@@ -539,7 +540,7 @@ impl BodyLower<'_> {
                 // TODO: Perhaps we should do something different depending on this?
                 let _ = bk;
 
-                let item_id = self.body.item_id();
+                let item_id = self.body.def();
                 let id = self.place_to_ref(inst, *p)?;
                 self.source_map.inst_expr.insert((item_id, inst), id);
                 self.source_map.inst_expr_back.insert(id, (item_id, inst));

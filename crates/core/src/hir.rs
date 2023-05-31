@@ -1,177 +1,111 @@
 pub mod def;
+pub mod file;
 mod item_context;
+pub mod pretty;
 pub mod typecheck;
 pub mod types;
 
 use itertools::Itertools;
-use mist_syntax::{
-    ast::{self, HasAttrs, HasName, Spanned},
-    ptr::AstPtr,
-    Parse,
-};
+use mist_syntax::ast::{self, HasName, Spanned};
 
 use crate::{
+    def::{Def, DefKind, Function, Struct, TypeInvariant},
     hir::{self, typecheck::Typed},
-    TypeCheckErrors,
 };
 
 pub use def::*;
 pub use item_context::{ItemContext, ItemSourceMap, SpanOrAstPtr};
-use typecheck::{builtin::*, TypeCheckError, TypeCheckErrorKind, TypeChecker};
+use typecheck::{builtin::*, TypeChecker};
 pub use types::TypeTable;
 
-pub mod pretty;
-
 #[salsa::input]
-pub struct SourceProgram {
+pub struct SourceFile {
     #[return_ref]
     pub text: String,
 }
 
 #[salsa::tracked]
-pub struct Program {
-    #[return_ref]
-    pub parse: Parse<ast::SourceFile>,
-    #[return_ref]
-    pub items: Vec<ItemId>,
-}
-
-#[salsa::tracked]
-pub fn parse_program(db: &dyn crate::Db, source: SourceProgram) -> Program {
-    let parse = mist_syntax::parse(source.text(db));
-    let items = parse
+pub fn file_definitions(db: &dyn crate::Db, file: SourceFile) -> Vec<Def> {
+    let ast_map = file.ast_map(db);
+    file::parse_file(db, file)
         .tree()
         .items()
-        .map(|item| match item {
-            ast::Item::Const(node) => ItemId::new(db, AstPtr::new(&node).into()),
-            ast::Item::Fn(node) => ItemId::new(db, AstPtr::new(&node).into()),
-            ast::Item::Struct(node) => ItemId::new(db, AstPtr::new(&node).into()),
-            ast::Item::TypeInvariant(node) => ItemId::new(db, AstPtr::new(&node).into()),
-            ast::Item::Macro(node) => ItemId::new(db, AstPtr::new(&node).into()),
-        })
-        .collect();
-    Program::new(db, parse, items)
-}
-
-#[salsa::tracked]
-pub fn intern_item(db: &dyn crate::Db, program: Program, item_id: ItemId) -> Option<Item> {
-    let root = program.parse(db).tree();
-    item(db, &root, item_id)
-}
-
-pub fn item(db: &dyn crate::Db, root: &ast::SourceFile, item_id: ItemId) -> Option<Item> {
-    Some(match item_id.data(db) {
-        ItemData::Const { .. } => return None,
-        ItemData::Fn { ast } => {
-            let f = ast.to_node(root.syntax());
-            let name = f.name().unwrap();
-            let attrs = f.attr_flags();
-
-            if !f.is_ghost() && f.body().is_none() {
-                let err = TypeCheckError {
-                    input: root.to_string(),
-                    span: f
-                        .semicolon_token()
-                        .map(|t| t.span())
-                        .unwrap_or_else(|| name.span()),
-                    label: None,
-                    help: None,
-                    kind: TypeCheckErrorKind::NonGhostFunctionWithoutBody,
-                };
-                TypeCheckErrors::push(db, err);
+        .filter_map(|item| match item {
+            ast::Item::Fn(node) => Some(DefKind::from(Function::new(
+                db,
+                ast_map.ast_id(file, &node),
+            ))),
+            ast::Item::Struct(node) => {
+                Some(DefKind::from(Struct::new(db, ast_map.ast_id(file, &node))))
             }
-
-            Function::new(db, ast, name.into(), attrs).into()
-        }
-        ItemData::Struct { ast } => {
-            let s = ast.to_node(root.syntax());
-            let name = Name::from(s.name().unwrap());
-            let fields = s
-                .struct_fields()
-                .map(|f| {
-                    let is_ghost = f.is_ghost();
-                    let name = f.name().unwrap();
-                    StructFieldInner {
-                        node: AstPtr::new(&f),
-                        name: name.into(),
-                        is_ghost,
-                    }
-                })
-                .collect();
-            let data = TypeDeclData::Struct(Struct::new(db, ast, name.clone(), fields));
-            TypeDecl::new(db, name, data).into()
-        }
-        ItemData::TypeInvariant { ast } => {
-            let i = ast.to_node(root.syntax());
-            let name = Name::from(i.name_ref().unwrap());
-            TypeInvariant::new(db, ast, name).into()
-        }
-        ItemData::Macro { .. } => return None,
-    })
+            ast::Item::TypeInvariant(node) => Some(DefKind::from(TypeInvariant::new(
+                db,
+                ast_map.ast_id(file, &node),
+            ))),
+            ast::Item::Const(_) | ast::Item::Macro(_) => None,
+        })
+        .map(|kind| Def::new(db, kind))
+        .collect()
 }
 
 #[salsa::tracked]
-pub fn item_lower(
-    db: &dyn crate::Db,
-    program: Program,
-    item_id: ItemId,
-    item: Item,
-) -> Option<(ItemContext, ItemSourceMap)> {
+pub struct DefinitionHir {
+    pub def: Def,
+    #[return_ref]
+    pub cx: ItemContext,
+    #[return_ref]
+    pub source_map: ItemSourceMap,
+}
+
+#[salsa::tracked]
+pub(crate) fn lower_def(db: &dyn crate::Db, def: Def) -> Option<DefinitionHir> {
     let span = tracing::span!(
         tracing::Level::DEBUG,
         "hir::item_lower",
         "{}",
-        item.name(db)
+        def.display(db)
     );
     let _enter = span.enter();
 
-    let root = program.parse(db).tree();
+    match def.kind(db) {
+        DefKind::Struct(_) => {
+            let mut checker = TypeChecker::init(db, def);
 
-    match item {
-        Item::Type(ty_decl) => match &ty_decl.data(db) {
-            TypeDeclData::Struct(_) => {
-                let mut checker = TypeChecker::init(db, program, &root, item_id);
-
-                if let Some(self_ty) = checker.cx.self_ty() {
-                    let related_invs = program
-                        .items(db)
-                        .iter()
-                        .filter_map(|&item_id| {
-                            if let Some(hir::Item::TypeInvariant(inv)) =
-                                hir::item(db, &root, item_id)
-                            {
-                                if checker.find_named_type(&inv.ast_node(db, &root), inv.name(db))
-                                    == self_ty
-                                {
-                                    return Some(inv);
-                                }
+            if let Some(self_ty) = checker.cx.self_ty() {
+                let related_invs = file_definitions(db, def.file(db))
+                    .into_iter()
+                    .filter_map(|def| {
+                        if let hir::DefKind::TypeInvariant(inv) = def.kind(db) {
+                            if checker.find_named_type(&inv.ast_node(db), inv.name(db)) == self_ty {
+                                return Some(inv);
                             }
-                            None
-                        })
-                        .collect_vec();
-
-                    for ty_inv in related_invs {
-                        let ty_inv_ast = ty_inv.ast_node(db, &root);
-                        if let Some(ast_body) = ty_inv_ast.block_expr() {
-                            let body = checker.check_block(&ast_body, |f| f);
-                            let ret = ghost_bool();
-                            let name_span = ty_inv_ast.name_ref().unwrap().span();
-                            checker.expect_ty(name_span, ret, body.return_ty);
-                            let body_expr = checker.alloc_expr(
-                                ExprData::Block(body).typed(ret),
-                                &ast::Expr::from(ast_body),
-                            );
-                            checker.cx.self_invariants.push(body_expr);
                         }
+                        None
+                    })
+                    .collect_vec();
+
+                for ty_inv in related_invs {
+                    let ty_inv_ast = ty_inv.ast_node(db);
+                    if let Some(ast_body) = ty_inv_ast.block_expr() {
+                        let body = checker.check_block(&ast_body, |f| f);
+                        let ret = ghost_bool();
+                        let name_span = ty_inv_ast.name_ref().unwrap().span();
+                        checker.expect_ty(name_span, ret, body.return_ty);
+                        let body_expr = checker.alloc_expr(
+                            ExprData::Block(body).typed(ret),
+                            &ast::Expr::from(ast_body),
+                        );
+                        checker.cx.self_invariants.push(body_expr);
                     }
                 }
-
-                Some(checker.into())
             }
-        },
-        Item::TypeInvariant(ty_inv) => {
-            let mut checker = TypeChecker::init(db, program, &root, item_id);
-            let ty_inv_ast = ty_inv.ast_node(db, &root);
+
+            Some(checker.into())
+        }
+        DefKind::StructField(_) => None,
+        DefKind::TypeInvariant(ty_inv) => {
+            let mut checker = TypeChecker::init(db, def);
+            let ty_inv_ast = ty_inv.ast_node(db);
             if let Some(ast_body) = ty_inv_ast.block_expr() {
                 let body = checker.check_block(&ast_body, |f| f);
                 let name_span = ty_inv_ast.name_ref().unwrap().span();
@@ -182,9 +116,9 @@ pub fn item_lower(
             }
             Some(checker.into())
         }
-        Item::Function(function) => {
-            let mut checker = TypeChecker::init(db, program, &root, item_id);
-            let fn_ast = function.ast_node(db, &root);
+        DefKind::Function(function) => {
+            let mut checker = TypeChecker::init(db, def);
+            let fn_ast = function.ast_node(db);
             let body = fn_ast.body().map(|ast_body| {
                 let ty = checker.check_block(&ast_body, |f| f);
                 (ast_body, ty)

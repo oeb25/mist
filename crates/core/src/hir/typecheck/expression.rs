@@ -13,7 +13,7 @@ use mist_syntax::{
 
 use crate::{
     hir::{
-        Expr, ExprData, ExprIdx, Field, FieldParent, IfExpr, Literal, Name, Param, Primitive,
+        Expr, ExprData, ExprIdx, Field, IfExpr, ListField, Literal, Name, Param, Primitive,
         Quantifier, SpanOrAstPtr, StructExprField, TypeData, TypeId, VariableRef,
     },
     VariableDeclaration,
@@ -448,8 +448,8 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                             .find(|f| f.name(tc.db).as_str() == field.as_str())
                         {
                             (
-                                Some(field.field()),
-                                tc.expect_find_type(&field.ast_node(tc.db, tc.root).ty())
+                                Some(field.into()),
+                                tc.expect_find_type(&field.ast_node(tc.db).ty())
                                     .with_ghost(field.is_ghost(tc.db))
                                     .ty(tc),
                             )
@@ -479,8 +479,8 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 TypeData::Struct(s) => {
                     if let Some(field) = tc.struct_fields(s).find(|f| f.name(tc.db) == field) {
                         (
-                            Some(field.field()),
-                            tc.expect_find_type(&field.ast_node(tc.db, tc.root).ty()),
+                            Some(field.into()),
+                            tc.expect_find_type(&field.ast_node(tc.db).ty()),
                         )
                     } else {
                         tc.push_error(
@@ -495,10 +495,9 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                         (None, error())
                     }
                 }
-                TypeData::List(ty) => match field.as_str() {
+                TypeData::List(_) => match field.as_str() {
                     "len" => {
-                        let field =
-                            Field::new(tc.db, None, FieldParent::List(ty), field.clone(), false);
+                        let field = Field::List(expr_ty, ListField::Len);
                         let int_ty = int();
                         let int_ty_src = tc.unsourced_ty(int_ty);
                         tc.field_tys.entry(field).or_insert(int_ty_src);
@@ -533,7 +532,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             ExprData::Field {
                 expr,
                 field_name: field,
-                field: sf,
+                field: sf.unwrap_or(Field::Undefined),
             }
             .typed(field_ty)
         }
@@ -591,15 +590,15 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
 
             for f in it.fields() {
                 let mut matched = false;
-                for sf in &fields {
+                for &sf in &fields {
                     let name_ref_ast = f.name_ref().unwrap();
                     let field_name = Name::from(&name_ref_ast);
                     if field_name == sf.name(tc.db) {
                         let value = check_inner(tc, &f);
-                        let expected = tc.expect_find_type(&sf.ast_node(tc.db, tc.root).ty());
+                        let expected = tc.expect_find_type(&sf.ast_node(tc.db).ty());
                         tc.expect_ty(tc.expr_span(value), expected, tc.expr_ty(value));
                         present_fields.push(StructExprField::new(
-                            sf.field(),
+                            sf,
                             AstPtr::new(&name_ref_ast),
                             value,
                         ));

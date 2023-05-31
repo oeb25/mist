@@ -11,7 +11,7 @@ use mist_core::hir;
 use tracing::info;
 
 pub struct VerifyFile<'a> {
-    pub program: hir::Program,
+    pub file: hir::SourceFile,
     pub viperserver_jar: &'a Path,
     pub viperserver: &'a viperserver::ViperServer,
     pub working_dir: &'a Path,
@@ -25,7 +25,7 @@ impl VerifyFile<'_> {
         db: &Mutex<crate::db::Database>,
     ) -> miette::Result<Vec<miette::Report>> {
         let (viper_program, viper_body, viper_source_map) =
-            mist_codegen_viper::gen::viper_file(&*db.lock().unwrap(), self.program)?;
+            mist_codegen_viper::gen::viper_file(&*db.lock().unwrap(), self.file)?;
         let viper_output = ViperOutput::generate(&viper_body, &viper_program);
         let viper_src = &viper_output.buf;
 
@@ -60,7 +60,7 @@ impl VerifyFile<'_> {
         let res = client.post(req).await.into_diagnostic()?;
 
         let ctx = VerificationContext {
-            program: self.program,
+            file: self.file,
             mist_src_path: &self.mist_src_path,
             mist_src: self.mist_src,
             viper_path: &viper_file,

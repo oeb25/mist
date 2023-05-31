@@ -16,15 +16,24 @@ use mist_syntax::{
 use tracing::debug;
 
 use crate::{
+    def::{Def, Struct, StructField},
     hir::{
         self,
         types::{TypeDataPtr, TypeProvider, TypePtr},
-        AssertionKind, Field, Literal, Quantifier, Struct, TypeId, VariableIdx,
+        AssertionKind, Field, Literal, Quantifier, TypeId, VariableIdx,
     },
     util::{impl_idx, IdxArena, IdxMap, IdxWrap},
 };
 
-pub use self::lower::{lower_item, lower_program};
+pub use self::lower::lower_item;
+
+#[salsa::tracked]
+pub struct DefinitionMir {
+    #[return_ref]
+    pub body: Body,
+    #[return_ref]
+    pub source_map: BodySourceMap,
+}
 
 impl_idx!(BlockId, Block);
 impl fmt::Debug for BlockId {
@@ -316,7 +325,7 @@ pub enum BorrowKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MExpr {
-    Struct(Struct, Vec<(Field, Operand)>),
+    Struct(Struct, Vec<(StructField, Operand)>),
     Use(Operand),
     Ref(BorrowKind, Place),
     BinaryOp(BinaryOp, Operand, Operand),
@@ -375,7 +384,7 @@ pub enum RangeKind {
 
 #[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Body {
-    item_id: hir::ItemId,
+    def: Def,
 
     ty_table: Arc<hir::TypeTable>,
 
@@ -441,8 +450,8 @@ pub enum BlockOrInstruction {
 }
 
 impl TypeProvider for Body {
-    fn field_ty(&self, f: Field) -> TypePtr<Self> {
-        self.ty_table.field_ty(f).with_provider(self)
+    fn field_ty(&self, db: &dyn crate::Db, f: Field) -> TypePtr<Self> {
+        self.ty_table.field_ty(db, f).with_provider(self)
     }
 
     fn ty_data(&self, ty: TypeId) -> TypeDataPtr<Self> {
@@ -561,8 +570,8 @@ impl Body {
         }
     }
 
-    pub fn item_id(&self) -> hir::ItemId {
-        self.item_id
+    pub fn def(&self) -> Def {
+        self.def
     }
 
     pub fn block_invariants(&self, block: BlockId) -> &[BlockId] {
@@ -855,28 +864,28 @@ pub enum MirError {
     #[error("not yet implemented: {msg}")]
     NotYetImplemented {
         msg: String,
-        item_id: hir::ItemId,
+        def: Def,
         expr: hir::ExprIdx,
         #[label]
         span: Option<SourceSpan>,
     },
     #[error("variable used before its slot was allocated")]
     SlotUseBeforeAlloc {
-        item_id: hir::ItemId,
+        def: Def,
         var: VariableIdx,
         #[label]
         span: Option<SourceSpan>,
     },
     #[error("result seen in function without return slot set")]
     ResultWithoutReturnSlot {
-        item_id: hir::ItemId,
+        def: Def,
         expr: hir::ExprIdx,
         #[label]
         span: Option<SourceSpan>,
     },
     #[error("`self` was used in a context where self is not defined")]
     SelfInItemWithout {
-        item_id: hir::ItemId,
+        def: Def,
         expr: hir::ExprIdx,
         span: Option<SourceSpan>,
     },
@@ -888,27 +897,19 @@ pub struct MirErrors(MirError);
 impl MirError {
     pub fn populate_spans(
         &mut self,
-        expr_f: impl Fn(hir::ItemId, hir::ExprIdx) -> Option<SourceSpan>,
-        var_f: impl Fn(hir::ItemId, hir::VariableIdx) -> Option<SourceSpan>,
+        expr_f: impl Fn(Def, hir::ExprIdx) -> Option<SourceSpan>,
+        var_f: impl Fn(Def, hir::VariableIdx) -> Option<SourceSpan>,
     ) {
         match self {
             MirError::NotYetImplemented {
                 msg: _,
-                item_id,
+                def,
                 expr,
                 span,
-            } => *span = expr_f(*item_id, *expr),
-            MirError::SlotUseBeforeAlloc { item_id, var, span } => *span = var_f(*item_id, *var),
-            MirError::ResultWithoutReturnSlot {
-                item_id,
-                expr,
-                span,
-            } => *span = expr_f(*item_id, *expr),
-            MirError::SelfInItemWithout {
-                item_id,
-                expr,
-                span,
-            } => *span = expr_f(*item_id, *expr),
+            } => *span = expr_f(*def, *expr),
+            MirError::SlotUseBeforeAlloc { def, var, span } => *span = var_f(*def, *var),
+            MirError::ResultWithoutReturnSlot { def, expr, span } => *span = expr_f(*def, *expr),
+            MirError::SelfInItemWithout { def, expr, span } => *span = expr_f(*def, *expr),
         }
     }
 }

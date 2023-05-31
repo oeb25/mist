@@ -86,7 +86,7 @@ impl BodyLower<'_> {
                 mir::Terminator::Quantify(_q, _over, _b) => {
                     Err(ViperLowerError::NotYetImplemented {
                         msg: "lower quantifier in method".to_string(),
-                        item_id: self.body.item_id(),
+                        def: self.body.def(),
                         block_or_inst: Some(block.into()),
                         span: None,
                     })

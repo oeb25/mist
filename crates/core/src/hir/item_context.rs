@@ -8,19 +8,20 @@ use mist_syntax::{
 };
 
 use crate::{
+    def::{Struct, StructField},
     util::{IdxArena, IdxMap, IdxWrap},
     VariableDeclaration,
 };
 
 use super::{
     types::{TypeDataPtr, TypeProvider, TypePtr, TypeTable},
-    Condition, Decreases, Expr, ExprIdx, Field, ItemId, Name, Param, Struct, StructFieldRef,
-    TypeId, TypeSrc, TypeSrcId, Variable, VariableIdx, VariableRef,
+    Condition, Decreases, Def, Expr, ExprIdx, Field, Name, Param, TypeId, TypeSrc, TypeSrcId,
+    Variable, VariableIdx, VariableRef,
 };
 
 #[derive(new, Debug, Clone, PartialEq, Eq)]
 pub struct ItemContext {
-    pub(super) item_id: ItemId,
+    pub(super) def: Def,
     #[new(default)]
     pub(super) function_context: Option<FunctionContext>,
     #[new(default)]
@@ -37,7 +38,7 @@ pub struct ItemContext {
     #[new(default)]
     pub(super) named_types: HashMap<Name, TypeId>,
     #[new(default)]
-    pub(super) structs: HashMap<Struct, Vec<(StructFieldRef, TypeSrcId)>>,
+    pub(super) structs: HashMap<Struct, Vec<(StructField, TypeSrcId)>>,
     #[new(default)]
     pub(super) struct_types: HashMap<Struct, TypeSrcId>,
 
@@ -75,8 +76,8 @@ impl std::ops::Index<TypeSrcId> for ItemContext {
     }
 }
 impl TypeProvider for ItemContext {
-    fn field_ty(&self, f: Field) -> TypePtr<Self> {
-        self.ty_table.field_ty(f).with_provider(self)
+    fn field_ty(&self, db: &dyn crate::Db, f: Field) -> TypePtr<Self> {
+        self.ty_table.field_ty(db, f).with_provider(self)
     }
 
     fn ty_data(&self, ty: TypeId) -> TypeDataPtr<Self> {
@@ -85,8 +86,8 @@ impl TypeProvider for ItemContext {
 }
 
 impl ItemContext {
-    pub fn item_id(&self) -> ItemId {
-        self.item_id
+    pub fn def(&self) -> Def {
+        self.def
     }
     pub fn function_context(&self) -> Option<&FunctionContext> {
         self.function_context.as_ref()
@@ -137,16 +138,14 @@ impl ItemContext {
         self.declarations.map[var.into()].name()
     }
     pub fn field_ty_src(&self, db: &dyn crate::Db, field: Field) -> Option<TypeSrcId> {
-        match field.parent(db) {
-            super::FieldParent::Struct(s) => {
+        match field {
+            Field::StructField(sf) => {
+                let s = sf.parent_struct(db);
                 self.structs[&s]
                     .iter()
-                    .find_map(|(f, ty)| if f.field() == field { Some(*ty) } else { None })
+                    .find_map(|&(f, ty)| if sf == f { Some(ty) } else { None })
             }
-            super::FieldParent::List(_) => match field.name(db).as_str() {
-                "len" => None,
-                _ => todo!(),
-            },
+            Field::List(_, _) | Field::Undefined => None,
         }
     }
     pub fn struct_ty(&self, s: Struct) -> TypeSrcId {

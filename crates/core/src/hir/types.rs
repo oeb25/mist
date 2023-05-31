@@ -118,7 +118,7 @@ impl<'a, T> TypeDataPtr<'a, T> {
 }
 
 pub trait TypeProvider: Sized {
-    fn field_ty(&self, f: Field) -> TypePtr<Self>;
+    fn field_ty(&self, db: &dyn crate::Db, f: Field) -> TypePtr<Self>;
 
     fn ty_data(&self, ty: TypeId) -> TypeDataPtr<Self>;
 
@@ -131,11 +131,11 @@ pub trait TypeProvider: Sized {
 }
 
 impl TypeProvider for TypeTable {
-    fn field_ty(&self, f: Field) -> TypePtr<Self> {
+    fn field_ty(&self, db: &dyn crate::Db, f: Field) -> TypePtr<Self> {
         if let Some(ty) = self.field_types.get(&f) {
             ty.wrap(self)
         } else {
-            panic!("field '{f:?}' was not found in {self:?}")
+            panic!("field '{}' ({f:?}) was not found in {self:?}", f.name(db))
         }
     }
 

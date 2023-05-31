@@ -1,5 +1,6 @@
 use itertools::Itertools;
 use mist_core::{
+    def,
     hir::{
         self,
         types::{TypeProvider, TypePtr},
@@ -14,17 +15,12 @@ use crate::wasm;
 pub enum Error {}
 type Result<T, E = Error> = std::result::Result<T, E>;
 
-pub fn generate_module(db: &dyn crate::Db, program: hir::Program) -> Result<wasm::Module> {
-    let root = program.parse(db).tree();
-
+pub fn generate_module(db: &dyn crate::Db, file: hir::SourceFile) -> Result<wasm::Module> {
     // let mut builder = wasm::Module::builder();
 
-    for &item_id in program.items(db) {
-        let Some(item) = hir::item(db, &root, item_id) else { continue };
-        let Some((cx, _source_map)) = hir::item_lower(db, program, item_id, item) else { continue };
-        let (body, _mir_source_map) = mir::lower_item(db, cx.clone());
-
-        FunctionLowerer::new(db, &cx, &body).generate_func();
+    for def in hir::file_definitions(db, file) {
+        let Some((cx, body)) = def.hir_mir(db) else { continue };
+        FunctionLowerer::new(db, cx, body).generate_func();
     }
 
     todo!()
@@ -62,14 +58,14 @@ impl<'a> FunctionLowerer<'a> {
         })
     }
 
-    fn compute_struct_layout(&self, s: hir::Struct) -> StructLayout {
+    fn compute_struct_layout(&self, s: def::Struct) -> StructLayout {
         let (layout, _) = s.fields(self.db).fold(
             (StructLayout::default(), 0),
             |(mut layout, current_offset), f| {
                 layout
                     .field_offsets
                     .push((layout.types.len(), current_offset));
-                let next = self.compute_ty_layout(self.body.field_ty(f.field()));
+                let next = self.compute_ty_layout(self.body.field_ty(self.db, f.into()));
                 let size: u32 = next.iter().map(|ty| ty.num_bytes()).sum();
                 let next_offset = current_offset + size;
                 layout.types.extend(next);

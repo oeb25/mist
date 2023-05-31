@@ -6,6 +6,7 @@ pub mod lower;
 #[salsa::jar(db=Db)]
 pub struct Jar(
     crate::gen::viper_file,
+    crate::gen::viper_item,
     crate::gen::ViperHints,
     crate::lower::ViperLowerErrors,
 );

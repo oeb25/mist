@@ -5,7 +5,7 @@ use std::{ops::ControlFlow, sync::Arc};
 use derive_new::new;
 use itertools::Itertools;
 use mist_core::{
-    hir::{self, types::TypeProvider, ExprIdx, SourceProgram, VariableIdx, VariableRef},
+    hir::{self, types::TypeProvider, ExprIdx, SourceFile, VariableIdx, VariableRef},
     salsa,
     util::Position,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
@@ -19,22 +19,19 @@ use TokenModifier as TM;
 use TokenType as TT;
 
 #[salsa::tracked]
-pub fn highlighting(db: &dyn crate::Db, source: SourceProgram) -> Arc<HighlightResult> {
-    let program = hir::parse_program(db, source);
-    let root = program.parse(db).tree();
-
-    let mut hf = Highlighter::new(db, source.text(db));
-    let _ = PostOrderWalk::walk_program(db, program, &root, &mut hf);
+pub fn highlighting(db: &dyn crate::Db, file: SourceFile) -> Arc<HighlightResult> {
+    let mut hf = Highlighter::new(db, file.text(db));
+    let _ = PostOrderWalk::walk_program(db, file, &mut hf);
     Arc::new(hf.finish())
 }
 
 #[salsa::tracked]
-pub fn semantic_tokens(db: &dyn crate::Db, source: SourceProgram) -> Arc<Vec<SemanticToken>> {
+pub fn semantic_tokens(db: &dyn crate::Db, source: SourceFile) -> Arc<Vec<SemanticToken>> {
     let result = highlighting(db, source);
     Arc::clone(&result.tokens)
 }
 #[salsa::tracked]
-pub fn inlay_hints(db: &dyn crate::Db, source: SourceProgram) -> Arc<Vec<InlayHint>> {
+pub fn inlay_hints(db: &dyn crate::Db, source: SourceFile) -> Arc<Vec<InlayHint>> {
     let result = highlighting(db, source);
     Arc::clone(&result.inlay_hints)
 }

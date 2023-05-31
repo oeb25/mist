@@ -34,19 +34,18 @@ pub fn parse(src: &str) -> String {
 #[wasm_bindgen]
 pub fn type_check(src: &str) -> String {
     let db = db::Database::default();
-    let source = mist_core::hir::SourceProgram::new(&db, src.to_string());
-    let program = mist_core::hir::parse_program(&db, source);
+    let file = mist_core::hir::SourceFile::new(&db, src.to_string());
+    let parse = mist_core::hir::file::parse_file(&db, file);
 
-    let parse_errors = program.parse(&db).errors();
+    let parse_errors = parse.errors();
     let (viper_program, viper_body, _viper_source_map) =
-        match mist_codegen_viper::gen::viper_file(&db, program) {
+        match mist_codegen_viper::gen::viper_file(&db, file) {
             Ok(res) => res,
             Err(e) => return format!("viper error: {e:?}"),
         };
     let viper_src = ViperOutput::generate(&viper_body, &viper_program).buf;
-    let type_errors = mist_codegen_viper::gen::viper_file::accumulated::<mist_core::TypeCheckErrors>(
-        &db, program,
-    );
+    let type_errors =
+        mist_codegen_viper::gen::viper_file::accumulated::<mist_core::TypeCheckErrors>(&db, file);
     let markers = parse_errors
         .iter()
         .cloned()
