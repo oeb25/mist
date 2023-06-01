@@ -367,7 +367,8 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             let is_ghost =
                 base_ty.tc_is_ghost(&mut tc.typer) || index_ty.tc_is_ghost(&mut tc.typer);
 
-            let is_range = match tc.ty_data(index_ty) {
+            let index_ty_no_ghost = index_ty.tc_strip_ghost(&mut tc.typer);
+            let is_range = match tc.ty_data(index_ty_no_ghost) {
                 TypeData::Primitive(Primitive::Int) => false,
                 TypeData::Range(idx) => {
                     tc.expect_ty(it, int().ghost(), idx);
