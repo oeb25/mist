@@ -1,0 +1,7 @@
+struct T {
+  x: bool
+}
+
+fn compute_up_to(t: &mut T) {
+  while t.x == true {}
+}

@@ -4,16 +4,13 @@ use mist_core::{
 };
 use silvers::{
     ast::Declaration,
-    expression::{
-        AccessPredicate, Exp, FieldAccess, PermExp, PredicateAccess, PredicateAccessPredicate,
-        SeqExp,
-    },
+    expression::{Exp, FieldAccess, PermExp, PredicateAccess, PredicateAccessPredicate, SeqExp},
     program::{AnyLocalVarDecl, Field},
     statement::{Label, Seqn, Stmt},
 };
 use tracing::warn;
 
-use crate::{gen::VExprId, lower::pure::PureLowerResult};
+use crate::{gen::VExprId, lower::pure::PureLowerResult, mangle};
 
 use super::{BodyLower, Result, ViperLowerError};
 
@@ -122,20 +119,13 @@ impl BodyLower<'_> {
                         let liveness = mir::analysis::liveness::Liveness::compute(self.body);
 
                         let access_invs = liveness
-                            .entry(block)
+                            .entry(self.body.first_loc_in(block))
                             .iter()
                             .map(|s| {
-                                if let Some(t) = self.body.place_ty(s.into()).ty_struct() {
-                                    let name = t.name(self.db);
-                                    let place_ref = self.place_to_ref(block, s.into())?;
-                                    let acc = PredicateAccessPredicate::new(
-                                        PredicateAccess::new(name.to_string(), vec![place_ref]),
-                                        self.alloc(block, PermExp::Full),
-                                    );
-                                    Ok(Some(self.alloc(block, AccessPredicate::Predicate(acc))))
-                                } else {
-                                    Ok(None)
-                                }
+                                let place_ty = self.body.place_ty(s.into());
+                                let place_ref = self.place_to_ref(block, s.into())?;
+                                let (pre, _) = self.ty_to_condition(block, place_ref, place_ty)?;
+                                Ok(pre)
                             })
                             .filter_map(|s| s.transpose())
                             .collect::<Result<Vec<_>>>()?;
@@ -250,7 +240,7 @@ impl BodyLower<'_> {
         match &self.body[inst] {
             mir::Instruction::Assign(s, x) => {
                 let rhs = self.expr(inst, x)?;
-                match &self.body[s.projection] {
+                match self.body[s.projection] {
                     [] => {
                         insts.push(Stmt::LocalVarAssign {
                             lhs: self.place_for_assignment(*s)?,
@@ -258,20 +248,23 @@ impl BodyLower<'_> {
                         });
                     }
                     [Projection::Field(f, ty)] => {
-                        insts.push(Stmt::FieldAssign {
-                            lhs: FieldAccess::new(
-                                self.place_to_ref(inst, s.slot.into())?,
-                                Field::new(
-                                    f.name(self.db).to_string(),
-                                    // TODO: should we respect the extra constraints in such a scenario?
-                                    self.lower_type(self.body.ty(*ty))?.vty,
+                        match f {
+                            hir::Field::StructField(sf) => insts.push(Stmt::FieldAssign {
+                                lhs: FieldAccess::new(
+                                    self.place_to_ref(inst, s.slot.into())?,
+                                    Field::new(
+                                        mangle::mangled_field(self.db, sf),
+                                        // TODO: should we respect the extra constraints in such a scenario?
+                                        self.lower_type(self.body.ty(ty))?.vty,
+                                    ),
                                 ),
-                            ),
-                            rhs,
-                        });
+                                rhs,
+                            }),
+                            hir::Field::List(_, _) | hir::Field::Undefined => {}
+                        };
                     }
                     [Projection::Index(index, _)] => {
-                        let idx = self.place_to_ref(inst, (*index).into())?;
+                        let idx = self.place_to_ref(inst, index.into())?;
                         let seq = self.place_to_ref(inst, s.parent(self.body).unwrap())?;
                         let new_rhs = self.alloc(
                             inst,
@@ -285,7 +278,7 @@ impl BodyLower<'_> {
                         insts.push(Stmt::LocalVarAssign { lhs, rhs: new_rhs })
                     }
                     [Projection::Field(f, ty), Projection::Index(index, _)] => {
-                        let idx = self.place_to_ref(inst, (*index).into())?;
+                        let idx = self.place_to_ref(inst, index.into())?;
                         let seq = self.place_to_ref(inst, s.parent(self.body).unwrap())?;
                         let new_rhs = self.alloc(
                             inst,
@@ -295,15 +288,20 @@ impl BodyLower<'_> {
                                 elem: rhs,
                             },
                         );
-                        let lhs = FieldAccess::new(
-                            self.place_to_ref(inst, s.slot.into())?,
-                            Field::new(
-                                f.name(self.db).to_string(),
-                                // TODO: should we respect the extra constraints in such a scenario?
-                                self.lower_type(self.body.ty(*ty))?.vty,
-                            ),
-                        );
-                        insts.push(Stmt::FieldAssign { lhs, rhs: new_rhs });
+                        match f {
+                            hir::Field::StructField(sf) => {
+                                let lhs = FieldAccess::new(
+                                    self.place_to_ref(inst, s.slot.into())?,
+                                    Field::new(
+                                        mangle::mangled_field(self.db, sf),
+                                        // TODO: should we respect the extra constraints in such a scenario?
+                                        self.lower_type(self.body.ty(ty))?.vty,
+                                    ),
+                                );
+                                insts.push(Stmt::FieldAssign { lhs, rhs: new_rhs });
+                            }
+                            hir::Field::List(_, _) | hir::Field::Undefined => {}
+                        }
                     }
                     _ => todo!(),
                 }
@@ -325,10 +323,10 @@ impl BodyLower<'_> {
                     mir::Folding::Unfold { consume, .. } => *consume,
                 };
                 if let Some(s) = self.body.place_ty(place).ty_struct() {
-                    let name = s.name(self.db);
+                    let name = mangle::mangled_struct(self.db, s);
                     let place_ref = self.place_to_ref(inst, place)?;
                     let acc = PredicateAccessPredicate::new(
-                        PredicateAccess::new(name.to_string(), vec![place_ref]),
+                        PredicateAccess::new(name, vec![place_ref]),
                         self.alloc(inst, PermExp::Full),
                     );
 

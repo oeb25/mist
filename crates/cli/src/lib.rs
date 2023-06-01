@@ -132,6 +132,7 @@ impl VerificationContext<'_> {
                     eprintln!("? {status:?}")
                 }
             }
+            Vs::InternalWarningMessage { .. } => {}
             Vs::InvalidArgsReport { .. } => eprintln!("? {status:?}"),
             Vs::AstConstructionResult { details, .. } => {
                 let errors = self.details_to_miette(db, details);

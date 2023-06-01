@@ -175,19 +175,18 @@ impl<E> FoldingTree<E> {
     {
         use Folding::*;
 
-        let mut current_idx = 0;
+        let mut current_node = 0;
         let mut current_path = Vec::new();
 
         for edge in path {
             let next_idx = self.next_idx();
-            let children = &mut self.children[current_idx];
-            let was = self.nodes[current_idx];
-            if self.nodes[current_idx].is_folded() {
+            let children = &mut self.children[current_node];
+            let was = self.nodes[current_node];
+            if self.nodes[current_node].is_folded() {
                 events(EventKind::Unfold, &current_path);
             }
-            self.nodes[current_idx] = Unfolded;
 
-            current_idx = match children.entry(edge.clone()) {
+            let next_node = match children.entry(edge.clone()) {
                 Entry::Occupied(it) => *it.get(),
                 Entry::Vacant(it) => {
                     it.insert(next_idx);
@@ -199,14 +198,17 @@ impl<E> FoldingTree<E> {
                 }
             };
 
+            self.unfold_node(current_node);
+            current_node = next_node;
+
             current_path.push(edge);
         }
 
-        if self.nodes[current_idx].is_folded() {
+        if self.nodes[current_node].is_folded() {
             return;
         }
 
-        let mut folding_stack = vec![(current_idx, current_path.len(), None)];
+        let mut folding_stack = vec![(current_node, current_path.len(), None)];
 
         while let Some((idx, n, edge)) = folding_stack.pop() {
             current_path.truncate(n);
@@ -233,11 +235,87 @@ impl<E> FoldingTree<E> {
         }
     }
 
-    pub fn drop(&mut self, path: impl IntoIterator<Item = E>)
+    pub fn fold(&mut self, path: impl IntoIterator<Item = E>) -> Result<(), FoldError>
     where
         E: PartialEq + Eq + Hash + Clone,
     {
-        self.require(|_, _| {}, path)
+        let mut current_idx = 0;
+
+        for e in path {
+            match self.nodes[current_idx] {
+                Folding::Uninitialized => return Err(FoldError::WasUninitialized),
+                Folding::Folded => return Err(FoldError::AlreadyFolded),
+                Folding::Unfolded => {
+                    if let Some(next_idx) = self.children[current_idx].get(&e) {
+                        current_idx = *next_idx;
+                    } else {
+                        return Err(FoldError::Inaccessible);
+                    }
+                }
+            }
+        }
+
+        self.nodes[current_idx] = Folding::Folded;
+
+        Ok(())
+    }
+
+    pub fn unfold(&mut self, path: impl IntoIterator<Item = E>) -> Result<(), UnfoldError>
+    where
+        E: PartialEq + Eq + Hash + Clone,
+    {
+        let mut current_idx = 0;
+
+        for e in path {
+            match self.nodes[current_idx] {
+                Folding::Uninitialized => return Err(UnfoldError::WasUninitialized),
+                Folding::Folded => return Err(UnfoldError::Inaccessible),
+                Folding::Unfolded => {
+                    if let Some(next_idx) = self.children[current_idx].get(&e) {
+                        current_idx = *next_idx;
+                    } else {
+                        return Err(UnfoldError::Inaccessible);
+                    }
+                }
+            }
+        }
+
+        self.unfold_node(current_idx);
+
+        Ok(())
+    }
+
+    fn unfold_node(&mut self, idx: usize)
+    where
+        E: PartialEq + Eq + Hash + Clone,
+    {
+        self.nodes[idx] = Folding::Unfolded;
+        for (_, child_idx) in &self.children[idx] {
+            self.nodes[*child_idx] = Folding::Folded;
+        }
+    }
+
+    pub fn drop(&mut self, path: impl IntoIterator<Item = E>)
+    where
+        E: PartialEq + Eq + Hash + Clone + fmt::Debug,
+    {
+        let mut current_idx = 0;
+
+        for e in path {
+            match self.nodes[current_idx] {
+                Folding::Uninitialized => return,
+                Folding::Folded => return,
+                Folding::Unfolded => {
+                    if let Some(next_idx) = self.children[current_idx].get(&e) {
+                        current_idx = *next_idx;
+                    } else {
+                        return;
+                    }
+                }
+            }
+        }
+
+        self.nodes[current_idx] = Folding::Uninitialized;
     }
 
     #[must_use]
@@ -350,7 +428,7 @@ impl<E> FoldingTree<E> {
                     for (edge, &child) in &self.children[idx] {
                         queue.push((child, current_path.len(), Some(edge.clone())));
                     }
-                } else {
+                } else if self.nodes[idx].is_folded() {
                     return Some(current_path.to_vec());
                 }
             }
@@ -408,6 +486,17 @@ impl<E> FoldingTree<E> {
             Some(event.map(|(edge, idx)| (*edge, self.nodes[*idx])))
         })
     }
+}
+
+pub enum FoldError {
+    Inaccessible,
+    AlreadyFolded,
+    WasUninitialized,
+}
+pub enum UnfoldError {
+    Inaccessible,
+    AlreadyUnfolded,
+    WasUninitialized,
 }
 
 #[derive(Debug, Clone)]
@@ -634,5 +723,15 @@ mod tests {
         assert_eq!(t, b, "{t}");
         let t = FoldingTree::default().meet(&b);
         assert_eq!(t, b, "{t}");
+    }
+
+    #[test]
+    fn drop() {
+        let mut a = FoldingTree::default();
+        a.require(|_, _| {}, &["a", "b"]);
+        eprintln!("{a}");
+        a.drop(&["a"]);
+        eprintln!("{a}");
+        panic!();
     }
 }

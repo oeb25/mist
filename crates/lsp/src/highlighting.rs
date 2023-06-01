@@ -6,6 +6,7 @@ use derive_new::new;
 use itertools::Itertools;
 use mist_core::{
     hir::{self, types::TypeProvider, ExprIdx, SourceFile, VariableIdx, VariableRef},
+    mir::{self, pass::Pass},
     salsa,
     util::Position,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
@@ -30,10 +31,66 @@ pub fn semantic_tokens(db: &dyn crate::Db, source: SourceFile) -> Arc<Vec<Semant
     let result = highlighting(db, source);
     Arc::clone(&result.tokens)
 }
+const ANNOTATE_BAD_FOLDINGS: bool = false;
 #[salsa::tracked]
 pub fn inlay_hints(db: &dyn crate::Db, source: SourceFile) -> Arc<Vec<InlayHint>> {
-    let result = highlighting(db, source);
-    Arc::clone(&result.inlay_hints)
+    let mut inlay_hints = highlighting(db, source).inlay_hints.clone();
+    let result = Arc::make_mut(&mut inlay_hints);
+
+    if ANNOTATE_BAD_FOLDINGS {
+        source
+            .definitions(db)
+            .into_iter()
+            .filter_map(|def| {
+                let mir = def.mir(db)?;
+                let hir = def.hir(db)?;
+                let cx = hir.cx(db);
+                let source_map = hir.source_map(db);
+                let mir_source_map = mir.source_map(db);
+                let mut body = mir.body(db).clone();
+                mir::pass::FullDefaultPass::run(db, &mut body);
+
+                let cfg = mir::analysis::cfg::Cfg::compute(&body);
+                for entry in body.entry_blocks() {
+                    cfg.visit_reverse_post_order(entry, |bid| {
+                        let mut stacked_up = vec![];
+                        for inst in body[bid].locations().filter_map(|loc| loc.as_instruction()) {
+                            if let mir::Instruction::Folding(f) = &body[inst] {
+                                stacked_up.push(f)
+                            }
+
+                            let Some(expr) = mir_source_map.trace_expr(inst) else { continue };
+
+                            for f in stacked_up.drain(..) {
+                                let p = mir::serialize::serialize_place(
+                                    mir::serialize::Color::No,
+                                    Some(db),
+                                    Some(cx),
+                                    &body,
+                                    f.place(),
+                                );
+                                result.push(InlayHint {
+                                    position: Position::from_byte_offset(
+                                        source.text(db),
+                                        source_map[expr].span().offset(),
+                                    ),
+                                    label: match f {
+                                        mir::Folding::Fold { .. } => format!("fold {p}"),
+                                        mir::Folding::Unfold { .. } => format!("unfold {p}"),
+                                    },
+                                    kind: None,
+                                    padding_left: None,
+                                    padding_right: Some(true),
+                                });
+                            }
+                        }
+                    })
+                }
+                Some(())
+            })
+            .for_each(drop);
+    }
+    inlay_hints
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

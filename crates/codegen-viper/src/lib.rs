@@ -2,6 +2,7 @@
 
 pub mod gen;
 pub mod lower;
+pub mod mangle;
 
 #[salsa::jar(db=Db)]
 pub struct Jar(

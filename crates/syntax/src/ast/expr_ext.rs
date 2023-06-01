@@ -24,6 +24,17 @@ impl ast::PrefixExpr {
     }
 }
 
+#[rustfmt::skip]
+impl BinaryOp {
+    pub const fn eq() -> Self { BinaryOp::CmpOp(CmpOp::Eq { negated: false }) }
+    pub const fn ne() -> Self { BinaryOp::CmpOp(CmpOp::Eq { negated: true }) }
+    pub const fn le() -> Self { BinaryOp::CmpOp(CmpOp::Ord { ordering: Ordering::Less,    strict: false }) }
+    pub const fn ge() -> Self { BinaryOp::CmpOp(CmpOp::Ord { ordering: Ordering::Greater, strict: false }) }
+    pub const fn lt() -> Self { BinaryOp::CmpOp(CmpOp::Ord { ordering: Ordering::Less,    strict: true }) }
+    pub const fn gt() -> Self { BinaryOp::CmpOp(CmpOp::Ord { ordering: Ordering::Greater, strict: true }) }
+
+}
+
 impl ast::BinExpr {
     pub fn lhs(&self) -> Option<ast::Expr> {
         support::children(self.syntax()).next()

@@ -728,7 +728,15 @@ impl<'a> TypeChecker<'a> {
                             .map(|inv| self.check_boolean_exprs(inv.comma_exprs()))
                             .collect(),
                         decreases: self.check_decreases(it.decreases()),
-                        body: self.check_block(&it.block_expr().unwrap(), id),
+                        body: if let Some(block) = it.block_expr() {
+                            self.check_block(&block, id)
+                        } else {
+                            Block {
+                                stmts: Vec::new(),
+                                tail_expr: None,
+                                return_ty: void(),
+                            }
+                        },
                     },
                 ),
             })

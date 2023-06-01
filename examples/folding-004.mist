@@ -1,0 +1,7 @@
+struct T {
+  b: bool
+}
+
+pure fn f(t: &T) -> bool {
+  if t.b == true { t.b } else { true }
+}

@@ -29,7 +29,10 @@ use silvers::{
 };
 use tracing::error;
 
-use crate::gen::{VExpr, VExprId};
+use crate::{
+    gen::{VExpr, VExprId},
+    mangle,
+};
 
 pub mod method;
 pub mod pure;
@@ -474,17 +477,21 @@ impl BodyLower<'_> {
             .try_fold(id, |base, proj| -> Result<_> {
                 Ok(match proj {
                     mir::Projection::Field(f, ty) => {
-                        if f.name(self.db).as_str() == "len" {
-                            let exp = SeqExp::Length { s: base };
-                            self.alloc(source, exp)
-                        } else {
-                            let exp = Field::new(
-                                f.name(self.db).to_string(),
-                                // TODO: Should we look at the contraints?
-                                self.lower_type(self.body.ty(ty))?.vty,
-                            )
-                            .access_exp(base);
-                            self.alloc(source, exp)
+                        match f {
+                            hir::Field::List(_, hir::ListField::Len) => {
+                                let exp = SeqExp::Length { s: base };
+                                self.alloc(source, exp)
+                            }
+                            hir::Field::StructField(sf) => {
+                                let exp = Field::new(
+                                    mangle::mangled_field(self.db, sf),
+                                    // TODO: Should we look at the contraints?
+                                    self.lower_type(self.body.ty(ty))?.vty,
+                                )
+                                .access_exp(base);
+                                self.alloc(source, exp)
+                            }
+                            hir::Field::Undefined => todo!(),
                         }
                     }
                     mir::Projection::Index(index, _) => {
@@ -578,7 +585,7 @@ impl BodyLower<'_> {
             let pred = self.alloc(
                 source,
                 AccessPredicate::Predicate(PredicateAccessPredicate::new(
-                    PredicateAccess::new(st.name(self.db).to_string(), vec![place]),
+                    PredicateAccess::new(mangle::mangled_struct(self.db, st), vec![place]),
                     perm,
                 )),
             );
@@ -602,7 +609,7 @@ impl BodyLower<'_> {
                     let exp = self.alloc(
                         source,
                         AccessPredicate::Predicate(PredicateAccessPredicate::new(
-                            PredicateAccess::new(st.name(self.db).to_string(), vec![place]),
+                            PredicateAccess::new(mangle::mangled_struct(self.db, st), vec![place]),
                             perm,
                         )),
                     );

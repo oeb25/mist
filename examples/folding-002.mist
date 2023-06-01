@@ -1,0 +1,7 @@
+struct T {
+  x: bool
+}
+
+fn f(t: T) {
+  while t.x {}
+}

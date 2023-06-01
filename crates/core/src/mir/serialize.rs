@@ -5,12 +5,12 @@ use owo_colors::{colors::*, OwoColorize};
 
 use crate::{
     hir::ItemContext,
-    mir::{Projection, Terminator},
+    mir::{BlockLocation, Projection, Terminator},
 };
 
 use super::{
-    BlockId, Body, BorrowKind, Folding, FunctionData, FunctionId, Instruction, InstructionId,
-    MExpr, Operand, Place, Slot, SlotId,
+    BlockId, Body, BodyLocation, BorrowKind, Folding, FunctionData, FunctionId, Instruction,
+    InstructionId, MExpr, Operand, Place, Slot, SlotId,
 };
 
 #[derive(new)]
@@ -23,9 +23,22 @@ struct Serializer<'a> {
     start_of_line: bool,
     #[new(default)]
     indentation: usize,
+    #[new(default)]
+    annotator: Option<Box<dyn Fn(BodyLocation) -> Option<String>>>,
 }
 
 impl Body {
+    pub fn serialize_with_annotation(
+        &self,
+        db: &dyn crate::Db,
+        cx: Option<&ItemContext>,
+        color: Color,
+        f: Box<dyn Fn(BodyLocation) -> Option<String>>,
+    ) -> String {
+        Serializer::new(color, self)
+            .with_annotator(f)
+            .finish(db, cx)
+    }
     pub fn serialize(&self, db: &dyn crate::Db, cx: Option<&ItemContext>, color: Color) -> String {
         Serializer::new(color, self).finish(db, cx)
     }
@@ -82,7 +95,7 @@ pub fn serialize_place(
     db: Option<&dyn crate::Db>,
     cx: Option<&ItemContext>,
     body: &Body,
-    place: &Place,
+    place: Place,
 ) -> String {
     let mut s = Serializer::new(color, body).with_color(color);
     s.place(db, cx, place);
@@ -145,11 +158,31 @@ impl Serializer<'_> {
         self.block_id(Some(body));
         wln!(self, Default, "");
         self.indented(|this| {
-            for inst in &this.body.blocks[body].instructions {
-                this.inst(db, cx, *inst);
+            let mut printed = false;
+            for &inst in &this.body.blocks[body].instructions {
+                printed = true;
+                if let Some(f) = &this.annotator {
+                    if let Some(s) = f(BlockLocation::Instruction(inst).in_block(body)) {
+                        wln!(this, Default, "{s}");
+                    }
+                }
+                this.inst(db, cx, inst);
             }
             if let Some(term) = &this.body.blocks[body].terminator {
+                printed = true;
+                if let Some(f) = &this.annotator {
+                    if let Some(s) = f(BlockLocation::Terminator.in_block(body)) {
+                        wln!(this, Default, "{s}");
+                    }
+                }
                 this.terminator(Some(db), cx, term);
+            }
+            if !printed {
+                if let Some(f) = &this.annotator {
+                    if let Some(s) = f(BlockLocation::Terminator.in_block(body)) {
+                        wln!(this, Default, "{s}");
+                    }
+                }
             }
         });
     }
@@ -157,7 +190,7 @@ impl Serializer<'_> {
     fn inst(&mut self, db: &dyn crate::Db, cx: Option<&ItemContext>, inst: InstructionId) {
         match &self.body.instructions[inst] {
             Instruction::Assign(s, e) => {
-                self.place(Some(db), cx, s);
+                self.place(Some(db), cx, *s);
                 w!(self, Default, " := ");
                 self.expr(db, cx, e);
                 wln!(self, Default, "");
@@ -169,11 +202,11 @@ impl Serializer<'_> {
             }
             Instruction::PlaceMention(p) => {
                 w!(self, Default, "mention ");
-                self.place(Some(db), cx, p);
+                self.place(Some(db), cx, *p);
                 wln!(self, Default, "");
             }
             Instruction::Folding(folding) => {
-                self.folding(Some(db), cx, folding);
+                self.folding(Some(db), cx, *folding);
             }
         }
     }
@@ -189,7 +222,7 @@ impl Serializer<'_> {
         }
     }
 
-    fn place(&mut self, db: Option<&dyn crate::Db>, cx: Option<&ItemContext>, s: &Place) {
+    fn place(&mut self, db: Option<&dyn crate::Db>, cx: Option<&ItemContext>, s: Place) {
         if self.body[s.projection].is_empty() {
             self.slot(cx, s.slot);
         } else {
@@ -216,13 +249,13 @@ impl Serializer<'_> {
 
     fn operand(&mut self, db: Option<&dyn crate::Db>, cx: Option<&ItemContext>, o: &Operand) {
         match o {
-            Operand::Copy(s) => self.place(db, cx, s),
-            Operand::Move(s) => self.place(db, cx, s),
+            Operand::Copy(s) => self.place(db, cx, *s),
+            Operand::Move(s) => self.place(db, cx, *s),
             Operand::Literal(l) => w!(self, Magenta, "${l}"),
         }
     }
 
-    fn folding(&mut self, db: Option<&dyn crate::Db>, cx: Option<&ItemContext>, f: &Folding) {
+    fn folding(&mut self, db: Option<&dyn crate::Db>, cx: Option<&ItemContext>, f: Folding) {
         match f {
             Folding::Fold { into } => {
                 w!(self, Red, "fold ");
@@ -245,7 +278,7 @@ impl Serializer<'_> {
                     BorrowKind::Shared => w!(self, Default, "&"),
                     BorrowKind::Mutable => w!(self, Default, "&mut "),
                 }
-                self.place(Some(db), cx, p);
+                self.place(Some(db), cx, *p);
             }
             MExpr::Struct(s, fields) => {
                 w!(self, Default, "{} {{", s.name(db));
@@ -354,7 +387,7 @@ impl Serializer<'_> {
             } => {
                 w!(self, Yellow, "!call ");
 
-                self.place(db, cx, destination);
+                self.place(db, cx, *destination);
                 w!(self, Default, " := ");
 
                 w!(self, Default, "(");
@@ -381,5 +414,10 @@ impl Serializer<'_> {
         } else {
             Self { color, ..self }
         }
+    }
+
+    fn with_annotator(mut self, f: Box<dyn Fn(BodyLocation) -> Option<String>>) -> Self {
+        self.annotator = Some(f);
+        self
     }
 }

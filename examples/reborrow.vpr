@@ -1,0 +1,46 @@
+// domain Ptr[T] {
+//     function create(v: T, p: Perm): Ptr[T];
+//     function value(p: Ptr[T]): T;
+//     function perms(p: Ptr[T]): Perm;
+
+//     axiom {
+//         forall v: T, p: Perm :: acc(value(create(v, p)), p)
+//     }
+//     axiom {
+//         forall v: T, p: Perm :: value(create(v, p)) == v
+//     }
+//     axiom {
+//         forall v: T, p: Perm :: perms(create(v, p)) == p
+//     }
+// }
+
+field a: Int
+
+predicate T(x: Ref) {
+  acc(x.a, write)
+}
+
+method f(x: Ref, p: Perm)
+  requires
+    none < p && p <= write &&
+    acc(T(x), p)
+  ensures
+    acc(T(x), p)
+{
+  var y: Ref;
+  y := x;
+  // unfold acc(T(y), p/2)
+  var z: Ref;
+  z := y;
+  // unfold acc(T(z), p/4)
+
+  package acc(T(y), p/2) --* acc(T(x), p/2)
+
+  // inhale acc(T(y), p/2) && (acc(T(y), p/2) --* acc(T(x), p/2))
+  unfold acc(T(y), p/2)
+  unfold acc(T(x), p/2)
+  assert x.a == y.a;
+  fold acc(T(x), p/2)
+  fold acc(T(y), p/2)
+  // apply acc(T(y), p/2) --* acc(T(x), p/2)
+}

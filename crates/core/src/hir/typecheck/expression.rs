@@ -779,7 +779,11 @@ fn check_if_expr(tc: &mut TypeChecker, if_expr: ast::IfExpr) -> ExprIdx {
             ty,
         )
     } else {
-        todo!()
+        return expr_error(
+            tc,
+            if_expr.span(),
+            TypeCheckErrorKind::NotYetImplemented("if without body".to_string()),
+        );
     };
     let (else_branch, else_tail_span) = if_expr
         .else_branch()

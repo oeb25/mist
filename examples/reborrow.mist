@@ -1,0 +1,5 @@
+struct T { a: int }
+fn f(x: &T) {
+    let y = x;
+    assert y.a == y.a;
+}

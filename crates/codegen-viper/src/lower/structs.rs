@@ -4,7 +4,10 @@ use silvers::{
     program::{Field, Predicate},
 };
 
-use crate::gen::{VExprId, ViperItem};
+use crate::{
+    gen::{VExprId, ViperItem},
+    mangle,
+};
 
 use super::{BodyLower, Result};
 
@@ -29,7 +32,7 @@ impl BodyLower<'_> {
                 let field_ty = self.body.field_ty(self.db, f.into());
                 let ty = self.lower_type(field_ty)?;
                 let viper_field = Field {
-                    name: f.name(self.db).to_string(),
+                    name: mangle::mangled_field(self.db, f),
                     typ: ty.vty,
                 };
                 viper_items.push(ViperItem::Field(viper_field.clone()));
@@ -57,7 +60,7 @@ impl BodyLower<'_> {
             .reduce(|acc, next| self.alloc(source, Exp::bin(acc, BinOp::And, next)));
 
         viper_items.push(ViperItem::Predicate(Predicate {
-            name: s.name(self.db).to_string(),
+            name: mangle::mangled_struct(self.db, s),
             formal_args: vec![self_var.into()],
             body,
         }));

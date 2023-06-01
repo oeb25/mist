@@ -4,7 +4,8 @@ use derive_more::From;
 use derive_new::new;
 use itertools::Itertools;
 use mist_core::{
-    def, hir, mir,
+    def, hir,
+    mir::{self, pass::Pass},
     util::{impl_idx, IdxMap, IdxWrap},
 };
 use mist_syntax::SourceSpan;
@@ -35,7 +36,7 @@ pub fn viper_file(
     for def in hir::file_definitions(db, file) {
         let Some((cx, mir)) = def.hir_mir(db) else { return Err(ViperLowerError::EmptyBody) };
         let mut mir = mir.clone();
-        mir::analysis::isorecursive::IsorecursivePass::new(&mut mir).run();
+        mir::pass::FullDefaultPass::run(db, &mut mir);
         match internal_viper_item(db, cx, &mut lowerer, def, &mir) {
             Ok(items) => {
                 for item in items {
@@ -74,10 +75,11 @@ pub fn viper_item(
     db: &dyn crate::Db,
     def: def::Def,
 ) -> Result<(Vec<ViperItem<VExprId>>, ViperBody, ViperSourceMap)> {
-    // TODO: Perhaps we need to run isorecursive pass here?
     let Some((cx, body)) = def.hir_mir(db) else { return Err(ViperLowerError::EmptyBody) };
+    let mut body = body.clone();
+    mir::pass::FullDefaultPass::run(db, &mut body);
     let mut lowerer = ViperLowerer::new();
-    let items = internal_viper_item(db, cx, &mut lowerer, def, body)?;
+    let items = internal_viper_item(db, cx, &mut lowerer, def, &body)?;
     let (viper_body, viper_source_map) = lowerer.finish();
     Ok((items, viper_body, viper_source_map))
 }
@@ -269,7 +271,8 @@ impl ViperOutput {
 }
 
 impl<Cx> ViperWriter<Cx> {
-    pub(crate) fn finish(self) -> ViperOutput {
+    pub(crate) fn finish(mut self) -> ViperOutput {
+        write!(self.output.buf, "{}", include_str!("./prelude.vpr")).unwrap();
         self.output
     }
     pub(crate) fn emit<E: ViperWrite<Cx>>(&mut self, elem: &E) {

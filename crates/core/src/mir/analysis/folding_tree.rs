@@ -126,12 +126,24 @@ impl FoldingTree {
     #[tracing::instrument(skip_all)]
     pub fn forwards_instruction_transition(&mut self, body: &mir::Body, inst: mir::InstructionId) {
         // debug!(inst=?&body[inst], "Starting with: {}", self.debug_str(None, body));
-        for p in body[inst].places_referenced() {
-            let _ = self.require(body, None, p);
-        }
-        for p in body[inst].places_written_to() {
-            self.drop(body, p);
-            let _ = self.require(body, None, p);
+        match &body[inst] {
+            mir::Instruction::Folding(f) => match f {
+                mir::Folding::Fold { into } => {
+                    self.fold(body, *into);
+                }
+                mir::Folding::Unfold { consume } => {
+                    self.unfold(body, *consume);
+                }
+            },
+            _ => {
+                for p in body[inst].places_referenced() {
+                    let _ = self.require(body, None, p);
+                }
+                for p in body[inst].places_written_to() {
+                    self.drop(body, p);
+                    let _ = self.require(body, None, p);
+                }
+            }
         }
         // debug!("Ending with:   {}", self.debug_str(None, body));
     }
@@ -154,12 +166,23 @@ impl FoldingTree {
     #[tracing::instrument(skip_all)]
     pub fn backwards_instruction_transition(&mut self, body: &mir::Body, inst: mir::InstructionId) {
         // debug!(inst=?&body[inst], "Starting with: {}", self.debug_str(None, body));
-        for p in body[inst].places_written_to() {
-            self.drop(body, p);
-            let _ = self.require(body, None, p);
-        }
-        for p in body[inst].places_referenced() {
-            let _ = self.require(body, None, p);
+        match &body[inst] {
+            mir::Instruction::Folding(f) => match f {
+                mir::Folding::Fold { into } => {
+                    self.unfold(body, *into);
+                }
+                mir::Folding::Unfold { consume } => {
+                    self.fold(body, *consume);
+                }
+            },
+            _ => {
+                for p in body[inst].places_written_to() {
+                    self.drop(body, p);
+                }
+                for p in body[inst].places_referenced() {
+                    let _ = self.require(body, None, p);
+                }
+            }
         }
         // debug!("Ending with:   {}", self.debug_str(None, body));
     }
@@ -172,7 +195,6 @@ impl FoldingTree {
         // debug!(?terminator, "Starting with: {}", self.debug_str(None, body));
         for p in terminator.places_written_to() {
             self.drop(body, p);
-            let _ = self.require(body, None, p);
         }
         for p in terminator.places_referenced() {
             let _ = self.require(body, None, p);
@@ -200,6 +222,17 @@ impl FoldingTree {
                     Some((slot, None, Some(b_ft)))
                 }
             }))
+    }
+
+    fn fold(&mut self, body: &mir::Body, p: mir::Place) {
+        let ft = self.inner.entry(p.slot).or_default();
+        // TODO: Perhaps we should check that these are valid
+        let _ = ft.fold(body.projection_path_iter(p.projection).skip(1));
+    }
+    fn unfold(&mut self, body: &mir::Body, p: mir::Place) {
+        let ft = self.inner.entry(p.slot).or_default();
+        // TODO: Perhaps we should check that these are valid
+        let _ = ft.unfold(body.projection_path_iter(p.projection).skip(1));
     }
 }
 

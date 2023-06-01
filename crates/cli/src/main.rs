@@ -5,7 +5,10 @@ use futures_util::StreamExt;
 use itertools::Itertools;
 use miette::{bail, Context, IntoDiagnostic, Result};
 use mist_codegen_viper::gen::ViperOutput;
-use mist_core::{hir, mir};
+use mist_core::{
+    hir,
+    mir::{self, pass::Pass},
+};
 use tracing::{error, info, warn, Level};
 use tracing_subscriber::prelude::*;
 
@@ -86,18 +89,36 @@ async fn cli() -> Result<()> {
                 let Some((cx, mir)) = def.hir_mir(&db) else { continue };
                 let mut mir = mir.clone();
 
+                mir::pass::MentionPass::run(&db, &mut mir);
+
                 if dump_mir {
+                    let a = mir::analysis::liveness::FoldingAnalysisResults::compute(&mir);
+                    let mir2 = mir.clone();
                     println!(
                         "{}",
-                        mir.serialize(&db, Some(cx), mir::serialize::Color::Yes)
+                        mir.serialize_with_annotation(
+                            &db,
+                            Some(cx),
+                            mir::serialize::Color::Yes,
+                            Box::new(move |loc| { Some(a.try_entry(loc)?.debug_str(None, &mir2)) })
+                        )
                     );
                 }
                 if dump_isorecursive {
-                    mir::analysis::isorecursive::IsorecursivePass::new(&mut mir).run();
+                    mir::pass::IsorecursivePass::run(&db, &mut mir);
+                    let a = mir::analysis::liveness::FoldingAnalysisResults::compute(&mir);
                     if dump_mir {
+                        let mir2 = mir.clone();
                         println!(
                             "{}",
-                            mir.serialize(&db, Some(cx), mir::serialize::Color::Yes)
+                            mir.serialize_with_annotation(
+                                &db,
+                                Some(cx),
+                                mir::serialize::Color::Yes,
+                                Box::new(move |loc| {
+                                    Some(a.try_entry(loc)?.debug_str(None, &mir2))
+                                })
+                            )
                         );
                     }
                 }
@@ -108,6 +129,7 @@ async fn cli() -> Result<()> {
 
                     if dump_liveness {
                         mir::analysis::cfg::dot_imgcat(&cfg.analysis_dot(
+                            &mir,
                             &mir::analysis::liveness::FoldingAnalysisResults::compute(&mir),
                             |x| x.debug_str(Some(&db), &mir),
                         ));

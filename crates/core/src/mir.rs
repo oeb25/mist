@@ -1,5 +1,6 @@
 pub mod analysis;
 mod lower;
+pub mod pass;
 pub mod serialize;
 
 use std::{fmt, sync::Arc};
@@ -67,6 +68,27 @@ impl Block {
             debug!("terminator was replaced!");
         }
         old
+    }
+
+    pub fn first_loc(&self) -> BlockLocation {
+        self.instructions
+            .iter()
+            .copied()
+            .map(BlockLocation::Instruction)
+            .next()
+            .unwrap_or(BlockLocation::Terminator)
+    }
+
+    pub fn locations(&self) -> impl Iterator<Item = BlockLocation> + '_ {
+        self.instructions
+            .iter()
+            .copied()
+            .map(BlockLocation::Instruction)
+            .chain(
+                self.terminator
+                    .is_some()
+                    .then_some(BlockLocation::Terminator),
+            )
     }
 }
 
@@ -230,10 +252,19 @@ impl SwitchTargets {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Folding {
     Fold { into: Place },
     Unfold { consume: Place },
+}
+
+impl Folding {
+    pub fn place(self) -> Place {
+        match self {
+            Folding::Fold { into } => into,
+            Folding::Unfold { consume } => consume,
+        }
+    }
 }
 
 impl_idx!(InstructionId, Instruction, default_debug);
@@ -715,6 +746,14 @@ impl Body {
             _ => None,
         })
     }
+
+    pub fn first_loc_in(&self, bid: BlockId) -> BodyLocation {
+        self[bid].first_loc().in_block(bid)
+    }
+
+    fn locations_in(&self, bid: BlockId) -> impl Iterator<Item = BodyLocation> + '_ {
+        self[bid].locations().map(move |loc| loc.in_block(bid))
+    }
 }
 
 impl Body {
@@ -814,6 +853,23 @@ pub struct BodyLocation {
 pub enum BlockLocation {
     Instruction(InstructionId),
     Terminator,
+}
+
+impl BlockLocation {
+    pub fn in_block(self, bid: BlockId) -> BodyLocation {
+        BodyLocation {
+            block: bid,
+            inner: self,
+        }
+    }
+
+    pub fn as_instruction(self) -> Option<InstructionId> {
+        if let Self::Instruction(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
 }
 
 impl Instruction {

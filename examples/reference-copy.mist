@@ -1,0 +1,4 @@
+struct P { x: int }
+fn f(p: &mut P) {
+    let q = p;
+}

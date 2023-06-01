@@ -1,0 +1,41 @@
+fn f() {
+    let i = 0;
+    while i < 10
+      dec 10 - i
+    {
+        i = i + 1;
+    }
+}
+
+fn g() {
+    let b = true;
+    while b
+      dec b
+    {
+        b = false;
+    }
+}
+
+fn h() {
+    let sum = 0;
+    let l = [1, 2, 3, 4];
+    while l.len > 0
+      dec l.len
+    {
+        sum = sum + l[0];
+        l = l[1..];
+    }
+}
+
+struct T { f: int }
+
+fn i(t: ?T)
+  req t != null
+{
+  let t = t;
+  while t != null
+    dec t
+  {
+    t = null;
+  }
+}

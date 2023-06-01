@@ -4,8 +4,10 @@ use tracing::debug;
 use crate::{
     def::Def,
     hir::{
-        self, pretty, typecheck::builtin::error, AssertionKind, ExprData, ExprIdx, IfExpr,
-        ItemContext, Statement, StatementData, TypeData, TypeId, VariableIdx,
+        self, pretty,
+        typecheck::builtin::{bool, error, int},
+        AssertionKind, ExprData, ExprIdx, IfExpr, ItemContext, Statement, StatementData, TypeData,
+        TypeId, VariableIdx,
     },
     mir::{MirError, MirErrors, Operand},
 };
@@ -370,7 +372,9 @@ impl MirLower<'_> {
                 self.body.blocks[bid].set_terminator(Terminator::Goto(cond_block));
 
                 bid = cond_block;
-                let cond_place = self.expr_into_place(*expr, &mut bid, None);
+                let cond_place = self.alloc_tmp(bool());
+                // let cond_place = self.expr_into_place(*expr, &mut bid, None);
+                bid = self.expr(*expr, bid, None, Placement::Assign(cond_place));
 
                 let cond_inv_bid = {
                     let cond_inv_bid = self.alloc_block(None);
@@ -408,7 +412,25 @@ impl MirLower<'_> {
                 self.body.block_invariants.insert(bid, invariants);
 
                 let body_bid = self.alloc_block(None);
-                let body_bid_last = self.block(body, body_bid, None, Placement::Ignore);
+                let mut next_bid = body_bid;
+
+                let variant_slot = match *decreases {
+                    hir::Decreases::Unspecified => None,
+                    hir::Decreases::Expr(variant) => {
+                        let variant_slot = self.alloc_tmp(self.cx.expr_ty(variant));
+                        next_bid =
+                            self.expr(variant, next_bid, None, Placement::Assign(variant_slot));
+                        Some(variant_slot)
+                    }
+                    hir::Decreases::Inferred => None,
+                };
+
+                let mut body_bid_last = self.block(body, next_bid, None, Placement::Ignore);
+                if let (hir::Decreases::Expr(variant), Some(variant_slot)) =
+                    (*decreases, variant_slot)
+                {
+                    self.emit_decreases_assertion(variant_slot, variant, &mut body_bid_last);
+                }
 
                 let exit_bid = self.alloc_block(None);
 
@@ -427,6 +449,95 @@ impl MirLower<'_> {
                 }
                 bid
             }
+        }
+    }
+    fn emit_decreases_assertion(
+        &mut self,
+        initial_variant: Place,
+        variant: ExprIdx,
+        bid: &mut BlockId,
+    ) {
+        let last_variant_operand = self.expr_into_operand(variant, bid, None);
+
+        let mut assertions = vec![];
+
+        let a = || last_variant_operand.clone();
+        let b = || Operand::Move(initial_variant);
+
+        let variant_ty = self.cx.expr_ty(variant);
+        match variant_ty.data() {
+            TypeData::Error => {}
+            TypeData::Void => {}
+            TypeData::Ghost(_) => todo!(),
+            TypeData::Ref { .. } => todo!(),
+            // a <_ b <==> |a| < |b|
+            TypeData::List(_) => {
+                let mut len = |o| match o {
+                    Operand::Copy(p) | Operand::Move(p) => self.project_deeper(
+                        p,
+                        &[Projection::Field(
+                            hir::Field::List(variant_ty.id(), hir::ListField::Len),
+                            int(),
+                        )],
+                    ),
+                    Operand::Literal(_) => todo!(),
+                };
+
+                assertions.push(MExpr::BinaryOp(
+                    BinaryOp::lt(),
+                    Operand::Copy(len(a())),
+                    Operand::Copy(len(b())),
+                ));
+            }
+            // a <_ b <==> a == null && b != null
+            TypeData::Optional(_) => {
+                assertions.push(MExpr::BinaryOp(
+                    BinaryOp::eq(),
+                    a(),
+                    Operand::Literal(hir::Literal::Null),
+                ));
+                assertions.push(MExpr::BinaryOp(
+                    BinaryOp::ne(),
+                    b(),
+                    Operand::Literal(hir::Literal::Null),
+                ));
+            }
+            // a <_ b <==> a < b && 0 <= b
+            TypeData::Primitive(hir::Primitive::Int) => {
+                assertions.push(MExpr::BinaryOp(BinaryOp::lt(), a(), b()));
+                assertions.push(MExpr::BinaryOp(
+                    BinaryOp::le(),
+                    Operand::Literal(hir::Literal::Int(0)),
+                    b(),
+                ));
+            }
+            // a <_ b <==> a == false && b == true
+            TypeData::Primitive(hir::Primitive::Bool) => {
+                assertions.push(MExpr::BinaryOp(
+                    BinaryOp::eq(),
+                    a(),
+                    Operand::Literal(hir::Literal::Bool(false)),
+                ));
+                assertions.push(MExpr::BinaryOp(
+                    BinaryOp::eq(),
+                    b(),
+                    Operand::Literal(hir::Literal::Bool(true)),
+                ));
+            }
+            TypeData::Struct(_) => todo!(),
+            TypeData::Function { .. } => todo!(),
+            TypeData::Range(_) => todo!(),
+            TypeData::Null | TypeData::Free => {
+                assertions.push(MExpr::Use(Operand::Literal(hir::Literal::Bool(false))))
+            }
+        }
+
+        for assertion in assertions {
+            self.alloc_instruction(
+                Some(variant),
+                *bid,
+                Instruction::Assertion(AssertionKind::Assert, assertion),
+            );
         }
     }
     fn assign(&mut self, bid: BlockId, source: Option<ExprIdx>, dest: Place, expr: MExpr) -> Place {

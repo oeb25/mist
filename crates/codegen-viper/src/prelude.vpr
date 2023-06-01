@@ -1,0 +1,18 @@
+domain Range {
+  function range_from(x: Int): Range
+  function range_to(x: Int): Range
+  function range_from_to(from: Int, to: Int): Range
+}
+
+domain RangeIndex[T] {
+  function range_index(x: Seq[T], r: Range): Seq[T]
+  axiom axRangefrom {
+    forall x: Int, s: Seq[T] :: range_index(s, range_from(x)) == s[x..]
+  }
+  axiom axRangeto {
+    forall x: Int, s: Seq[T] :: range_index(s, range_to(x)) == s[x..]
+  }
+  axiom axRangeFromTo {
+    forall from: Int, to: Int, s: Seq[T] :: range_index(s, range_from_to(from, to)) == s[from..to]
+  }
+}

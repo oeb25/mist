@@ -1,0 +1,12 @@
+struct T { f: int }
+
+fn i(t: ?T)
+  req t != null
+{
+  let t = t;
+  while t != null
+    dec t
+  {
+    t = null;
+  }
+}

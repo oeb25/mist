@@ -11,10 +11,9 @@ use crate::hir;
 use super::{serialize, BlockId, Body, MExpr, Operand, Place, SlotId};
 
 pub mod cfg;
-mod folding_tree;
-pub mod isorecursive;
+pub mod folding_tree;
 pub mod liveness;
-mod monotone;
+pub mod monotone;
 
 pub fn pretty_dot<N, E>(g: &Graph<N, E>) -> String
 where

@@ -49,13 +49,14 @@ impl Cfg {
     }
     pub fn analysis_dot<A: MonotoneFramework>(
         &self,
+        body: &Body,
         result: &AnalysisResults<A>,
         fmt: impl Fn(&A::Domain) -> String,
     ) -> String
     where
         A::Domain: fmt::Debug,
     {
-        let g = self.map_graph(|bid| fmt(result.value_at(bid)), |_| "");
+        let g = self.map_graph(|bid| fmt(result.value_at(body.first_loc_in(bid))), |_| "");
         petgraph::dot::Dot::new(&g).to_string()
     }
     pub fn map_graph<V, E>(

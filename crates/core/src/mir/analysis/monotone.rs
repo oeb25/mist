@@ -9,7 +9,7 @@ use crate::{
 };
 
 pub struct AnalysisResults<A: MonotoneFramework> {
-    facts: IdxMap<mir::BlockId, A::Domain>,
+    facts: HashMap<mir::BodyLocation, A::Domain>,
     semantic_calls: usize,
 }
 
@@ -38,11 +38,12 @@ pub trait Direction {
         body: &mir::Body,
         prev: &mut A::Domain,
         bid: mir::BlockId,
+        events: impl for<'a> FnMut(mir::BodyLocation, &'a A::Domain),
     );
     fn semantics<A: MonotoneFramework>(
         a: &A,
         body: &mir::Body,
-        facts: &mut IdxMap<mir::BlockId, A::Domain>,
+        facts: &mut HashMap<mir::BodyLocation, A::Domain>,
         bid: mir::BlockId,
     ) -> Progress;
     fn next(body: &mir::Body, bid: mir::BlockId, f: impl FnMut(mir::BlockId));
@@ -63,30 +64,44 @@ impl Direction for Forward {
         body: &mir::Body,
         prev: &mut A::Domain,
         bid: mir::BlockId,
+        mut events: impl for<'a> FnMut(mir::BodyLocation, &'a A::Domain),
     ) {
         for &inst in body[bid].instructions() {
             a.instruction_semantic(body, inst, prev);
+            events(
+                mir::BodyLocation::new(bid, mir::BlockLocation::Instruction(inst)),
+                prev,
+            )
         }
         if let Some(term) = body[bid].terminator() {
             a.terminator_semantic(body, term, prev);
+            events(
+                mir::BodyLocation::new(bid, mir::BlockLocation::Terminator),
+                prev,
+            )
         }
     }
 
     fn semantics<A: MonotoneFramework>(
         a: &A,
         body: &mir::Body,
-        facts: &mut IdxMap<mir::BlockId, A::Domain>,
+        facts: &mut HashMap<mir::BodyLocation, A::Domain>,
         bid: mir::BlockId,
     ) -> Progress {
         let mut progress = Progress::No;
 
         for d in body.preceding_blocks(bid) {
-            let mut prev = facts[d].clone();
-            Self::semantic(a, body, &mut prev, bid);
-            if !facts[bid].contains(body, &prev) {
-                progress = Progress::Yes;
-                facts[bid].lub_extend(body, &prev);
-            }
+            let mut prev = facts
+                .entry(mir::BodyLocation::new(d, mir::BlockLocation::Terminator))
+                .or_insert_with(|| A::Domain::bottom(body))
+                .clone();
+            Self::semantic(a, body, &mut prev, bid, |loc, d| {
+                let prev = facts.entry(loc).or_insert_with(|| A::Domain::bottom(body));
+                if !prev.contains(body, d) {
+                    progress = Progress::Yes;
+                    prev.lub_extend(body, d);
+                }
+            });
         }
 
         progress
@@ -110,30 +125,45 @@ impl Direction for Backward {
         body: &mir::Body,
         prev: &mut A::Domain,
         bid: mir::BlockId,
+        mut events: impl for<'a> FnMut(mir::BodyLocation, &'a A::Domain),
     ) {
         if let Some(term) = body[bid].terminator() {
             a.terminator_semantic(body, term, prev);
+            events(
+                mir::BodyLocation::new(bid, mir::BlockLocation::Terminator),
+                prev,
+            )
         }
         for &inst in body[bid].instructions().iter().rev() {
             a.instruction_semantic(body, inst, prev);
+            events(
+                mir::BodyLocation::new(bid, mir::BlockLocation::Instruction(inst)),
+                prev,
+            )
         }
     }
 
     fn semantics<A: MonotoneFramework>(
         a: &A,
         body: &mir::Body,
-        facts: &mut IdxMap<mir::BlockId, A::Domain>,
+        facts: &mut HashMap<mir::BodyLocation, A::Domain>,
         bid: mir::BlockId,
     ) -> Progress {
         let mut progress = Progress::No;
 
         for d in body.succeeding_blocks(bid) {
-            let mut prev = facts[d].clone();
-            Self::semantic(a, body, &mut prev, bid);
-            if !facts[bid].contains(body, &prev) {
-                progress = Progress::Yes;
-                facts[bid].lub_extend(body, &prev);
-            }
+            let initial_loc = body[d].first_loc();
+            let mut prev = facts
+                .entry(mir::BodyLocation::new(d, initial_loc))
+                .or_insert_with(|| A::Domain::bottom(body))
+                .clone();
+            Self::semantic(a, body, &mut prev, bid, |loc, d| {
+                let prev = facts.entry(loc).or_insert_with(|| A::Domain::bottom(body));
+                if !prev.contains(body, d) {
+                    progress = Progress::Yes;
+                    prev.lub_extend(body, d);
+                }
+            });
         }
 
         progress
@@ -218,19 +248,22 @@ pub fn mono_analysis<A: MonotoneFramework, W: Worklist>(
 ) -> AnalysisResults<A> {
     let mut worklist = W::empty();
 
-    let bot = A::Domain::bottom(body);
-
-    let mut facts: IdxMap<mir::BlockId, A::Domain> = IdxMap::default();
+    let mut facts: HashMap<mir::BodyLocation, A::Domain> = Default::default();
     for (bid, _) in body.blocks.iter() {
-        facts.insert(bid, bot.clone());
         worklist.insert(bid);
     }
 
     let initial = a.initial(body);
     A::Direction::initial_blocks(body, |bid| {
+        let mut called = false;
         let mut prev = initial.clone();
-        A::Direction::semantic(&a, body, &mut prev, bid);
-        facts.insert(bid, prev);
+        A::Direction::semantic(&a, body, &mut prev, bid, |loc, d| {
+            called = true;
+            facts.insert(loc, d.clone());
+        });
+        if !called {
+            facts.insert(body.first_loc_in(bid), prev);
+        }
     });
 
     let mut calls = 0;
@@ -254,25 +287,45 @@ impl<A> AnalysisResults<A>
 where
     A: MonotoneFramework,
 {
-    pub fn entry(&self, bid: mir::BlockId) -> &A::Domain
+    pub fn entry(&self, loc: mir::BodyLocation) -> &A::Domain
     where
         A: MonotoneFramework<Direction = Backward>,
     {
-        self.value_at(bid)
+        self.value_at(loc)
     }
-    pub fn exit(&self, bid: mir::BlockId) -> &A::Domain
+    pub fn exit(&self, loc: mir::BodyLocation) -> &A::Domain
     where
         A: MonotoneFramework<Direction = Forward>,
     {
-        self.value_at(bid)
+        self.value_at(loc)
+    }
+    pub fn try_entry(&self, loc: mir::BodyLocation) -> Option<&A::Domain>
+    where
+        A: MonotoneFramework<Direction = Backward>,
+    {
+        self.try_value_at(loc)
+    }
+    pub fn try_exit(&self, loc: mir::BodyLocation) -> Option<&A::Domain>
+    where
+        A: MonotoneFramework<Direction = Forward>,
+    {
+        self.try_value_at(loc)
     }
     /// Returns the value computed as the given block. Depending on the
     /// direction of the analysis, the value will be placed differently on the
     /// graph:
     /// - [`Forward`]: value at **exit** of the node is returned,
     /// - [`Backward`]: value to **entry** of the node is returned.
-    pub fn value_at(&self, bid: mir::BlockId) -> &A::Domain {
-        &self.facts[bid]
+    pub fn value_at(&self, loc: mir::BodyLocation) -> &A::Domain {
+        &self.facts[&loc]
+    }
+    /// Returns the value computed as the given block. Depending on the
+    /// direction of the analysis, the value will be placed differently on the
+    /// graph:
+    /// - [`Forward`]: value at **exit** of the node is returned,
+    /// - [`Backward`]: value to **entry** of the node is returned.
+    pub fn try_value_at(&self, loc: mir::BodyLocation) -> Option<&A::Domain> {
+        self.facts.get(&loc)
     }
 }
 

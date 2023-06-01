@@ -50,7 +50,7 @@ use mist_core::{hir, mir};
 use silvers::expression::{Exp, PermExp, PredicateAccess, PredicateAccessPredicate, QuantifierExp};
 use tracing::warn;
 
-use crate::gen::VExprId;
+use crate::{gen::VExprId, mangle};
 
 use super::{BlockOrInstruction, BodyLower, Result, ViperLowerError};
 
@@ -343,7 +343,10 @@ impl BodyLower<'_> {
                     acc.try_map_exp(|exp| {
                         let place_ref = self.place_to_ref(inst, unfolding_place)?;
                         let pred_acc = PredicateAccessPredicate::new(
-                            PredicateAccess::new(s.name(self.db).to_string(), vec![place_ref]),
+                            PredicateAccess::new(
+                                mangle::mangled_struct(self.db, s),
+                                vec![place_ref],
+                            ),
                             self.alloc(inst, PermExp::Wildcard),
                         );
 
