@@ -47,10 +47,7 @@ pub(crate) fn initialize_file_context(
                 }
                 if let Some(name) = s_ast.name() {
                     let ts = b.alloc_ty_src(
-                        TypeSrc {
-                            data: Some(TDK::Struct(s).into()),
-                            ty: s_ty,
-                        },
+                        TypeSrc { data: Some(TDK::Struct(s).into()), ty: s_ty },
                         Some(name.span().into()),
                     );
                     b.fc.struct_types.insert(s, ts);
@@ -80,9 +77,7 @@ pub(crate) fn initialize_file_context(
                 }
             })
             .collect();
-        let return_ty_src = f_ast
-            .ret()
-            .map(|ty| b.find_type_src(&ty).with_ghost(&mut b, is_ghost));
+        let return_ty_src = f_ast.ret().map(|ty| b.find_type_src(&ty).with_ghost(&mut b, is_ghost));
         let return_ty = return_ty_src
             .map(|ts| b.ty_src(ts).ty)
             .unwrap_or_else(void)
@@ -180,9 +175,7 @@ impl<'a> TypingMut for FileContextBuilder<'a> {
     }
 
     fn alloc_ty_data(&mut self, data: TypeData) -> TypeId {
-        self.fc
-            .events
-            .push(FileContextBuilderEvent::AllocTy(data.clone()));
+        self.fc.events.push(FileContextBuilderEvent::AllocTy(data.clone()));
         self.typer.ty_id(data)
     }
 

@@ -90,9 +90,7 @@ macro_rules! impl_idx_ {
         $crate::util::impl_idx!($name, $inner);
         impl ::std::fmt::Debug for $name {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-                f.debug_tuple(stringify!($inner))
-                    .field(&self.0.into_raw())
-                    .finish()
+                f.debug_tuple(stringify!($inner)).field(&self.0.into_raw()).finish()
             }
         }
     };
@@ -201,11 +199,7 @@ impl<IDX: IdxWrap, V> std::ops::IndexMut<IDX> for IdxMap<IDX, V> {
 }
 impl<IDX: IdxWrap, V> FromIterator<(IDX, V)> for IdxMap<IDX, V> {
     fn from_iter<T: IntoIterator<Item = (IDX, V)>>(iter: T) -> Self {
-        IdxMap(
-            iter.into_iter()
-                .map(|(idx, v)| (idx.into_idx(), v))
-                .collect(),
-        )
+        IdxMap(iter.into_iter().map(|(idx, v)| (idx.into_idx(), v)).collect())
     }
 }
 
@@ -220,9 +214,7 @@ impl<V: IdxWrap> Default for IdxSet<V> {
 
 impl<V: IdxWrap + fmt::Debug> fmt::Debug for IdxSet<V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_set()
-            .entries(self.0.iter().map(|(k, ())| k))
-            .finish()
+        f.debug_set().entries(self.0.iter().map(|(k, ())| k)).finish()
     }
 }
 

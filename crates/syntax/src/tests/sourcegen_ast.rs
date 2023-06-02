@@ -10,9 +10,8 @@ use super::ast_src::{AstEnumSrc, AstNodeSrc, AstSrc, Cardinality, Field, KindsSr
 
 #[test]
 fn sourcegen_ast() -> color_eyre::Result<()> {
-    let grammar: Grammar = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/mist.ungram"))
-        .parse()
-        .unwrap();
+    let grammar: Grammar =
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/mist.ungram")).parse().unwrap();
 
     let preamble = quote! {
         #![allow(bad_style, missing_docs, unreachable_pub, dead_code, unused)]
@@ -100,11 +99,7 @@ fn generate_syntax_kinds(grammar: KindsSrc) -> String {
         .iter()
         .map(|(token, name)| {
             let name = format_ident!("{}", name);
-            (
-                quote!(#[token(#token)] #name),
-                quote!(#name => #token),
-                name,
-            )
+            (quote!(#[token(#token)] #name), quote!(#name => #token), name)
         })
         .multiunzip();
 
@@ -162,11 +157,7 @@ fn generate_syntax_kinds(grammar: KindsSrc) -> String {
         })
         .collect::<Vec<_>>();
 
-    let nodes = grammar
-        .nodes
-        .iter()
-        .map(|name| format_ident!("{}", name))
-        .collect::<Vec<_>>();
+    let nodes = grammar.nodes.iter().map(|name| format_ident!("{}", name)).collect::<Vec<_>>();
 
     let ast = quote! {
         /// The kind of syntax node, e.g. `IDENT`, `USE_KW`, or `STRUCT`.
@@ -273,13 +264,7 @@ impl Field {
     }
 
     fn is_many(&self) -> bool {
-        matches!(
-            self,
-            Field::Node {
-                cardinality: Cardinality::Many,
-                ..
-            }
-        )
+        matches!(self, Field::Node { cardinality: Cardinality::Many, .. })
     }
 
     fn token_kind(&self) -> Option<proc_macro2::TokenStream> {
@@ -386,11 +371,7 @@ fn generate_nodes(grammar: &AstSrc) -> String {
     });
 
     let enums = grammar.enums.iter().map(|en| {
-        let variants: Vec<_> = en
-            .variants
-            .iter()
-            .map(|var| format_ident!("{}", var))
-            .collect();
+        let variants: Vec<_> = en.variants.iter().map(|var| format_ident!("{}", var)).collect();
         let name = format_ident!("{}", en.name);
         let kinds: Vec<_> = variants
             .iter()
@@ -446,10 +427,8 @@ fn generate_nodes(grammar: &AstSrc) -> String {
     let enum_names = grammar.enums.iter().map(|it| &it.name);
     let node_names = grammar.nodes.iter().map(|it| &it.name);
 
-    let display_impls = enum_names
-        .chain(node_names.clone())
-        .map(|it| format_ident!("{}", it))
-        .map(|name| {
+    let display_impls =
+        enum_names.chain(node_names.clone()).map(|it| format_ident!("{}", it)).map(|name| {
             quote! {
                 impl std::fmt::Display for #name {
                     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -490,11 +469,7 @@ fn lower(grammar: &Grammar) -> AstSrc {
             None => {
                 let mut fields = vec![];
                 lower_rule(&mut fields, grammar, None, rule);
-                res.nodes.push(AstNodeSrc {
-                    name,
-                    traits: Vec::new(),
-                    fields,
-                });
+                res.nodes.push(AstNodeSrc { name, traits: Vec::new(), fields });
             }
         }
     }
@@ -537,11 +512,7 @@ fn extract_enums(ast: &mut AstSrc) {
                 node.remove_field(to_remove);
                 let ty = enm.name.clone();
                 let name = ty.to_snake_case();
-                node.fields.push(Field::Node {
-                    name,
-                    ty,
-                    cardinality: Cardinality::Optional,
-                });
+                node.fields.push(Field::Node { name, ty, cardinality: Cardinality::Optional });
             }
         }
     }
@@ -659,11 +630,7 @@ fn lower_rule(acc: &mut Vec<Field>, grammar: &Grammar, label: Option<&String>, r
         Rule::Node(node) => {
             let ty = grammar[*node].name.clone();
             let name = label.cloned().unwrap_or_else(|| ty.to_snake_case());
-            let field = Field::Node {
-                name,
-                ty,
-                cardinality: Cardinality::Optional,
-            };
+            let field = Field::Node { name, ty, cardinality: Cardinality::Optional };
             acc.push(field);
         }
         Rule::Token(t) => {
@@ -687,11 +654,7 @@ fn lower_rule(acc: &mut Vec<Field>, grammar: &Grammar, label: Option<&String>, r
             if let Rule::Node(node) = &**inner {
                 let ty = grammar[*node].name.clone();
                 let name = label.cloned().unwrap_or_else(|| ty.to_snake_case() + "s");
-                let field = Field::Node {
-                    name,
-                    ty,
-                    cardinality: Cardinality::Many,
-                };
+                let field = Field::Node { name, ty, cardinality: Cardinality::Many };
                 acc.push(field);
                 return;
             }

@@ -206,21 +206,13 @@ impl<'src> Parser<'src> {
             panic!("infinite loop in parser detected");
         }
 
-        self.tokens
-            .iter()
-            .rev()
-            .copied()
-            .find(|&(kind, _, _)| !kind.is_trivia())
+        self.tokens.iter().rev().copied().find(|&(kind, _, _)| !kind.is_trivia())
     }
     fn current(&mut self) -> SyntaxKind {
-        self.current_full_token()
-            .map(|(kind, _, _)| kind)
-            .unwrap_or(SyntaxKind::EOF)
+        self.current_full_token().map(|(kind, _, _)| kind).unwrap_or(SyntaxKind::EOF)
     }
     fn current_span(&mut self) -> SourceSpan {
-        self.current_full_token()
-            .map(|(_, _, span)| span)
-            .unwrap_or(self.pre_whitespace_span)
+        self.current_full_token().map(|(_, _, span)| span).unwrap_or(self.pre_whitespace_span)
     }
     fn at(&mut self, kind: SyntaxKind) -> bool {
         self.current() == kind

@@ -26,14 +26,8 @@ async fn main() -> Result<()> {
                 .with_default_directive(tracing_subscriber::filter::LevelFilter::INFO.into())
                 .from_env_lossy(),
         )
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_target(false)
-                .without_time(),
-        )
-        .with(tracing_subscriber::filter::FilterFn::new(|m| {
-            !m.target().contains("salsa")
-        }))
+        .with(tracing_subscriber::fmt::layer().with_target(false).without_time())
+        .with(tracing_subscriber::filter::FilterFn::new(|m| !m.target().contains("salsa")))
         .init();
 
     cli().await?;
@@ -151,10 +145,7 @@ async fn cli() -> Result<()> {
                 }
             }
         }
-        Cli::Viper {
-            viperserver_jar,
-            file: src_file,
-        } => {
+        Cli::Viper { viperserver_jar, file: src_file } => {
             let db = Database::default();
 
             let src = std::fs::read_to_string(&src_file)
@@ -169,10 +160,8 @@ async fn cli() -> Result<()> {
             let viper_output = ViperOutput::generate(&viper_body, &viper_program);
             let viper_src = &viper_output.buf;
 
-            let temp_mist_dir = tempfile::Builder::new()
-                .prefix(".mist.")
-                .tempdir_in("./")
-                .into_diagnostic()?;
+            let temp_mist_dir =
+                tempfile::Builder::new().prefix(".mist.").tempdir_in("./").into_diagnostic()?;
             let mut viper_file = tempfile::Builder::new()
                 .suffix(".vpr")
                 .tempfile_in(temp_mist_dir.path())
@@ -188,9 +177,7 @@ async fn cli() -> Result<()> {
                 .await
                 .into_diagnostic()?;
 
-            let client = viperserver::client::Client::new(server)
-                .await
-                .into_diagnostic()?;
+            let client = viperserver::client::Client::new(server).await.into_diagnostic()?;
 
             let req = viperserver::client::VerificationRequest::silicon()
                 .detect_z3()

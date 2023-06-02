@@ -10,10 +10,7 @@ pub trait HasAttrs: AstNode {
         let Some(attrs) = self.attrs() else { return Default::default() };
         support::children(&attrs.syntax)
             .flat_map(|a: Attr| {
-                [
-                    a.ghost_token().map(|_| AttrFlags::GHOST),
-                    a.pure_token().map(|_| AttrFlags::PURE),
-                ]
+                [a.ghost_token().map(|_| AttrFlags::GHOST), a.pure_token().map(|_| AttrFlags::PURE)]
             })
             .flatten()
             .reduce(|acc, flag| acc | flag)

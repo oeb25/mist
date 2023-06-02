@@ -68,17 +68,11 @@ impl Direction for Forward {
     ) {
         for &inst in body[bid].instructions() {
             a.instruction_semantic(body, inst, prev);
-            events(
-                mir::BodyLocation::new(bid, mir::BlockLocation::Instruction(inst)),
-                prev,
-            )
+            events(mir::BodyLocation::new(bid, mir::BlockLocation::Instruction(inst)), prev)
         }
         if let Some(term) = body[bid].terminator() {
             a.terminator_semantic(body, term, prev);
-            events(
-                mir::BodyLocation::new(bid, mir::BlockLocation::Terminator),
-                prev,
-            )
+            events(mir::BodyLocation::new(bid, mir::BlockLocation::Terminator), prev)
         }
     }
 
@@ -129,17 +123,11 @@ impl Direction for Backward {
     ) {
         if let Some(term) = body[bid].terminator() {
             a.terminator_semantic(body, term, prev);
-            events(
-                mir::BodyLocation::new(bid, mir::BlockLocation::Terminator),
-                prev,
-            )
+            events(mir::BodyLocation::new(bid, mir::BlockLocation::Terminator), prev)
         }
         for &inst in body[bid].instructions().iter().rev() {
             a.instruction_semantic(body, inst, prev);
-            events(
-                mir::BodyLocation::new(bid, mir::BlockLocation::Instruction(inst)),
-                prev,
-            )
+            events(mir::BodyLocation::new(bid, mir::BlockLocation::Instruction(inst)), prev)
         }
     }
 
@@ -277,10 +265,7 @@ pub fn mono_analysis<A: MonotoneFramework, W: Worklist>(
         }
     }
 
-    AnalysisResults {
-        facts,
-        semantic_calls: calls,
-    }
+    AnalysisResults { facts, semantic_calls: calls }
 }
 
 impl<A> AnalysisResults<A>
@@ -399,13 +384,15 @@ where
     }
 
     fn contains(&self, ctx: &Ctx, other: &Self) -> bool {
-        other.iter().all(|(k, a)| {
-            if let Some(b) = self.get(k) {
-                b.contains(ctx, a)
-            } else {
-                false
-            }
-        })
+        other.iter().all(
+            |(k, a)| {
+                if let Some(b) = self.get(k) {
+                    b.contains(ctx, a)
+                } else {
+                    false
+                }
+            },
+        )
     }
 }
 
@@ -448,13 +435,15 @@ where
     }
 
     fn contains(&self, ctx: &Ctx, other: &Self) -> bool {
-        other.iter().all(|(k, a)| {
-            if let Some(b) = self.get(k) {
-                b.contains(ctx, a)
-            } else {
-                false
-            }
-        })
+        other.iter().all(
+            |(k, a)| {
+                if let Some(b) = self.get(k) {
+                    b.contains(ctx, a)
+                } else {
+                    false
+                }
+            },
+        )
     }
 }
 

@@ -16,10 +16,7 @@ impl<'a, T: std::fmt::Debug> std::fmt::Debug for TypePtr<'a, T> {
 
 impl<'a, T> Clone for TypePtr<'a, T> {
     fn clone(&self) -> Self {
-        Self {
-            id: self.id,
-            table: self.table,
-        }
+        Self { id: self.id, table: self.table }
     }
 }
 impl<'a, T> Copy for TypePtr<'a, T> {}

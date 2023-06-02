@@ -62,20 +62,14 @@ impl<'a> Visitor for HoverFinder<'a> {
                         pretty::ty(&*vcx.cx, self.db, false, vcx.cx[vcx.cx.struct_ty(s)].ty);
                     let ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx.field_ty_ptr(field).id());
                     break_code(
-                        [
-                            format!("struct {struct_ty}"),
-                            format!("{}: {ty}", field.name(self.db)),
-                        ],
+                        [format!("struct {struct_ty}"), format!("{}: {ty}", field.name(self.db))],
                         Some(reference.span()),
                     )
                 }
                 Field::List(list_ty, ListField::Len) => {
                     let list_ty = pretty::ty(&*vcx.cx, self.db, false, list_ty);
                     let ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx.field_ty_ptr(field).id());
-                    break_code(
-                        [format!("{list_ty}"), format!("len: {ty}")],
-                        Some(reference.span()),
-                    )
+                    break_code([format!("{list_ty}"), format!("len: {ty}")], Some(reference.span()))
                 }
                 Field::Undefined => break_code(["?undefined".to_string()], Some(reference.span())),
             }
@@ -162,8 +156,5 @@ fn break_code<const N: usize>(
     code: [String; N],
     span: Option<SourceSpan>,
 ) -> ControlFlow<Option<HoverResult>> {
-    ControlFlow::Break(Some(HoverResult::new(
-        code.map(HoverElement::Code).to_vec(),
-        span,
-    )))
+    ControlFlow::Break(Some(HoverResult::new(code.map(HoverElement::Code).to_vec(), span)))
 }

@@ -97,20 +97,15 @@ impl Function {
         &self,
         db: &dyn crate::Db,
     ) -> impl Iterator<Item = Param<ast::Name, Option<ast::Type>>> + '_ {
-        self.ast_node(db)
-            .param_list()
-            .into_iter()
-            .flat_map(|param_list| {
-                param_list
-                    .params()
-                    .map(|param| -> Param<ast::Name, Option<ast::Type>> {
-                        Param {
-                            is_ghost: param.is_ghost(),
-                            name: param.name().expect("param did not have a name"),
-                            ty: param.ty(),
-                        }
-                    })
+        self.ast_node(db).param_list().into_iter().flat_map(|param_list| {
+            param_list.params().map(|param| -> Param<ast::Name, Option<ast::Type>> {
+                Param {
+                    is_ghost: param.is_ghost(),
+                    name: param.name().expect("param did not have a name"),
+                    ty: param.ty(),
+                }
             })
+        })
     }
 }
 

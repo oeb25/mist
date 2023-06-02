@@ -34,17 +34,15 @@ pub fn file_definitions(db: &dyn crate::Db, file: SourceFile) -> Vec<Def> {
         .tree()
         .items()
         .filter_map(|item| match item {
-            ast::Item::Fn(node) => Some(DefKind::from(Function::new(
-                db,
-                ast_map.ast_id(file, &node),
-            ))),
+            ast::Item::Fn(node) => {
+                Some(DefKind::from(Function::new(db, ast_map.ast_id(file, &node))))
+            }
             ast::Item::Struct(node) => {
                 Some(DefKind::from(Struct::new(db, ast_map.ast_id(file, &node))))
             }
-            ast::Item::TypeInvariant(node) => Some(DefKind::from(TypeInvariant::new(
-                db,
-                ast_map.ast_id(file, &node),
-            ))),
+            ast::Item::TypeInvariant(node) => {
+                Some(DefKind::from(TypeInvariant::new(db, ast_map.ast_id(file, &node))))
+            }
             ast::Item::Const(_) | ast::Item::Macro(_) => None,
         })
         .map(|kind| Def::new(db, kind))
@@ -62,12 +60,7 @@ pub struct DefinitionHir {
 
 #[salsa::tracked]
 pub(crate) fn lower_def(db: &dyn crate::Db, def: Def) -> Option<DefinitionHir> {
-    let span = tracing::span!(
-        tracing::Level::DEBUG,
-        "hir::item_lower",
-        "{}",
-        def.display(db)
-    );
+    let span = tracing::span!(tracing::Level::DEBUG, "hir::item_lower", "{}", def.display(db));
     let _enter = span.enter();
 
     match def.kind(db) {

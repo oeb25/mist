@@ -16,10 +16,7 @@ impl TypeTable {
         field_types: impl IntoIterator<Item = (Field, TypeId)>,
     ) -> Self {
         Self {
-            type_data: type_data
-                .into_iter()
-                .map(|(ty, td)| (ty.data_idx(), td))
-                .collect(),
+            type_data: type_data.into_iter().map(|(ty, td)| (ty.data_idx(), td)).collect(),
             field_types: field_types.into_iter().collect(),
         }
     }

@@ -13,9 +13,8 @@ fn sourcegen_wasm() -> Result<()> {
     miette::set_panic_hook();
 
     let grammar_src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/wasm/wasm.ungram"));
-    let grammar: Grammar = grammar_src
-        .parse()
-        .map_err(|err| ungrammar_to_miette(grammar_src, err))?;
+    let grammar: Grammar =
+        grammar_src.parse().map_err(|err| ungrammar_to_miette(grammar_src, err))?;
 
     let adts = generate_adts(&grammar);
 
@@ -36,10 +35,7 @@ fn sourcegen_wasm() -> Result<()> {
 }
 
 fn generate_adts(grammar: &Grammar) -> String {
-    grammar
-        .iter()
-        .map(|node| generate_adt(grammar, node))
-        .join("\n\n")
+    grammar.iter().map(|node| generate_adt(grammar, node)).join("\n\n")
 }
 fn generate_adt(grammar: &Grammar, node: Node) -> TokenStream {
     let name = format_ident!("{}", grammar[node].name);
@@ -200,10 +196,9 @@ fn generate_adt_inner(grammar: &Grammar, rule: &Rule) -> Option<(TokenStream, Op
             Internal::ValType => Some((quote!(()), Some(format_ident!("val_type")))),
             Internal::Instr => Some((quote!(Instr), Some(format_ident!("instr")))),
         },
-        IRule::Rule(Rule::Labeled { label, rule }) => Some((
-            generate_adt_inner(grammar, rule)?.0,
-            Some(format_ident!("{label}")),
-        )),
+        IRule::Rule(Rule::Labeled { label, rule }) => {
+            Some((generate_adt_inner(grammar, rule)?.0, Some(format_ident!("{label}"))))
+        }
         IRule::Rule(Rule::Node(n)) => {
             let raw_name = &grammar[*n].name;
             let name = format_ident!("{}", raw_name);
@@ -212,9 +207,7 @@ fn generate_adt_inner(grammar: &Grammar, rule: &Rule) -> Option<(TokenStream, Op
         }
         IRule::Rule(Rule::Token(_)) => None,
         IRule::Rule(Rule::Seq(xs)) => {
-            let xs = xs
-                .iter()
-                .filter_map(|x| Some(generate_adt_inner(grammar, x)?.0));
+            let xs = xs.iter().filter_map(|x| Some(generate_adt_inner(grammar, x)?.0));
             Some((quote!((#(#xs),*)), None))
         }
         IRule::Rule(Rule::Alt(_)) => todo!(),

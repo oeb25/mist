@@ -85,10 +85,7 @@ impl<'a> TryFrom<&'a str> for FoldingTree<&'a str> {
 
         impl<'a> Tokenizer<'a> {
             fn new(src: &str) -> Tokenizer {
-                Tokenizer {
-                    src,
-                    chars: src.char_indices(),
-                }
+                Tokenizer { src, chars: src.char_indices() }
             }
         }
 
@@ -168,10 +165,7 @@ pub enum EventKind {
 
 impl<E> FoldingTree<E> {
     pub fn folded() -> FoldingTree<E> {
-        FoldingTree {
-            nodes: vec![Folding::Folded],
-            children: vec![IndexMap::default()],
-        }
+        FoldingTree { nodes: vec![Folding::Folded], children: vec![IndexMap::default()] }
     }
 
     pub fn require(
@@ -228,10 +222,7 @@ impl<E> FoldingTree<E> {
             if self.nodes[idx].is_folded() {
                 continue;
             }
-            if self.children[idx]
-                .iter()
-                .all(|(_, &child_idx)| self.nodes[child_idx].is_folded())
-            {
+            if self.children[idx].iter().all(|(_, &child_idx)| self.nodes[child_idx].is_folded()) {
                 self.nodes[idx] = Folded;
                 events(EventKind::Fold, &current_path);
                 continue;
@@ -583,10 +574,7 @@ impl<E> Eq for FoldingTree<E> where E: PartialEq + Eq + Hash {}
 
 impl<E> Default for FoldingTree<E> {
     fn default() -> Self {
-        Self {
-            nodes: vec![Folding::Uninitialized],
-            children: vec![IndexMap::default()],
-        }
+        Self { nodes: vec![Folding::Uninitialized], children: vec![IndexMap::default()] }
     }
 }
 
@@ -611,10 +599,7 @@ mod tests {
         eprintln!("{t}");
         assert_eq!(
             foldings,
-            expect
-                .iter()
-                .map(|(kind, path)| (*kind, path.to_vec()))
-                .collect::<Vec<_>>()
+            expect.iter().map(|(kind, path)| (*kind, path.to_vec())).collect::<Vec<_>>()
         );
         eprintln!("\n");
     }

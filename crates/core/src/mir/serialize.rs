@@ -35,9 +35,7 @@ impl Body {
         color: Color,
         f: Box<dyn Fn(BodyLocation) -> Option<String>>,
     ) -> String {
-        Serializer::new(color, self)
-            .with_annotator(f)
-            .finish(db, cx)
+        Serializer::new(color, self).with_annotator(f).finish(db, cx)
     }
     pub fn serialize(&self, db: &dyn crate::Db, cx: Option<&ItemContext>, color: Color) -> String {
         Serializer::new(color, self).finish(db, cx)
@@ -135,13 +133,7 @@ macro_rules! wln {
 
 impl Serializer<'_> {
     fn finish(mut self, db: &dyn crate::Db, cx: Option<&ItemContext>) -> String {
-        for bid in self
-            .body
-            .blocks
-            .iter()
-            .map(|(id, _)| id)
-            .collect::<Vec<_>>()
-        {
+        for bid in self.body.blocks.iter().map(|(id, _)| id).collect::<Vec<_>>() {
             self.block(db, cx, bid);
         }
 
@@ -379,12 +371,7 @@ impl Serializer<'_> {
                 self.block_id(Some(switch.otherwise));
                 wln!(self, Default, " }}");
             }
-            Terminator::Call {
-                func,
-                args,
-                destination,
-                target,
-            } => {
+            Terminator::Call { func, args, destination, target } => {
                 w!(self, Yellow, "!call ");
 
                 self.place(db, cx, *destination);
@@ -406,11 +393,7 @@ impl Serializer<'_> {
 
     fn with_color(self, color: Color) -> Self {
         if color == Color::Yes {
-            Self {
-                color,
-                indentation: 10,
-                ..self
-            }
+            Self { color, indentation: 10, ..self }
         } else {
             Self { color, ..self }
         }

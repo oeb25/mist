@@ -33,24 +33,14 @@ pub(super) fn check_opt(
     if let Some(expr) = expr {
         check(tc, expr)
     } else {
-        tc.expr_error(
-            fallback_span.span(),
-            None,
-            None,
-            TypeCheckErrorKind::MissingExpression,
-        )
+        tc.expr_error(fallback_span.span(), None, None, TypeCheckErrorKind::MissingExpression)
     }
 }
 pub(super) fn check_inner(tc: &mut TypeChecker, expr: &impl HasExpr) -> ExprIdx {
     if let Some(expr) = expr.expr() {
         check(tc, expr)
     } else {
-        tc.expr_error(
-            expr.span(),
-            None,
-            None,
-            TypeCheckErrorKind::MissingExpression,
-        )
+        tc.expr_error(expr.span(), None, None, TypeCheckErrorKind::MissingExpression)
     }
 }
 pub(super) fn check_lhs(tc: &mut TypeChecker, expr: ast::Expr) -> ExprIdx {
@@ -58,14 +48,12 @@ pub(super) fn check_lhs(tc: &mut TypeChecker, expr: ast::Expr) -> ExprIdx {
         ast::Expr::IndexExpr(_)
         | ast::Expr::NotNullExpr(_)
         | ast::Expr::FieldExpr(_)
-        | ast::Expr::IdentExpr(_) => check_impl(tc, expr.clone())
-            .map_right(|new| tc.alloc_expr(new, &expr))
-            .either_into(),
+        | ast::Expr::IdentExpr(_) => {
+            check_impl(tc, expr.clone()).map_right(|new| tc.alloc_expr(new, &expr)).either_into()
+        }
         ast::Expr::ParenExpr(it) => {
             if let Some(inner) = it.expr() {
-                check_impl(tc, inner)
-                    .map_right(|new| tc.alloc_expr(new, &expr))
-                    .either_into()
+                check_impl(tc, inner).map_right(|new| tc.alloc_expr(new, &expr)).either_into()
             } else {
                 tc.expr_error(&expr, None, None, TypeCheckErrorKind::MissingLhs)
             }
@@ -86,12 +74,7 @@ pub(super) fn check_lhs(tc: &mut TypeChecker, expr: ast::Expr) -> ExprIdx {
         | ast::Expr::NullExpr(_)
         | ast::Expr::ResultExpr(_)
         | ast::Expr::QuantifierExpr(_) => {
-            tc.ty_error(
-                expr.span(),
-                None,
-                None,
-                TypeCheckErrorKind::InvalidLhsOfAssignment,
-            );
+            tc.ty_error(expr.span(), None, None, TypeCheckErrorKind::InvalidLhsOfAssignment);
             check(tc, expr)
         }
     }
@@ -100,10 +83,7 @@ pub(super) fn check(tc: &mut TypeChecker, expr: ast::Expr) -> ExprIdx {
     check_impl(tc, expr.clone())
         .map_right(|new| {
             let new = if tc.scope.is_ghost() {
-                Expr {
-                    ty: new.ty.ghosted(tc),
-                    data: new.data,
-                }
+                Expr { ty: new.ty.ghosted(tc), data: new.data }
             } else {
                 new
             };
@@ -123,11 +103,8 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
         ast::Expr::IfExpr(it) => return Left(check_if_expr(tc, it.clone())),
         ast::Expr::WhileExpr(_) => todo!(),
         ast::Expr::PrefixExpr(it) => {
-            let (_op_token, op) = if let Some(op) = it.op_details() {
-                op
-            } else {
-                todo!("{it:#?}")
-            };
+            let (_op_token, op) =
+                if let Some(op) = it.op_details() { op } else { todo!("{it:#?}") };
             let inner = check_inner(tc, it);
             let inner_span = tc.expr_span(inner);
             let inner_ty = tc.expr_ty(inner);
@@ -192,17 +169,10 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 let rhs_ty = tc.expr_ty(rhs).strip_ghost(tc);
                 tc.expect_ty(span, lhs_ty, rhs_ty);
 
-                return Left(
-                    tc.alloc_expr(
-                        ExprData::Bin {
-                            lhs,
-                            op: BinaryOp::Assignment,
-                            rhs,
-                        }
-                        .typed(void()),
-                        &expr,
-                    ),
-                );
+                return Left(tc.alloc_expr(
+                    ExprData::Bin { lhs, op: BinaryOp::Assignment, rhs }.typed(void()),
+                    &expr,
+                ));
             }
 
             let lhs = check_opt(tc, it, it.lhs());
@@ -267,21 +237,12 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
         }
         ast::Expr::CallExpr(it) => {
             let fn_expr = check_inner(tc, it);
-            let args: Vec<_> = it
-                .arg_list()
-                .unwrap()
-                .args()
-                .map(|arg| check_inner(tc, &arg))
-                .collect();
+            let args: Vec<_> =
+                it.arg_list().unwrap().args().map(|arg| check_inner(tc, &arg)).collect();
 
             let fn_ty = tc.expr_ty(fn_expr).strip_ghost(tc);
             match tc.ty_kind(fn_ty) {
-                TDK::Function {
-                    attrs,
-                    name: _,
-                    params,
-                    return_ty,
-                } => {
+                TDK::Function { attrs, name: _, params, return_ty } => {
                     let mut ghostify_pure = false;
 
                     if tc.scope.is_ghost() {
@@ -297,36 +258,24 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                     if args.len() != params.len() {
                         type_error(
                             tc,
-                            it.expr()
-                                .as_ref()
-                                .map(|e| e.span())
-                                .unwrap_or_else(|| it.span()),
+                            it.expr().as_ref().map(|e| e.span()).unwrap_or_else(|| it.span()),
                             TypeCheckErrorKind::NotYetImplemented(
                                 "argument count mismatch".to_string(),
                             ),
                         );
                     }
-                    for (a, b) in args.iter().zip(
-                        params
-                            .iter()
-                            .map(|p| p.ty.with_ghost(tc, p.is_ghost))
-                            .collect_vec(),
-                    ) {
+                    for (a, b) in args
+                        .iter()
+                        .zip(params.iter().map(|p| p.ty.with_ghost(tc, p.is_ghost)).collect_vec())
+                    {
                         let expected = b.with_ghost(tc, ghostify_pure);
                         tc.expect_ty(tc.expr_span(*a), expected, tc.expr_ty(*a));
                     }
 
-                    ExprData::Call {
-                        expr: fn_expr,
-                        args,
-                    }
-                    .typed(return_ty.with_ghost(tc, ghostify_pure))
+                    ExprData::Call { expr: fn_expr, args }
+                        .typed(return_ty.with_ghost(tc, ghostify_pure))
                 }
-                TDK::Error => ExprData::Call {
-                    expr: fn_expr,
-                    args,
-                }
-                .typed(error()),
+                TDK::Error => ExprData::Call { expr: fn_expr, args }.typed(error()),
                 t => todo!("`{t:?}` is not a function"),
             }
         }
@@ -423,8 +372,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 let inner_ty_no_ghost = ty.strip_ghost(tc);
 
                 ExprData::List { elems }.typed(
-                    tc.ty_id(TDK::List(inner_ty_no_ghost).into())
-                        .with_ghost(tc, ty.is_ghost(tc)),
+                    tc.ty_id(TDK::List(inner_ty_no_ghost).into()).with_ghost(tc, ty.is_ghost(tc)),
                 )
             } else {
                 let elem_ty = tc.new_free();
@@ -446,9 +394,8 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 TDK::Error => (None, error()),
                 TDK::Ref { is_mut, inner } => match tc.ty_kind(inner) {
                     TDK::Struct(s) => {
-                        if let Some(field) = tc
-                            .struct_fields(s)
-                            .find(|f| f.name(tc.db).as_str() == field.as_str())
+                        if let Some(field) =
+                            tc.struct_fields(s).find(|f| f.name(tc.db).as_str() == field.as_str())
                         {
                             (
                                 Some(field.into()),
@@ -480,10 +427,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 },
                 TDK::Struct(s) => {
                     if let Some(field) = tc.struct_fields(s).find(|f| f.name(tc.db) == field) {
-                        (
-                            Some(field.into()),
-                            tc.expect_find_type(&field.ast_node(tc.db).ty()),
-                        )
+                        (Some(field.into()), tc.expect_find_type(&field.ast_node(tc.db).ty()))
                     } else {
                         tc.ty_error(
                             &field_ast,
@@ -529,12 +473,8 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
 
             let field_ty = field_ty.with_ghost(tc, expr_ty.is_ghost(tc));
 
-            ExprData::Field {
-                expr,
-                field_name: field,
-                field: sf.unwrap_or(Field::Undefined),
-            }
-            .typed(field_ty)
+            ExprData::Field { expr, field_name: field, field: sf.unwrap_or(Field::Undefined) }
+                .typed(field_ty)
         }
         ast::Expr::NotNullExpr(it) => {
             let inner = check_inner(tc, it);
@@ -558,11 +498,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             ExprData::NotNull(inner).typed(ty)
         }
         ast::Expr::StructExpr(it) => {
-            let name_ref = if let Some(name_ref) = it.name_ref() {
-                name_ref
-            } else {
-                todo!()
-            };
+            let name_ref = if let Some(name_ref) = it.name_ref() { name_ref } else { todo!() };
             let struct_ty = tc.find_named_type(&name_ref, (&name_ref).into());
 
             let s = match tc.ty_kind(struct_ty) {
@@ -576,9 +512,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                     return Left(expr_error(
                         tc,
                         name_ref.span(),
-                        TypeCheckErrorKind::UnknownStruct {
-                            name: name_ref.into(),
-                        },
+                        TypeCheckErrorKind::UnknownStruct { name: name_ref.into() },
                     ));
                 }
             };
@@ -639,11 +573,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             ExprData::Ref { is_mut, expr }.typed(ty)
         }
         ast::Expr::IdentExpr(it) => {
-            let name = if let Some(name) = it.name_ref() {
-                name
-            } else {
-                todo!()
-            };
+            let name = if let Some(name) = it.name_ref() { name } else { todo!() };
 
             if name.self_token().is_some() {
                 let ty = if let Some(self_ty) = tc.self_ty() {
@@ -695,11 +625,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 .into_iter()
                 .flat_map(|pl| pl.params())
                 .map(|p| {
-                    let name = if let Some(name) = p.name() {
-                        name
-                    } else {
-                        todo!()
-                    };
+                    let name = if let Some(name) = p.name() { name } else { todo!() };
                     let ty = if let Some(ty) = p.ty() {
                         tc.find_type_src(&ty)
                     } else {
@@ -714,23 +640,14 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                     } else {
                         tc.declare_variable(var_decl, ty, name.span())
                     };
-                    Param {
-                        is_ghost: true,
-                        name,
-                        ty,
-                    }
+                    Param { is_ghost: true, name, ty }
                 })
                 .collect();
 
             let expr = check_inner(tc, it);
             tc.pop_scope();
 
-            ExprData::Quantifier {
-                quantifier,
-                params,
-                expr,
-            }
-            .typed(bool())
+            ExprData::Quantifier { quantifier, params, expr }.typed(bool())
         }
     })
 }
@@ -742,37 +659,23 @@ fn check_if_expr(tc: &mut TypeChecker, if_expr: ast::IfExpr) -> ExprIdx {
     let is_ghost = condition_ty.is_ghost(tc);
     if is_ghost {
         tc.expect_ty(
-            if_expr
-                .condition()
-                .map(|e| e.span())
-                .unwrap_or_else(|| if_expr.span()),
+            if_expr.condition().map(|e| e.span()).unwrap_or_else(|| if_expr.span()),
             ghost_bool(),
             condition_ty,
         );
     } else {
         tc.expect_ty(
-            if_expr
-                .condition()
-                .map(|e| e.span())
-                .unwrap_or_else(|| if_expr.span()),
+            if_expr.condition().map(|e| e.span()).unwrap_or_else(|| if_expr.span()),
             bool(),
             condition_ty,
         );
     }
 
     let (then_branch, then_ty) = if let Some(then_branch) = if_expr.then_branch() {
-        let block = tc.check_block(&then_branch, |f| {
-            if is_ghost {
-                f | ScopeFlags::GHOST
-            } else {
-                f
-            }
-        });
+        let block =
+            tc.check_block(&then_branch, |f| if is_ghost { f | ScopeFlags::GHOST } else { f });
         let ty = block.return_ty;
-        (
-            tc.alloc_expr(Expr::new_block(block), then_branch.span()),
-            ty,
-        )
+        (tc.alloc_expr(Expr::new_block(block), then_branch.span()), ty)
     } else {
         return expr_error(
             tc,

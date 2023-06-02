@@ -32,12 +32,7 @@ struct FunctionLowerer<'a> {
 
 impl<'a> FunctionLowerer<'a> {
     fn new(db: &'a dyn crate::Db, cx: &'a hir::ItemContext, body: &'a mir::Body) -> Self {
-        Self {
-            db,
-            cx,
-            body,
-            slots_stack_offsets: Default::default(),
-        }
+        Self { db, cx, body, slots_stack_offsets: Default::default() }
     }
 
     fn allocate_slots<T: From<wasm::ValType>>(
@@ -58,9 +53,7 @@ impl<'a> FunctionLowerer<'a> {
         let (layout, _) = s.fields(self.db).fold(
             (StructLayout::default(), 0),
             |(mut layout, current_offset), f| {
-                layout
-                    .field_offsets
-                    .push((layout.types.len(), current_offset));
+                layout.field_offsets.push((layout.types.len(), current_offset));
                 let next = self.compute_ty_layout(self.body.field_ty_ptr(f.into()));
                 let size: u32 = next.iter().map(|ty| ty.num_bytes()).sum();
                 let next_offset = current_offset + size;
@@ -99,19 +92,9 @@ impl<'a> FunctionLowerer<'a> {
         let results = self.allocate_slots(params.len(), self.body.result_slot().into_iter());
         let locals = self.allocate_slots(params.len() + results.len(), self.body.locals());
 
-        let type_use = wasm::TypeUse {
-            type_idx: wasm::TypeIdx::Idx(0),
-            params,
-            results,
-        };
+        let type_use = wasm::TypeUse { type_idx: wasm::TypeIdx::Idx(0), params, results };
         let instrs = vec![];
-        wasm::Func {
-            id: None,
-            func_export: None,
-            type_use,
-            locals,
-            instrs,
-        }
+        wasm::Func { id: None, func_export: None, type_use, locals, instrs }
     }
 }
 

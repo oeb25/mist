@@ -25,11 +25,7 @@ pub fn params(
     let params = params
         .into_iter()
         .map(|param| {
-            format!(
-                "{}: {}",
-                param.name,
-                pp_ty(pp, db, strip_ghost, pp.resolve_src_ty(param.ty))
-            )
+            format!("{}: {}", param.name, pp_ty(pp, db, strip_ghost, pp.resolve_src_ty(param.ty)))
         })
         .format(", ");
     format!("({params})")
@@ -42,11 +38,7 @@ pub fn ty(pp: &impl PrettyPrint, db: &dyn crate::Db, strip_ghost: bool, ty: Type
         TDK::Void => "void".to_string(),
         TDK::Free => "free".to_string(),
         TDK::Ref { is_mut, inner } => {
-            format!(
-                "&{}{}",
-                if is_mut { "mut " } else { "" },
-                pp_ty(pp, db, false, inner)
-            )
+            format!("&{}{}", if is_mut { "mut " } else { "" }, pp_ty(pp, db, false, inner))
         }
         TDK::Range(inner) => format!("range {}", pp_ty(pp, db, false, inner)),
         TDK::List(inner) => format!("[{}]", pp_ty(pp, db, false, inner)),
@@ -54,22 +46,14 @@ pub fn ty(pp: &impl PrettyPrint, db: &dyn crate::Db, strip_ghost: bool, ty: Type
         TDK::Primitive(t) => format!("{t:?}").to_lowercase(),
         TDK::Struct(s) => s.name(db).to_string(),
         TDK::Null => "null".to_string(),
-        TDK::Function {
-            attrs,
-            name,
-            params,
-            return_ty,
-        } => {
+        TDK::Function { attrs, name, params, return_ty } => {
             let is_ghost = attrs.is_ghost();
 
             let mut attrs = attrs.to_string();
             if !attrs.is_empty() {
                 attrs.push(' ');
             }
-            let name = name
-                .as_ref()
-                .map(|name| format!(" {name}"))
-                .unwrap_or_default();
+            let name = name.as_ref().map(|name| format!(" {name}")).unwrap_or_default();
             let params = pp_params(pp, db, is_ghost, params);
             let ret = if let TDK::Void = pp.resolve_ty(return_ty).kind {
                 String::new()
@@ -96,14 +80,10 @@ pub fn expr(pp: &impl PrettyPrint, db: &dyn crate::Db, expr: ExprIdx) -> String 
         },
         ExprData::Self_ => "self".to_string(),
         ExprData::Ident(i) => pp.resolve_var(i.idx()).to_string(),
-        ExprData::Field {
-            expr, field_name, ..
-        } => format!("{}.{field_name}", pp_expr(pp, db, *expr)),
-        ExprData::Struct {
-            struct_declaration,
-            fields,
-            ..
-        } => format!(
+        ExprData::Field { expr, field_name, .. } => {
+            format!("{}.{field_name}", pp_expr(pp, db, *expr))
+        }
+        ExprData::Struct { struct_declaration, fields, .. } => format!(
             "{} {{ {} }}",
             struct_declaration.name(db),
             fields
@@ -138,30 +118,19 @@ pub fn expr(pp: &impl PrettyPrint, db: &dyn crate::Db, expr: ExprIdx) -> String 
         &ExprData::Index { base, index } => {
             format!("{}[{}]", pp_expr(pp, db, base), pp_expr(pp, db, index))
         }
-        ExprData::List { elems } => format!(
-            "[{}]",
-            elems.iter().map(|e| pp_expr(pp, db, *e)).format(", ")
-        ),
-        ExprData::Ref { is_mut, expr } => {
-            format!(
-                "&{}{}",
-                if *is_mut { "mut" } else { "" },
-                pp_expr(pp, db, *expr)
-            )
+        ExprData::List { elems } => {
+            format!("[{}]", elems.iter().map(|e| pp_expr(pp, db, *e)).format(", "))
         }
-        ExprData::Quantifier {
-            quantifier,
-            params,
-            expr,
-        } => format!(
+        ExprData::Ref { is_mut, expr } => {
+            format!("&{}{}", if *is_mut { "mut" } else { "" }, pp_expr(pp, db, *expr))
+        }
+        ExprData::Quantifier { quantifier, params, expr } => format!(
             "{quantifier}{} {{ {} }}",
             pp_params(
                 pp,
                 db,
                 true,
-                params
-                    .iter()
-                    .map(|param| param.map_var(|var| pp.resolve_var(*var)))
+                params.iter().map(|param| param.map_var(|var| pp.resolve_var(*var)))
             ),
             pp_expr(pp, db, *expr)
         ),

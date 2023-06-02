@@ -20,10 +20,7 @@ pub trait TypeProvider: Sized {
         self.ty_data(ty).map(|id| id.wrap(self))
     }
     fn ty_ptr(&self, ty: TypeId) -> TypePtr<Self> {
-        TypePtr {
-            id: ty,
-            table: self,
-        }
+        TypePtr { id: ty, table: self }
     }
     fn ty_kind(&self, ty: TypeId) -> TDK<TypeId> {
         self.ty_data(ty).kind

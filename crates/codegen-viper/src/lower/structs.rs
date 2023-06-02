@@ -31,29 +31,22 @@ impl BodyLower<'_> {
             .map(|f| {
                 let field_ty = self.body.field_ty_ptr(f.into());
                 let ty = self.lower_type(field_ty)?;
-                let viper_field = Field {
-                    name: mangle::mangled_field(self.db, f),
-                    typ: ty.vty,
-                };
+                let viper_field = Field { name: mangle::mangled_field(self.db, f), typ: ty.vty };
                 viper_items.push(ViperItem::Field(viper_field.clone()));
                 let perm = self.alloc(source, PermExp::Full);
                 let field_access = FieldAccess::new(self_, viper_field);
                 let field_perm = self.alloc(source, field_access.clone().access_perm(perm));
 
                 let field_ref = self.alloc(source, field_access.access_exp());
-                Ok(
-                    if let (Some(cond), _) = self.ty_to_condition(source, field_ref, field_ty)? {
-                        self.alloc(source, Exp::bin(field_perm, BinOp::And, cond))
-                    } else {
-                        field_perm
-                    },
-                )
+                Ok(if let (Some(cond), _) = self.ty_to_condition(source, field_ref, field_ty)? {
+                    self.alloc(source, Exp::bin(field_perm, BinOp::And, cond))
+                } else {
+                    field_perm
+                })
             })
             .collect::<Result<Vec<_>>>()?;
-        let inv_invs: Vec<_> = invariants
-            .into_iter()
-            .map(|inv| self.pure_lower(inv))
-            .collect::<Result<_>>()?;
+        let inv_invs: Vec<_> =
+            invariants.into_iter().map(|inv| self.pure_lower(inv)).collect::<Result<_>>()?;
         let body = field_invs
             .into_iter()
             .chain(inv_invs)

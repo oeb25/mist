@@ -26,9 +26,7 @@ impl BodyLower<'_> {
 
     fn final_block(&mut self, bid: mir::BlockId) -> Result<Seqn<VExprId>> {
         let mut result = self.block(bid, vec![], None)?;
-        result
-            .ss
-            .push(Stmt::Label(Label::new("end".to_string(), vec![])));
+        result.ss.push(Stmt::Label(Label::new("end".to_string(), vec![])));
 
         for x in self.body.locals() {
             let var = self.slot_to_decl(x)?;
@@ -68,9 +66,7 @@ impl BodyLower<'_> {
         match self.body[block].terminator() {
             Some(t) => match t {
                 mir::Terminator::Return => {
-                    insts.push(Stmt::Goto {
-                        target: "end".to_string(),
-                    });
+                    insts.push(Stmt::Goto { target: "end".to_string() });
                     Ok(Seqn::new(insts, vec![]))
                 }
                 &mir::Terminator::Goto(b) => {
@@ -110,11 +106,8 @@ impl BodyLower<'_> {
                             _ => todo!(), // Exp::new_bin(BinOp::EqCmp, test, value)
                         };
 
-                        let cond = if let Some(&cond) = self.inlined.get(cond) {
-                            cond
-                        } else {
-                            cond
-                        };
+                        let cond =
+                            if let Some(&cond) = self.inlined.get(cond) { cond } else { cond };
 
                         let liveness = mir::analysis::liveness::Liveness::compute(self.body);
 
@@ -175,12 +168,7 @@ impl BodyLower<'_> {
                         }
                     }
                 }
-                mir::Terminator::Call {
-                    func,
-                    args,
-                    destination,
-                    target,
-                } => {
+                mir::Terminator::Call { func, args, destination, target } => {
                     let var = self.place_for_assignment(*destination)?;
                     let f = self.function(block, *func, args)?;
                     let voided = self.body.place_ty(*destination).is_void();
@@ -207,10 +195,7 @@ impl BodyLower<'_> {
                             if voided {
                                 insts.push(Stmt::Expression(f_application));
                             } else {
-                                insts.push(Stmt::LocalVarAssign {
-                                    lhs: var,
-                                    rhs: f_application,
-                                })
+                                insts.push(Stmt::LocalVarAssign { lhs: var, rhs: f_application })
                             }
                         }
                     }
@@ -266,28 +251,14 @@ impl BodyLower<'_> {
                     [mir::Projection::Index(index, _)] => {
                         let idx = self.place_to_ref(inst, index.into())?;
                         let seq = self.place_to_ref(inst, s.parent(self.body).unwrap())?;
-                        let new_rhs = self.alloc(
-                            inst,
-                            SeqExp::Update {
-                                s: seq,
-                                idx,
-                                elem: rhs,
-                            },
-                        );
+                        let new_rhs = self.alloc(inst, SeqExp::Update { s: seq, idx, elem: rhs });
                         let lhs = self.place_for_assignment(s.without_projection())?;
                         insts.push(Stmt::LocalVarAssign { lhs, rhs: new_rhs })
                     }
                     [mir::Projection::Field(f, ty), mir::Projection::Index(index, _)] => {
                         let idx = self.place_to_ref(inst, index.into())?;
                         let seq = self.place_to_ref(inst, s.parent(self.body).unwrap())?;
-                        let new_rhs = self.alloc(
-                            inst,
-                            SeqExp::Update {
-                                s: seq,
-                                idx,
-                                elem: rhs,
-                            },
-                        );
+                        let new_rhs = self.alloc(inst, SeqExp::Update { s: seq, idx, elem: rhs });
                         match f {
                             Field::StructField(sf) => {
                                 let lhs = FieldAccess::new(

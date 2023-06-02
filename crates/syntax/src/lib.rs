@@ -21,21 +21,13 @@ pub struct Parse<T> {
 
 impl<T> Clone for Parse<T> {
     fn clone(&self) -> Self {
-        Self {
-            green: self.green.clone(),
-            errors: self.errors.clone(),
-            _ty: PhantomData,
-        }
+        Self { green: self.green.clone(), errors: self.errors.clone(), _ty: PhantomData }
     }
 }
 
 pub fn parse(src: &str) -> Parse<ast::SourceFile> {
     let (ast, errors) = Parser::new(src).parse();
-    Parse {
-        green: ast.syntax().green().into_owned(),
-        errors: Arc::new(errors),
-        _ty: PhantomData,
-    }
+    Parse { green: ast.syntax().green().into_owned(), errors: Arc::new(errors), _ty: PhantomData }
 }
 
 impl<T> Parse<T> {

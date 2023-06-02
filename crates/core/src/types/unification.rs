@@ -147,23 +147,11 @@ impl Typer {
             (TDK::Error, _) | (_, TDK::Error) => expected,
             (TDK::Void, TDK::Void) => expected,
             (
-                TDK::Ref {
-                    is_mut: mut1,
-                    inner: inner1,
-                },
-                TDK::Ref {
-                    is_mut: mut2,
-                    inner: inner2,
-                },
+                TDK::Ref { is_mut: mut1, inner: inner1 },
+                TDK::Ref { is_mut: mut2, inner: inner2 },
             ) => {
                 let inner = self.unify(inner1, inner2)?;
-                self.ty_id(
-                    TDK::Ref {
-                        is_mut: mut1 && mut2,
-                        inner,
-                    }
-                    .into(),
-                )
+                self.ty_id(TDK::Ref { is_mut: mut1 && mut2, inner }.into())
             }
             (TDK::Optional(inner1), TDK::Optional(inner2)) => {
                 self.unify(inner1, inner2)?;
@@ -181,11 +169,7 @@ impl Typer {
             (TDK::Null, TDK::Optional(_)) => actual,
             (TDK::Optional(_), TDK::Null) => expected,
             (TDK::Free, _) | (_, TDK::Free) => {
-                self.ty_table
-                    .lock()
-                    .unwrap()
-                    .unify_var_var(expected, actual)
-                    .unwrap();
+                self.ty_table.lock().unwrap().unify_var_var(expected, actual).unwrap();
                 expected
             }
             _ => return None,

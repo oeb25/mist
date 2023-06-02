@@ -201,10 +201,7 @@ impl<'src> Highlighter<'src> {
             }))
             .collect();
 
-        HighlightResult {
-            tokens: Arc::new(tokens),
-            inlay_hints: Arc::new(self.inlay_hints),
-        }
+        HighlightResult { tokens: Arc::new(tokens), inlay_hints: Arc::new(self.inlay_hints) }
     }
 }
 
@@ -294,11 +291,7 @@ impl<'src> Visitor for Highlighter<'src> {
         let ts = &vcx.cx[ty];
         match vcx.cx.ty_kind(ts.ty) {
             TDK::Primitive(_) => {
-                self.push_opt(
-                    Some(vcx.source_map[ty].span()),
-                    TT::Type,
-                    Some(TM::DefaultLibrary),
-                );
+                self.push_opt(Some(vcx.source_map[ty].span()), TT::Type, Some(TM::DefaultLibrary));
             }
             TDK::Struct(_) => {
                 self.push_opt(Some(vcx.source_map[ty].span()), TT::Type, None);
@@ -310,12 +303,7 @@ impl<'src> Visitor for Highlighter<'src> {
     }
 
     fn visit_stmt(&mut self, vcx: &VisitContext, stmt: &hir::Statement) -> ControlFlow<()> {
-        if let hir::StatementData::Let {
-            variable,
-            explicit_ty,
-            ..
-        } = &stmt.data
-        {
+        if let hir::StatementData::Let { variable, explicit_ty, .. } = &stmt.data {
             if explicit_ty.is_none() {
                 let span = vcx.cx.var_span(*variable);
                 let ty = vcx.cx.var_ty(*variable);

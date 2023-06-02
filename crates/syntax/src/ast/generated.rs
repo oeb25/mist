@@ -629,10 +629,7 @@ impl SyntaxKind {
         )
     }
     pub fn is_literal(self) -> bool {
-        matches!(
-            self,
-            INT_NUMBER | FLOAT_NUMBER | CHAR | BYTE | STRING | BYTE_STRING
-        )
+        matches!(self, INT_NUMBER | FLOAT_NUMBER | CHAR | BYTE | STRING | BYTE_STRING)
     }
     pub fn from_keyword(ident: &str) -> Option<SyntaxKind> {
         let kw = match ident {
@@ -2641,10 +2638,7 @@ impl From<RefType> for Type {
 }
 impl AstNode for Type {
     fn can_cast(kind: SyntaxKind) -> bool {
-        matches!(
-            kind,
-            NAMED_TYPE | PRIMITIVE | OPTIONAL | LIST_TYPE | GHOST_TYPE | REF_TYPE
-        )
+        matches!(kind, NAMED_TYPE | PRIMITIVE | OPTIONAL | LIST_TYPE | GHOST_TYPE | REF_TYPE)
     }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         let res = match syntax.kind() {

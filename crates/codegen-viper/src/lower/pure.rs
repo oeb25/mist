@@ -86,11 +86,9 @@ impl PureLowerResult {
                     ))
                 }
             }
-            PureLowerResult::Empty { stopped_before } => Ok(PureLowerResult::UnassignedExpression(
-                exp,
-                x,
-                stopped_before,
-            )),
+            PureLowerResult::Empty { stopped_before } => {
+                Ok(PureLowerResult::UnassignedExpression(exp, x, stopped_before))
+            }
         }
     }
 
@@ -172,26 +170,20 @@ impl BodyLower<'_> {
                             self.internally_bound_slots.insert(*s, ());
                         }
 
-                        let variables = over
-                            .iter()
-                            .map(|s| self.slot_to_decl(*s))
-                            .collect::<Result<_>>()?;
+                        let variables =
+                            over.iter().map(|s| self.slot_to_decl(*s)).collect::<Result<_>>()?;
                         let triggers = vec![];
 
                         PureLowerResult::UnassignedExpression(
                             self.alloc(
                                 block,
                                 match q {
-                                    hir::Quantifier::Forall => QuantifierExp::Forall {
-                                        variables,
-                                        triggers,
-                                        exp,
-                                    },
-                                    hir::Quantifier::Exists => QuantifierExp::Exists {
-                                        variables,
-                                        triggers,
-                                        exp,
-                                    },
+                                    hir::Quantifier::Forall => {
+                                        QuantifierExp::Forall { variables, triggers, exp }
+                                    }
+                                    hir::Quantifier::Exists => {
+                                        QuantifierExp::Exists { variables, triggers, exp }
+                                    }
                                 },
                             ),
                             // TODO
@@ -209,14 +201,12 @@ impl BodyLower<'_> {
                         })
                     }
                 },
-                mir::Terminator::QuantifyEnd(next) => PureLowerResult::Empty {
-                    stopped_before: Some(*next),
-                },
+                mir::Terminator::QuantifyEnd(next) => {
+                    PureLowerResult::Empty { stopped_before: Some(*next) }
+                }
                 &mir::Terminator::Goto(next) => {
                     if stop_at == Some(next) {
-                        PureLowerResult::Empty {
-                            stopped_before: Some(next),
-                        }
+                        PureLowerResult::Empty { stopped_before: Some(next) }
                     } else {
                         self.pure_block(next, stop_at)?
                     }
@@ -283,12 +273,7 @@ impl BodyLower<'_> {
 
                     self.conditional_continue(stop_at, next, block, slot, exp)?
                 }
-                mir::Terminator::Call {
-                    func,
-                    args,
-                    destination,
-                    target,
-                } => {
+                mir::Terminator::Call { func, args, destination, target } => {
                     let f = self.function(block, *func, args)?;
                     let f_application = self.alloc(block, f);
 
@@ -305,18 +290,14 @@ impl BodyLower<'_> {
                     }
                 }
             },
-            None => PureLowerResult::Empty {
-                stopped_before: None,
-            },
+            None => PureLowerResult::Empty { stopped_before: None },
         };
 
         self.body[block]
             .instructions()
             .iter()
             .copied()
-            .try_rfold(start, |acc, inst| {
-                self.pure_wrap_with_instruction(inst, acc)
-            })
+            .try_rfold(start, |acc, inst| self.pure_wrap_with_instruction(inst, acc))
     }
 
     pub(super) fn pure_wrap_with_instruction(
@@ -353,10 +334,7 @@ impl BodyLower<'_> {
                         Ok(self.alloc(inst, Exp::new_unfolding(pred_acc, exp)))
                     })?
                 } else {
-                    warn!(
-                        "no struct found for {:?}",
-                        self.body.place_ty(unfolding_place).data()
-                    );
+                    warn!("no struct found for {:?}", self.body.place_ty(unfolding_place).data());
                     acc
                 }
             }
@@ -372,14 +350,9 @@ impl BodyLower<'_> {
         exp: VExprId,
     ) -> Result<PureLowerResult> {
         if stop_at != Some(next) {
-            self.pure_block(next, None)?
-                .wrap_in_assignment(self, block, place, exp)
+            self.pure_block(next, None)?.wrap_in_assignment(self, block, place, exp)
         } else {
-            Ok(PureLowerResult::UnassignedExpression(
-                exp,
-                place,
-                Some(next),
-            ))
+            Ok(PureLowerResult::UnassignedExpression(exp, place, Some(next)))
         }
     }
 

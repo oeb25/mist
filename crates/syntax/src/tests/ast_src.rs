@@ -127,30 +127,9 @@ pub(crate) const KINDS_SRC: KindsSrc<'_> = KindsSrc {
         "forall",
         "exists",
     ],
-    contextual_keywords: &[
-        "auto",
-        "default",
-        "existential",
-        "raw",
-        "macro_rules",
-        "yeet",
-    ],
-    literals: &[
-        "INT_NUMBER",
-        "FLOAT_NUMBER",
-        "CHAR",
-        "BYTE",
-        "STRING",
-        "BYTE_STRING",
-    ],
-    tokens: &[
-        "ERROR",
-        "IDENT",
-        "WHITESPACE",
-        "LIFETIME_IDENT",
-        "COMMENT",
-        "SHEBANG",
-    ],
+    contextual_keywords: &["auto", "default", "existential", "raw", "macro_rules", "yeet"],
+    literals: &["INT_NUMBER", "FLOAT_NUMBER", "CHAR", "BYTE", "STRING", "BYTE_STRING"],
+    tokens: &["ERROR", "IDENT", "WHITESPACE", "LIFETIME_IDENT", "COMMENT", "SHEBANG"],
     nodes: &[
         "SOURCE_FILE",
         "STRUCT",
@@ -349,11 +328,7 @@ impl AstNodeSrc {
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Field {
     Token(String),
-    Node {
-        name: String,
-        ty: String,
-        cardinality: Cardinality,
-    },
+    Node { name: String, ty: String, cardinality: Cardinality },
 }
 
 #[derive(Debug, Eq, PartialEq)]

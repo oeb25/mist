@@ -71,10 +71,7 @@ impl Visitor for DeclarationFinder<'_> {
             match vcx.cx.ty_kind(vcx.cx[ty].ty) {
                 TDK::Struct(s) => {
                     let target_span = s.ast_node(self.db).name().unwrap().span();
-                    ControlFlow::Break(Some(DeclarationSpans {
-                        original_span,
-                        target_span,
-                    }))
+                    ControlFlow::Break(Some(DeclarationSpans { original_span, target_span }))
                 }
                 _ => ControlFlow::Continue(()),
             }
@@ -90,10 +87,7 @@ impl Visitor for DeclarationFinder<'_> {
         if var.contains_pos(self.byte_offset) {
             let original_span = var.span();
             let target_span = vcx.cx.var_span(var);
-            ControlFlow::Break(Some(DeclarationSpans {
-                original_span,
-                target_span,
-            }))
+            ControlFlow::Break(Some(DeclarationSpans { original_span, target_span }))
         } else {
             ControlFlow::Continue(())
         }

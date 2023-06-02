@@ -16,20 +16,15 @@ fn main() -> Result<()> {
     "#;
 
     let mut store = Store::default();
-    let module = Module::new(&store, module_wat)
-        .into_diagnostic()
-        .wrap_err("create module")?;
+    let module = Module::new(&store, module_wat).into_diagnostic().wrap_err("create module")?;
 
     let import_object = imports! {};
     let instance = Instance::new(&mut store, &module, &import_object)
         .into_diagnostic()
         .wrap_err("create instance")?;
 
-    let add_one = instance
-        .exports
-        .get_function("add_one")
-        .into_diagnostic()
-        .wrap_err("getting 'add_one'")?;
+    let add_one =
+        instance.exports.get_function("add_one").into_diagnostic().wrap_err("getting 'add_one'")?;
     let result = add_one
         .call(&mut store, &[Value::I32(42), Value::I32(27)])
         .into_diagnostic()

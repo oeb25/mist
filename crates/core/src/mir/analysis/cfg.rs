@@ -28,10 +28,7 @@ impl Cfg {
         CfgBuilder::new(body).finish()
     }
     fn bid_to_node(&mut self, bid: BlockId) -> NodeIndex {
-        *self
-            .nodes
-            .entry(bid)
-            .or_insert_with(|| self.graph.add_node(bid))
+        *self.nodes.entry(bid).or_insert_with(|| self.graph.add_node(bid))
     }
     /// Construct a graph where the nodes and edge labes are replaced for
     /// serializations for their value
@@ -75,12 +72,7 @@ impl Cfg {
         let mut dfs = petgraph::visit::Dfs::new(&self.graph, start);
         std::iter::from_fn(move || loop {
             let n = dfs.next(&self.graph)?;
-            if self
-                .graph
-                .neighbors_directed(n, Direction::Outgoing)
-                .next()
-                .is_none()
-            {
+            if self.graph.neighbors_directed(n, Direction::Outgoing).next().is_none() {
                 break Some(n);
             }
         })
@@ -121,9 +113,7 @@ impl Cfg {
         for (n, rest) in f.into_iter().sorted() {
             relation.insert(
                 *reverse_graph.node_weight(n).unwrap(),
-                rest.iter()
-                    .map(|&m| *reverse_graph.node_weight(m).unwrap())
-                    .collect(),
+                rest.iter().map(|&m| *reverse_graph.node_weight(m).unwrap()).collect(),
             );
         }
         PostdominanceFrontier { relation }
@@ -158,23 +148,19 @@ impl Cfg {
     }
 
     pub fn scc(&self) -> impl Iterator<Item = StronglyConnectedComponent> + '_ {
-        petgraph::algo::tarjan_scc(&self.graph)
-            .into_iter()
-            .filter_map(|nodes| {
-                if nodes.len() == 1 {
-                    return None;
-                }
+        petgraph::algo::tarjan_scc(&self.graph).into_iter().filter_map(|nodes| {
+            if nodes.len() == 1 {
+                return None;
+            }
 
-                let blocks = nodes
-                    .into_iter()
-                    .map(|n| *self.graph.node_weight(n).unwrap())
-                    .collect_vec();
-                Some(StronglyConnectedComponent {
-                    entry: *blocks.last().unwrap(),
-                    exit: *blocks.last().unwrap(),
-                    blocks,
-                })
+            let blocks =
+                nodes.into_iter().map(|n| *self.graph.node_weight(n).unwrap()).collect_vec();
+            Some(StronglyConnectedComponent {
+                entry: *blocks.last().unwrap(),
+                exit: *blocks.last().unwrap(),
+                blocks,
             })
+        })
     }
 }
 

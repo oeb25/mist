@@ -20,21 +20,13 @@ pub struct TypeData<T = TypeId> {
 pub enum TypeDataKind<T> {
     Error,
     Void,
-    Ref {
-        is_mut: bool,
-        inner: T,
-    },
+    Ref { is_mut: bool, inner: T },
     List(T),
     Optional(T),
     Primitive(Primitive),
     Struct(Struct),
     Null,
-    Function {
-        attrs: AttrFlags,
-        name: Option<Name>,
-        params: Vec<Param<Name>>,
-        return_ty: T,
-    },
+    Function { attrs: AttrFlags, name: Option<Name>, params: Vec<Param<Name>>, return_ty: T },
     Range(T),
     Free,
 }
@@ -82,18 +74,8 @@ impl ena::unify::UnifyValue for TypeData {
 
     fn unify_values(ty1: &Self, ty2: &Self) -> Result<Self, ()> {
         match (ty1, ty2) {
-            (
-                TypeData {
-                    kind: TDK::Free, ..
-                },
-                other,
-            )
-            | (
-                other,
-                TypeData {
-                    kind: TDK::Free, ..
-                },
-            ) => Ok(other.clone()),
+            (TypeData { kind: TDK::Free, .. }, other)
+            | (other, TypeData { kind: TDK::Free, .. }) => Ok(other.clone()),
             _ => {
                 error!("could not unify {ty1:?} with {ty2:?}");
                 Err(())
@@ -107,21 +89,13 @@ impl<T> TypeData<T> {
         let kind = match &self.kind {
             TDK::Error => TDK::Error,
             TDK::Void => TDK::Void,
-            TDK::Ref { is_mut, inner } => TDK::Ref {
-                is_mut: *is_mut,
-                inner: f(inner),
-            },
+            TDK::Ref { is_mut, inner } => TDK::Ref { is_mut: *is_mut, inner: f(inner) },
             TDK::List(it) => TDK::List(f(it)),
             TDK::Optional(it) => TDK::Optional(f(it)),
             TDK::Primitive(it) => TDK::Primitive(it.clone()),
             TDK::Struct(it) => TDK::Struct(*it),
             TDK::Null => TDK::Null,
-            TDK::Function {
-                attrs,
-                name,
-                params,
-                return_ty,
-            } => TDK::Function {
+            TDK::Function { attrs, name, params, return_ty } => TDK::Function {
                 attrs: *attrs,
                 name: name.clone(),
                 params: params.clone(),
@@ -130,10 +104,7 @@ impl<T> TypeData<T> {
             TDK::Range(it) => TDK::Range(f(it)),
             TDK::Free => TDK::Free,
         };
-        TypeData {
-            is_ghost: self.is_ghost,
-            kind,
-        }
+        TypeData { is_ghost: self.is_ghost, kind }
     }
 
     pub fn is_void(&self) -> bool {
@@ -148,18 +119,12 @@ impl<T> TypeData<T> {
 }
 impl<T> From<TDK<T>> for TypeData<T> {
     fn from(kind: TDK<T>) -> Self {
-        TypeData {
-            is_ghost: false,
-            kind,
-        }
+        TypeData { is_ghost: false, kind }
     }
 }
 
 impl<T> TDK<T> {
     pub fn ghost(self) -> TypeData<T> {
-        TypeData {
-            is_ghost: true,
-            kind: self,
-        }
+        TypeData { is_ghost: true, kind: self }
     }
 }

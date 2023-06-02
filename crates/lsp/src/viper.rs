@@ -32,13 +32,9 @@ impl VerifyFile<'_> {
         std::fs::create_dir_all(self.working_dir)
             .into_diagnostic()
             .with_context(|| format!("creating working dir: {}", self.working_dir.display()))?;
-        let viper_file = self
-            .working_dir
-            .join(self.mist_src_path.file_name().unwrap())
-            .with_extension("vpr");
-        tokio::fs::write(&viper_file, viper_src)
-            .await
-            .into_diagnostic()?;
+        let viper_file =
+            self.working_dir.join(self.mist_src_path.file_name().unwrap()).with_extension("vpr");
+        tokio::fs::write(&viper_file, viper_src).await.into_diagnostic()?;
 
         info!("Starting verification...");
 
@@ -47,9 +43,7 @@ impl VerifyFile<'_> {
             .await
             .into_diagnostic()?;
 
-        let client = viperserver::client::Client::new(server)
-            .await
-            .into_diagnostic()?;
+        let client = viperserver::client::Client::new(server).await.into_diagnostic()?;
 
         let req = viperserver::client::VerificationRequest::silicon()
             .detect_z3()

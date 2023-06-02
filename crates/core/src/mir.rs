@@ -81,11 +81,7 @@ impl Block {
             .iter()
             .copied()
             .map(BlockLocation::Instruction)
-            .chain(
-                self.terminator
-                    .is_some()
-                    .then_some(BlockLocation::Terminator),
-            )
+            .chain(self.terminator.is_some().then_some(BlockLocation::Terminator))
     }
 }
 
@@ -96,12 +92,7 @@ pub enum Terminator {
     Quantify(Quantifier, Vec<SlotId>, BlockId),
     QuantifyEnd(BlockId),
     Switch(Operand, SwitchTargets),
-    Call {
-        func: FunctionId,
-        args: Vec<Operand>,
-        destination: Place,
-        target: Option<BlockId>,
-    },
+    Call { func: FunctionId, args: Vec<Operand>, destination: Place, target: Option<BlockId> },
 }
 
 impl Terminator {
@@ -125,12 +116,9 @@ impl Terminator {
             Terminator::Goto(b) => vec![*b],
             Terminator::Quantify(_, _, b) => vec![*b],
             Terminator::QuantifyEnd(b) => vec![*b],
-            Terminator::Switch(_, switch) => switch
-                .targets
-                .values()
-                .copied()
-                .chain([switch.otherwise])
-                .collect(),
+            Terminator::Switch(_, switch) => {
+                switch.targets.values().copied().chain([switch.otherwise]).collect()
+            }
             Terminator::Call { target, .. } => target.iter().copied().collect(),
         }
     }
@@ -185,13 +173,9 @@ impl Terminator {
             | Terminator::Quantify(_, _, _)
             | Terminator::QuantifyEnd(_) => Either::Left(None.into_iter()),
             Terminator::Switch(op, _) => Either::Left(op.place().into_iter()),
-            Terminator::Call {
-                args, destination, ..
-            } => Either::Right(
-                args.iter()
-                    .filter_map(|arg| arg.place())
-                    .chain([*destination]),
-            ),
+            Terminator::Call { args, destination, .. } => {
+                Either::Right(args.iter().filter_map(|arg| arg.place()).chain([*destination]))
+            }
         }
     }
 }
@@ -228,17 +212,10 @@ impl SwitchTargets {
             targets.insert(values.alloc(v), bid);
         }
 
-        SwitchTargets {
-            values,
-            targets,
-            otherwise,
-        }
+        SwitchTargets { values, targets, otherwise }
     }
     pub fn values(&self) -> (impl Iterator<Item = (u128, BlockId)> + '_, BlockId) {
-        (
-            self.targets.iter().map(|(v, t)| (self.values[v], *t)),
-            self.otherwise,
-        )
+        (self.targets.iter().map(|(v, t)| (self.values[v], *t)), self.otherwise)
     }
     pub fn targets(&self) -> (impl Iterator<Item = BlockId> + '_, BlockId) {
         (self.targets.iter().map(|(_, b)| *b), self.otherwise)
@@ -312,10 +289,7 @@ impl Place {
     }
 
     pub fn replace_projection(&self, projection: ProjectionList) -> Place {
-        Place {
-            slot: self.slot,
-            projection,
-        }
+        Place { slot: self.slot, projection }
     }
 
     pub fn parent(&self, b: &Body) -> Option<Place> {
@@ -325,10 +299,7 @@ impl Place {
 
 impl From<SlotId> for Place {
     fn from(slot: SlotId) -> Self {
-        Place {
-            slot,
-            projection: Projection::empty(),
-        }
+        Place { slot, projection: Projection::empty() }
     }
 }
 
@@ -502,21 +473,14 @@ impl Body {
             .chain(self.ensures())
             .copied()
             .chain(self.body_block())
-            .chain(
-                self.block_invariants
-                    .iter()
-                    .flat_map(|(_, invs)| invs)
-                    .copied(),
-            )
+            .chain(self.block_invariants.iter().flat_map(|(_, invs)| invs).copied())
     }
 
     fn exit_blocks(&self) -> impl Iterator<Item = BlockId> + '_ {
-        self.blocks
-            .iter()
-            .filter_map(|(bid, b)| match &b.terminator {
-                Some(t) => t.targets().is_empty().then_some(bid),
-                None => Some(bid),
-            })
+        self.blocks.iter().filter_map(|(bid, b)| match &b.terminator {
+            Some(t) => t.targets().is_empty().then_some(bid),
+            None => Some(bid),
+        })
     }
 
     pub fn body_block(&self) -> Option<BlockId> {
@@ -536,12 +500,10 @@ impl Body {
     }
 
     pub fn assignments_to(&self, x: SlotId) -> impl Iterator<Item = InstructionId> + '_ {
-        self.instructions
-            .iter()
-            .filter_map(move |(id, inst)| match inst {
-                Instruction::Assign(y, _) if x == y.slot => Some(id),
-                _ => None,
-            })
+        self.instructions.iter().filter_map(move |(id, inst)| match inst {
+            Instruction::Assign(y, _) if x == y.slot => Some(id),
+            _ => None,
+        })
     }
     pub fn reference_to(
         &self,
@@ -603,10 +565,7 @@ impl Body {
     }
 
     pub fn block_invariants(&self, block: BlockId) -> &[BlockId] {
-        self.block_invariants
-            .get(block)
-            .map(|invs| invs.as_slice())
-            .unwrap_or_else(|| &[])
+        self.block_invariants.get(block).map(|invs| invs.as_slice()).unwrap_or_else(|| &[])
     }
 
     /// Returns a iterator over all [`ProjectionList`]'s leading to this projection.
@@ -638,13 +597,7 @@ impl Body {
         } else {
             &list[0..list.len() - 1]
         };
-        Some(
-            self.projections
-                .iter()
-                .find(|(_, proj)| proj == &search_for)
-                .unwrap()
-                .0,
-        )
+        Some(self.projections.iter().find(|(_, proj)| proj == &search_for).unwrap().0)
     }
 
     fn intersperse_block(&mut self, from: BlockId, into: BlockId, middle: BlockId) {
@@ -729,10 +682,7 @@ impl Body {
             .filter_map(move |(nbid, b)| b.terminator()?.targets().contains(&bid).then_some(nbid))
     }
     pub fn succeeding_blocks(&self, bid: BlockId) -> impl Iterator<Item = BlockId> + '_ {
-        self.blocks[bid]
-            .terminator()
-            .into_iter()
-            .flat_map(|t| t.targets())
+        self.blocks[bid].terminator().into_iter().flat_map(|t| t.targets())
     }
 
     /// Returns an iterator over everything that local to the body. This
@@ -756,11 +706,9 @@ impl Body {
 impl Body {
     fn insert_instruction_before(&mut self, loc: BodyLocation, inst: Instruction) -> InstructionId {
         let insert_idx = match loc.inner {
-            BlockLocation::Instruction(inst) => self[loc.block]
-                .instructions()
-                .iter()
-                .position(|&i| i == inst)
-                .unwrap(),
+            BlockLocation::Instruction(inst) => {
+                self[loc.block].instructions().iter().position(|&i| i == inst).unwrap()
+            }
             BlockLocation::Terminator => self[loc.block].instructions().len(),
         };
         let id = self.instructions.alloc(inst);
@@ -854,10 +802,7 @@ pub enum BlockLocation {
 
 impl BlockLocation {
     pub fn in_block(self, bid: BlockId) -> BodyLocation {
-        BodyLocation {
-            block: bid,
-            inner: self,
-        }
+        BodyLocation { block: bid, inner: self }
     }
 
     pub fn as_instruction(self) -> Option<InstructionId> {
@@ -937,11 +882,7 @@ pub enum MirError {
         span: Option<SourceSpan>,
     },
     #[error("`self` was used in a context where self is not defined")]
-    SelfInItemWithout {
-        def: Def,
-        expr: hir::ExprIdx,
-        span: Option<SourceSpan>,
-    },
+    SelfInItemWithout { def: Def, expr: hir::ExprIdx, span: Option<SourceSpan> },
 }
 
 #[salsa::accumulator]
@@ -954,12 +895,7 @@ impl MirError {
         var_f: impl Fn(Def, hir::VariableIdx) -> Option<SourceSpan>,
     ) {
         match self {
-            MirError::NotYetImplemented {
-                msg: _,
-                def,
-                expr,
-                span,
-            } => *span = expr_f(*def, *expr),
+            MirError::NotYetImplemented { msg: _, def, expr, span } => *span = expr_f(*def, *expr),
             MirError::SlotUseBeforeAlloc { def, var, span } => *span = var_f(*def, *var),
             MirError::ResultWithoutReturnSlot { def, expr, span } => *span = expr_f(*def, *expr),
             MirError::SelfInItemWithout { def, expr, span } => *span = expr_f(*def, *expr),

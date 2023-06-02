@@ -93,14 +93,7 @@ impl ViperLowerer {
         mir: &'a mir::Body,
         is_method: bool,
     ) -> BodyLower<'a> {
-        BodyLower::new(
-            db,
-            cx,
-            mir,
-            is_method,
-            &mut self.viper_body,
-            &mut self.source_map,
-        )
+        BodyLower::new(db, cx, mir, is_method, &mut self.viper_body, &mut self.source_map)
     }
     pub fn finish(self) -> (ViperBody, ViperSourceMap) {
         (self.viper_body, self.source_map)
@@ -191,14 +184,7 @@ pub struct ViperType {
 
 impl From<VTy> for ViperType {
     fn from(vty: VTy) -> Self {
-        ViperType {
-            vty,
-            is_mut: false,
-            is_ref: false,
-            optional: false,
-            inner: None,
-            strukt: None,
-        }
+        ViperType { vty, is_mut: false, is_ref: false, optional: false, inner: None, strukt: None }
     }
 }
 
@@ -271,26 +257,19 @@ impl<'a> BodyLower<'a> {
                 inner: Some(Box::new(self.lower_type(inner)?)),
                 strukt: None,
             },
-            TDK::List(inner) => VTy::Seq {
-                element_type: Box::new(self.lower_type(inner)?.vty),
+            TDK::List(inner) => {
+                VTy::Seq { element_type: Box::new(self.lower_type(inner)?.vty) }.into()
             }
-            .into(),
             TDK::Optional(inner) => {
                 let vty = self.lower_type(inner)?;
-                ViperType {
-                    optional: true,
-                    ..vty
-                }
+                ViperType { optional: true, ..vty }
             }
             TDK::Primitive(p) => match p {
                 Primitive::Int => VTy::int().into(),
                 Primitive::Bool => VTy::bool().into(),
             },
             TDK::Struct(s) => match s.name(self.db).as_str() {
-                "Multiset" => VTy::Multiset {
-                    element_type: Box::new(VTy::int()),
-                }
-                .into(),
+                "Multiset" => VTy::Multiset { element_type: Box::new(VTy::int()) }.into(),
                 _ => ViperType {
                     vty: VTy::ref_(),
                     optional: false,
@@ -352,15 +331,11 @@ impl BodyLower<'_> {
         match source.into() {
             BlockOrInstruction::Block(block_id) => {
                 self.source_map.block_expr.insert((item_id, block_id), id);
-                self.source_map
-                    .block_expr_back
-                    .insert(id, (item_id, block_id));
+                self.source_map.block_expr_back.insert(id, (item_id, block_id));
             }
             BlockOrInstruction::Instruction(inst_id) => {
                 self.source_map.inst_expr.insert((item_id, inst_id), id);
-                self.source_map
-                    .inst_expr_back
-                    .insert(id, (item_id, inst_id));
+                self.source_map.inst_expr_back.insert(id, (item_id, inst_id));
             }
         }
         id
@@ -374,9 +349,7 @@ impl BodyLower<'_> {
         Ok(match &*self.body[fid] {
             mir::FunctionData::Named(v) => Exp::new_func_app(
                 self.cx.var_name(*v).to_string(),
-                args.iter()
-                    .map(|s| self.operand_to_ref(source, s))
-                    .collect::<Result<_>>()?,
+                args.iter().map(|s| self.operand_to_ref(source, s)).collect::<Result<_>>()?,
             ),
             mir::FunctionData::Index => {
                 let base = self.operand_to_ref(source, &args[0])?;
@@ -408,9 +381,7 @@ impl BodyLower<'_> {
                 Exp::new_func_app(f.to_string(), args)
             }
             mir::FunctionData::List => SeqExp::new_explicit(
-                args.iter()
-                    .map(|s| self.operand_to_ref(source, s))
-                    .collect::<Result<_>>()?,
+                args.iter().map(|s| self.operand_to_ref(source, s)).collect::<Result<_>>()?,
             )
             .into(),
             mir::FunctionData::ListConcat => SeqExp::new_append(
@@ -467,36 +438,33 @@ impl BodyLower<'_> {
         let id = self.alloc(source, exp);
         self.var_refs.insert(p.slot, id);
 
-        self.body[p.projection]
-            .iter()
-            .copied()
-            .try_fold(id, |base, proj| -> Result<_> {
-                Ok(match proj {
-                    mir::Projection::Field(f, ty) => {
-                        match f {
-                            Field::List(_, ListField::Len) => {
-                                let exp = SeqExp::Length { s: base };
-                                self.alloc(source, exp)
-                            }
-                            Field::StructField(sf) => {
-                                let exp = VField::new(
-                                    mangle::mangled_field(self.db, sf),
-                                    // TODO: Should we look at the contraints?
-                                    self.lower_type(self.body.ty_ptr(ty))?.vty,
-                                )
-                                .access_exp(base);
-                                self.alloc(source, exp)
-                            }
-                            Field::Undefined => todo!(),
+        self.body[p.projection].iter().copied().try_fold(id, |base, proj| -> Result<_> {
+            Ok(match proj {
+                mir::Projection::Field(f, ty) => {
+                    match f {
+                        Field::List(_, ListField::Len) => {
+                            let exp = SeqExp::Length { s: base };
+                            self.alloc(source, exp)
                         }
+                        Field::StructField(sf) => {
+                            let exp = VField::new(
+                                mangle::mangled_field(self.db, sf),
+                                // TODO: Should we look at the contraints?
+                                self.lower_type(self.body.ty_ptr(ty))?.vty,
+                            )
+                            .access_exp(base);
+                            self.alloc(source, exp)
+                        }
+                        Field::Undefined => todo!(),
                     }
-                    mir::Projection::Index(index, _) => {
-                        let idx = self.slot_to_var(index)?;
-                        let idx = self.alloc(source, AbstractLocalVar::LocalVar(idx));
-                        self.alloc(source, SeqExp::Index { s: base, idx })
-                    }
-                })
+                }
+                mir::Projection::Index(index, _) => {
+                    let idx = self.slot_to_var(index)?;
+                    let idx = self.alloc(source, AbstractLocalVar::LocalVar(idx));
+                    self.alloc(source, SeqExp::Index { s: base, idx })
+                }
             })
+        })
     }
     fn operand_to_ref(
         &mut self,

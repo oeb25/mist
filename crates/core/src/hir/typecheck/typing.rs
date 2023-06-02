@@ -38,24 +38,14 @@ pub(crate) trait TypingMutExt: TypingMut + Sized {
         kind: TypeCheckErrorKind,
     ) -> TypeId {
         let span = span.span();
-        let err = TypeCheckError {
-            span,
-            label,
-            help,
-            kind,
-        };
+        let err = TypeCheckError { span, label, help, kind };
         self.push_error(err);
         error()
     }
 
     fn find_named_type(&self, span: impl Spanned, name: Name) -> TypeId {
         self.lookup_named_ty(name.clone()).unwrap_or_else(|| {
-            self.ty_error(
-                span,
-                None,
-                None,
-                TypeCheckErrorKind::UndefinedType(name.to_string()),
-            )
+            self.ty_error(span, None, None, TypeCheckErrorKind::UndefinedType(name.to_string()))
         })
     }
 
@@ -93,11 +83,7 @@ pub(crate) trait TypingMutExt: TypingMut + Sized {
             mist_syntax::ast::Type::RefType(r) => {
                 let is_mut = r.mut_token().is_some();
 
-                let inner = if let Some(ty) = r.ty() {
-                    self.find_type_src(&ty)
-                } else {
-                    todo!()
-                };
+                let inner = if let Some(ty) = r.ty() { self.find_type_src(&ty) } else { todo!() };
                 let td = TDK::Ref { is_mut, inner };
                 let ty = td.canonical(self);
                 let ty = self.alloc_ty_data(ty);
@@ -116,11 +102,7 @@ pub(crate) trait TypingMutExt: TypingMut + Sized {
                 (td.into(), ty)
             }
             mist_syntax::ast::Type::GhostType(t) => {
-                let inner = if let Some(ty) = t.ty() {
-                    self.find_type_src(&ty)
-                } else {
-                    todo!()
-                };
+                let inner = if let Some(ty) = t.ty() { self.find_type_src(&ty) } else { todo!() };
                 let td = TypeData {
                     kind: self.ty_src(inner).data.clone().unwrap().kind,
                     is_ghost: true,

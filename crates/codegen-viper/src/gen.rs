@@ -57,14 +57,7 @@ pub fn viper_file(
         }
     }
 
-    let file = Program {
-        domains,
-        fields,
-        functions,
-        predicates,
-        methods,
-        extensions,
-    };
+    let file = Program { domains, fields, functions, predicates, methods, extensions };
     let (viper_body, viper_source_map) = lowerer.finish();
 
     Ok((file, viper_body, viper_source_map))
@@ -161,10 +154,7 @@ fn internal_viper_item(
             }
 
             if function.attrs(db).is_pure() {
-                let body = mir
-                    .body_block()
-                    .map(|body| lower.pure_lower(body))
-                    .transpose()?;
+                let body = mir.body_block().map(|body| lower.pure_lower(body)).transpose()?;
 
                 let func = Function {
                     name: function.name(db).to_string(),
@@ -194,10 +184,7 @@ fn internal_viper_item(
                     formal_returns,
                     pres,
                     posts,
-                    body: mir
-                        .body_block()
-                        .map(|body| lower.method_lower(body))
-                        .transpose()?,
+                    body: mir.body_block().map(|body| lower.method_lower(body)).transpose()?,
                 };
 
                 Ok(vec![method.into()])
@@ -435,27 +422,15 @@ mod write_impl {
                     OldExp::Old { exp } => w!(w, "old(", exp, ")"),
                     OldExp::Labelled { exp, old_label } => w!(w, "old[{old_label}](", exp, ")"),
                 },
-                Exp::Let {
-                    variable,
-                    exp,
-                    body,
-                } => {
+                Exp::Let { variable, exp, body } => {
                     let name = &variable.name;
                     w!(w, "(let {name} == (");
                     w.indent(|w| wln!(w, exp, ") in"));
                     w!(w, body, ")");
                 }
                 Exp::Quantifier(
-                    q @ QuantifierExp::Exists {
-                        variables,
-                        triggers: _,
-                        exp,
-                    }
-                    | q @ QuantifierExp::Forall {
-                        variables,
-                        triggers: _,
-                        exp,
-                    },
+                    q @ QuantifierExp::Exists { variables, triggers: _, exp }
+                    | q @ QuantifierExp::Forall { variables, triggers: _, exp },
                 ) => {
                     let q = match q {
                         QuantifierExp::Forall { .. } => "forall",
@@ -547,11 +522,7 @@ mod write_impl {
                     w!(w, lhs, " := ", rhs);
                 }
                 Stmt::FieldAssign { lhs, rhs } => w!(w, lhs, " := ", rhs),
-                Stmt::MethodCall {
-                    method_name,
-                    args,
-                    targets,
-                } => {
+                Stmt::MethodCall { method_name, args, targets } => {
                     if !targets.is_empty() {
                         let mut first = true;
                         for t in targets {

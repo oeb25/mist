@@ -42,9 +42,7 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
-        self.client
-            .log_message(MessageType::INFO, "server initialized! :)")
-            .await;
+        self.client.log_message(MessageType::INFO, "server initialized! :)").await;
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -115,9 +113,7 @@ impl Backend {
             }
         }
 
-        let logger_client = ClientLogger {
-            client: client.clone(),
-        };
+        let logger_client = ClientLogger { client: client.clone() };
         tracing_subscriber::Registry::default()
             .with(
                 tracing_subscriber::EnvFilter::builder()
@@ -213,11 +209,9 @@ impl Backend {
             return Err(tower_lsp::jsonrpc::Error::invalid_request());
         };
         let tokens = crate::highlighting::semantic_tokens(db, source);
-        Ok(Some(SemanticTokensResult::Partial(
-            SemanticTokensPartialResult {
-                data: tokens.to_vec(),
-            },
-        )))
+        Ok(Some(SemanticTokensResult::Partial(SemanticTokensPartialResult {
+            data: tokens.to_vec(),
+        })))
     }
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
         let db = &*self.db();
@@ -232,30 +226,24 @@ impl Backend {
             inlay_hints
                 .iter()
                 .cloned()
-                .chain(
-                    hints
-                        .into_iter()
-                        .map(|hint| crate::highlighting::InlayHint {
-                            position: mist_core::util::Position::from_byte_offset(
-                                file.text(db),
-                                hint.span.end(),
-                            ),
-                            label: hint.viper,
-                            kind: None,
-                            padding_left: Some(true),
-                            padding_right: None,
-                        }),
-                )
+                .chain(hints.into_iter().map(|hint| crate::highlighting::InlayHint {
+                    position: mist_core::util::Position::from_byte_offset(
+                        file.text(db),
+                        hint.span.end(),
+                    ),
+                    label: hint.viper,
+                    kind: None,
+                    padding_left: Some(true),
+                    padding_right: None,
+                }))
                 .map_into()
                 .collect(),
         ))
     }
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let db = &*self.db();
-        let TextDocumentPositionParams {
-            text_document,
-            position,
-        } = params.text_document_position_params;
+        let TextDocumentPositionParams { text_document, position } =
+            params.text_document_position_params;
         let Some(source) = self.source_file(db, text_document.uri) else {
             return Err(tower_lsp::jsonrpc::Error::invalid_request());
         };
@@ -336,9 +324,7 @@ impl Backend {
             // drop(db);
 
             if errors.is_empty() {
-                client
-                    .publish_diagnostics(uri.clone(), vec![], Some(version))
-                    .await;
+                client.publish_diagnostics(uri.clone(), vec![], Some(version)).await;
 
                 let viperserver = viperserver_ref.lock().unwrap().take();
                 let viperserver = if let Some(it) = viperserver {
@@ -384,10 +370,7 @@ impl Backend {
                             MessageType::INFO,
                             format!(
                                 "Successfully verified {} in {:?} + {:?}",
-                                PathBuf::from(uri.as_str())
-                                    .file_name()
-                                    .unwrap()
-                                    .to_string_lossy(),
+                                PathBuf::from(uri.as_str()).file_name().unwrap().to_string_lossy(),
                                 verification_start.duration_since(start),
                                 verification_start.elapsed()
                             ),
@@ -407,13 +390,9 @@ impl Backend {
                             }
                         })
                         .collect();
-                    client
-                        .publish_diagnostics(uri.clone(), diagnostics, Some(version))
-                        .await;
+                    client.publish_diagnostics(uri.clone(), diagnostics, Some(version)).await;
                 } else {
-                    client
-                        .publish_diagnostics(uri.clone(), errors, Some(version))
-                        .await;
+                    client.publish_diagnostics(uri.clone(), errors, Some(version)).await;
                 }
             } else {
                 client.publish_diagnostics(uri, errors, Some(version)).await;
@@ -430,10 +409,7 @@ impl Backend {
     fn definition_span(
         &self,
         db: &dyn crate::Db,
-        TextDocumentPositionParams {
-            text_document,
-            position,
-        }: TextDocumentPositionParams,
+        TextDocumentPositionParams { text_document, position }: TextDocumentPositionParams,
     ) -> Result<Option<LocationLink>> {
         let Some(source) = self.source_file(db, text_document.uri.clone()) else {
             return Err(tower_lsp::jsonrpc::Error::invalid_request());

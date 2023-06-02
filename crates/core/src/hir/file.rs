@@ -44,10 +44,7 @@ pub struct FileAstId<N> {
 
 impl<N> Clone for FileAstId<N> {
     fn clone(&self) -> Self {
-        Self {
-            raw: self.raw,
-            _marker: PhantomData,
-        }
+        Self { raw: self.raw, _marker: PhantomData }
     }
 }
 impl<N> Copy for FileAstId<N> {}
@@ -72,16 +69,9 @@ impl AstIdMap {
     }
     pub fn ast_id<N: AstNode>(&self, file: SourceFile, node: &N) -> AstId<N> {
         let ptr = SyntaxNodePtr::new(node.syntax());
-        let raw = self
-            .arena
-            .iter()
-            .find_map(|(idx, p)| (p == &ptr).then_some(idx))
-            .unwrap();
+        let raw = self.arena.iter().find_map(|(idx, p)| (p == &ptr).then_some(idx)).unwrap();
 
-        let value = FileAstId {
-            raw,
-            _marker: PhantomData,
-        };
+        let value = FileAstId { raw, _marker: PhantomData };
 
         InFile { file, value }
     }

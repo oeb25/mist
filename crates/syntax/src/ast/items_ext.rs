@@ -25,13 +25,10 @@ impl AttrFlags {
 
 impl std::fmt::Display for AttrFlags {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        [
-            self.contains(Self::PURE).then_some("pure"),
-            self.contains(Self::GHOST).then_some("ghost"),
-        ]
-        .into_iter()
-        .flatten()
-        .format(" ")
-        .fmt(f)
+        [self.contains(Self::PURE).then_some("pure"), self.contains(Self::GHOST).then_some("ghost")]
+            .into_iter()
+            .flatten()
+            .format(" ")
+            .fmt(f)
     }
 }

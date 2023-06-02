@@ -147,17 +147,11 @@ pub struct ItemSourceMap {
 
 impl TypeProvider for ItemContext {
     fn ty_data(&self, ty: TypeId) -> TypeData {
-        self.ty_table
-            .as_ref()
-            .expect("TypeTable was not yet set")
-            .ty_data(ty)
+        self.ty_table.as_ref().expect("TypeTable was not yet set").ty_data(ty)
     }
 
     fn struct_field_ty(&self, f: StructField) -> TypeId {
-        self.ty_table
-            .as_ref()
-            .expect("TypeTable was not yet set")
-            .struct_field_ty(f)
+        self.ty_table.as_ref().expect("TypeTable was not yet set").struct_field_ty(f)
     }
 }
 
@@ -193,10 +187,7 @@ pub(super) struct Trace<IDX: IdxWrap, V> {
 
 impl<IDX: IdxWrap, V> Trace<IDX, V> {
     pub fn new() -> Self {
-        Trace {
-            arena: Default::default(),
-            map: Default::default(),
-        }
+        Trace { arena: Default::default(), map: Default::default() }
     }
 
     pub fn alloc(&mut self, value: V, data: IDX::Inner) -> IDX {

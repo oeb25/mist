@@ -11,10 +11,7 @@ pub(super) fn children<N: AstNode>(parent: &SyntaxNode) -> AstChildren<N> {
 }
 
 pub(super) fn token(parent: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxToken> {
-    parent
-        .children_with_tokens()
-        .filter_map(|it| it.into_token())
-        .find(|it| it.kind() == kind)
+    parent.children_with_tokens().filter_map(|it| it.into_token()).find(|it| it.kind() == kind)
 }
 
 /// An iterator over `SyntaxNode` children of a particular AST type.
@@ -26,10 +23,7 @@ pub struct AstChildren<N> {
 
 impl<N> AstChildren<N> {
     fn new(parent: &SyntaxNode) -> Self {
-        AstChildren {
-            inner: parent.children(),
-            ph: PhantomData,
-        }
+        AstChildren { inner: parent.children(), ph: PhantomData }
     }
 }
 
@@ -126,10 +120,7 @@ pub struct SourceSpan {
 impl SourceSpan {
     #[must_use]
     pub fn new_start_end(start: usize, end: usize) -> Self {
-        SourceSpan {
-            offset: start,
-            length: end - start,
-        }
+        SourceSpan { offset: start, length: end - start }
     }
     #[must_use]
     pub fn offset(&self) -> usize {
@@ -145,10 +136,7 @@ impl SourceSpan {
     }
     #[must_use]
     pub fn set_len(&self, len: usize) -> Self {
-        Self {
-            offset: self.offset,
-            length: len,
-        }
+        Self { offset: self.offset, length: len }
     }
     #[must_use]
     pub fn join(&self, span: SourceSpan) -> SourceSpan {
@@ -171,8 +159,7 @@ impl SourceSpan {
         init: SourceSpan,
         span: impl IntoIterator<Item = Option<SourceSpan>>,
     ) -> SourceSpan {
-        span.into_iter()
-            .fold(init, |a, b| b.map(|b| a.join(b)).unwrap_or(a))
+        span.into_iter().fold(init, |a, b| b.map(|b| a.join(b)).unwrap_or(a))
     }
 
     #[must_use]

@@ -75,11 +75,7 @@ impl<I, T> Param<I, T> {
     where
         T: Clone,
     {
-        Param {
-            is_ghost: self.is_ghost,
-            name: f(&self.name),
-            ty: self.ty.clone(),
-        }
+        Param { is_ghost: self.is_ghost, name: f(&self.name), ty: self.ty.clone() }
     }
 }
 
@@ -113,16 +109,10 @@ pub struct Expr {
 }
 impl Expr {
     pub(super) fn new_block(block: Block) -> Expr {
-        Expr {
-            ty: block.return_ty,
-            data: ExprData::Block(block),
-        }
+        Expr { ty: block.return_ty, data: ExprData::Block(block) }
     }
     pub(super) fn new_if(if_expr: IfExpr) -> Expr {
-        Expr {
-            ty: if_expr.return_ty,
-            data: ExprData::If(if_expr),
-        }
+        Expr { ty: if_expr.return_ty, data: ExprData::If(if_expr) }
     }
 }
 
@@ -132,52 +122,19 @@ pub enum ExprData {
     Self_,
     Ident(VariableRef),
     Block(Block),
-    Field {
-        expr: ExprIdx,
-        field_name: Name,
-        field: Field,
-    },
-    Struct {
-        struct_declaration: Struct,
-        struct_span: SourceSpan,
-        fields: Vec<StructExprField>,
-    },
+    Field { expr: ExprIdx, field_name: Name, field: Field },
+    Struct { struct_declaration: Struct, struct_span: SourceSpan, fields: Vec<StructExprField> },
     Missing,
     If(IfExpr),
-    Call {
-        expr: ExprIdx,
-        args: Vec<ExprIdx>,
-    },
-    Unary {
-        op: UnaryOp,
-        inner: ExprIdx,
-    },
-    Bin {
-        lhs: ExprIdx,
-        op: BinaryOp,
-        rhs: ExprIdx,
-    },
-    Ref {
-        is_mut: bool,
-        expr: ExprIdx,
-    },
-    Index {
-        base: ExprIdx,
-        index: ExprIdx,
-    },
-    List {
-        elems: Vec<ExprIdx>,
-    },
-    Quantifier {
-        quantifier: Quantifier,
-        params: Vec<Param<VariableIdx>>,
-        expr: ExprIdx,
-    },
+    Call { expr: ExprIdx, args: Vec<ExprIdx> },
+    Unary { op: UnaryOp, inner: ExprIdx },
+    Bin { lhs: ExprIdx, op: BinaryOp, rhs: ExprIdx },
+    Ref { is_mut: bool, expr: ExprIdx },
+    Index { base: ExprIdx, index: ExprIdx },
+    List { elems: Vec<ExprIdx> },
+    Quantifier { quantifier: Quantifier, params: Vec<Param<VariableIdx>>, expr: ExprIdx },
     Result,
-    Range {
-        lhs: Option<ExprIdx>,
-        rhs: Option<ExprIdx>,
-    },
+    Range { lhs: Option<ExprIdx>, rhs: Option<ExprIdx> },
     Return(Option<ExprIdx>),
     NotNull(ExprIdx),
 }
@@ -253,21 +210,9 @@ pub struct Statement {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StatementData {
     Expr(ExprIdx),
-    Let {
-        variable: VariableRef,
-        explicit_ty: Option<TypeSrcId>,
-        initializer: ExprIdx,
-    },
-    While {
-        expr: ExprIdx,
-        invariants: Vec<Vec<ExprIdx>>,
-        decreases: Decreases,
-        body: Block,
-    },
-    Assertion {
-        kind: AssertionKind,
-        exprs: Vec<ExprIdx>,
-    },
+    Let { variable: VariableRef, explicit_ty: Option<TypeSrcId>, initializer: ExprIdx },
+    While { expr: ExprIdx, invariants: Vec<Vec<ExprIdx>>, decreases: Decreases, body: Block },
+    Assertion { kind: AssertionKind, exprs: Vec<ExprIdx> },
 }
 
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Hash)]

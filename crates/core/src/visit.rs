@@ -226,12 +226,7 @@ where
 {
     fn init(db: &'db dyn crate::Db, vcx: VisitContext) -> Self {
         let root = hir::file::parse_file(db, vcx.cx.def().file(db)).tree();
-        Self {
-            db,
-            root,
-            vcx,
-            order: O::default(),
-        }
+        Self { db, root, vcx, order: O::default() }
     }
 
     #[must_use]
@@ -337,9 +332,7 @@ where
                 self.walk_ty(visitor, inner)?;
             }
             TDK::Struct(_) => {}
-            TDK::Function {
-                params, return_ty, ..
-            } => {
+            TDK::Function { params, return_ty, .. } => {
                 for param in params.iter() {
                     self.walk_ty(visitor, param.ty)?;
                 }
@@ -396,9 +389,7 @@ where
             ExprData::Self_ => {
                 visitor.visit_self(&self.vcx, &self.vcx.source_map[expr])?;
             }
-            ExprData::Field {
-                expr: inner, field, ..
-            } => {
+            ExprData::Field { expr: inner, field, .. } => {
                 self.walk_expr(visitor, inner)?;
                 let expr_src = self.vcx.source_map.expr_src(expr);
 
@@ -502,23 +493,14 @@ where
 
             match &stmt.data {
                 StatementData::Expr(expr) => self.walk_expr(visitor, *expr)?,
-                &StatementData::Let {
-                    variable,
-                    explicit_ty,
-                    initializer,
-                } => {
+                &StatementData::Let { variable, explicit_ty, initializer } => {
                     visitor.visit_var(&self.vcx, variable)?;
                     if let Some(ty) = explicit_ty {
                         self.walk_ty(visitor, ty)?;
                     }
                     self.walk_expr(visitor, initializer)?;
                 }
-                StatementData::While {
-                    expr,
-                    invariants,
-                    decreases,
-                    body,
-                } => {
+                StatementData::While { expr, invariants, decreases, body } => {
                     self.walk_expr(visitor, *expr)?;
                     for inv in invariants {
                         self.walk_exprs(visitor, inv)?;

@@ -212,16 +212,15 @@ impl FoldingTree {
             Option<&'b folding_tree::FoldingTree<mir::ProjectionList>>,
         ),
     > {
-        self.inner
-            .iter()
-            .map(|(slot, a_ft)| (slot, Some(a_ft), other.inner.get(slot)))
-            .chain(other.inner.iter().filter_map(|(slot, b_ft)| {
+        self.inner.iter().map(|(slot, a_ft)| (slot, Some(a_ft), other.inner.get(slot))).chain(
+            other.inner.iter().filter_map(|(slot, b_ft)| {
                 if self.inner.contains_idx(slot) {
                     None
                 } else {
                     Some((slot, None, Some(b_ft)))
                 }
-            }))
+            }),
+        )
     }
 
     fn fold(&mut self, body: &mir::Body, p: mir::Place) {

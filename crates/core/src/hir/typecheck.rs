@@ -56,38 +56,22 @@ impl VariableDeclaration {
     pub(crate) fn new_let(name: ast::Name) -> Self {
         let name = ast::NameOrNameRef::Name(name);
         let ast = AstPtr::new(&name);
-        VariableDeclaration {
-            ast,
-            name: name.into(),
-            kind: VariableDeclarationKind::Let,
-        }
+        VariableDeclaration { ast, name: name.into(), kind: VariableDeclarationKind::Let }
     }
     pub(crate) fn new_param(name: ast::Name) -> Self {
         let name = ast::NameOrNameRef::Name(name);
         let ast = AstPtr::new(&name);
-        VariableDeclaration {
-            ast,
-            name: name.into(),
-            kind: VariableDeclarationKind::Parameter,
-        }
+        VariableDeclaration { ast, name: name.into(), kind: VariableDeclarationKind::Parameter }
     }
     pub(crate) fn new_function(name: ast::Name) -> Self {
         let name = ast::NameOrNameRef::Name(name);
         let ast = AstPtr::new(&name);
-        VariableDeclaration {
-            ast,
-            name: name.into(),
-            kind: VariableDeclarationKind::Function,
-        }
+        VariableDeclaration { ast, name: name.into(), kind: VariableDeclarationKind::Function }
     }
     pub(crate) fn new_undefined(name: ast::NameRef) -> Self {
         let name = ast::NameOrNameRef::NameRef(name);
         let ast = AstPtr::new(&name);
-        VariableDeclaration {
-            ast,
-            name: name.into(),
-            kind: VariableDeclarationKind::Undefined,
-        }
+        VariableDeclaration { ast, name: name.into(), kind: VariableDeclarationKind::Undefined }
     }
 
     pub fn ast_name_or_name_ref(&self, root: &ast::SourceFile) -> ast::NameOrNameRef {
@@ -112,10 +96,7 @@ impl TypeId {
     pub(super) fn strip_ghost(self, typer: &mut impl TypingMut) -> TypeId {
         let data = typer.ty_data(self);
         if data.is_ghost {
-            typer.alloc_ty_data(TypeData {
-                is_ghost: false,
-                kind: data.kind,
-            })
+            typer.alloc_ty_data(TypeData { is_ghost: false, kind: data.kind })
         } else {
             self
         }
@@ -123,10 +104,7 @@ impl TypeId {
     pub(super) fn set_ghost(self, typer: &mut impl TypingMut, ghost: bool) -> TypeId {
         let data = typer.ty_data(self);
         if data.is_ghost != ghost {
-            typer.alloc_ty_data(TypeData {
-                is_ghost: ghost,
-                kind: data.kind,
-            })
+            typer.alloc_ty_data(TypeData { is_ghost: ghost, kind: data.kind })
         } else {
             self
         }
@@ -280,11 +258,7 @@ impl<'a> TypeChecker<'a> {
                             None => SpanOrAstPtr::Span(p.name.span()),
                         },
                     );
-                    Param {
-                        is_ghost: p.is_ghost,
-                        name: var,
-                        ty,
-                    }
+                    Param { is_ghost: p.is_ghost, name: var, ty }
                 })
                 .collect();
 
@@ -369,10 +343,7 @@ impl<'a> TypeChecker<'a> {
         self.scope.flags = f(self.scope.flags);
     }
     fn pop_scope(&mut self) {
-        self.scope = self
-            .scope_stack
-            .pop()
-            .expect("tried to pop scope while none was pushed");
+        self.scope = self.scope_stack.pop().expect("tried to pop scope while none was pushed");
     }
     pub fn expr_ty(&self, expr: ExprIdx) -> TypeId {
         self.cx.expr_arena[expr].ty
@@ -470,10 +441,7 @@ impl<'a> TypeChecker<'a> {
     ) -> Statement {
         Statement::new(
             span.span(),
-            StatementData::Assertion {
-                kind,
-                exprs: self.check_boolean_exprs(exprs),
-            },
+            StatementData::Assertion { kind, exprs: self.check_boolean_exprs(exprs) },
         )
     }
     fn check_decreases(&mut self, decreases: Option<ast::Decreases>) -> Decreases {
@@ -504,10 +472,7 @@ impl<'a> TypeChecker<'a> {
 
                     let ty = if let Some(ty) = explicit_ty {
                         let ty = self.cx[ty].ty;
-                        let span = it
-                            .initializer()
-                            .map(|i| i.span())
-                            .unwrap_or_else(|| it.span());
+                        let span = it.initializer().map(|i| i.span()).unwrap_or_else(|| it.span());
                         self.expect_ty(span, ty, self.expr_ty(initializer));
                         ty
                     } else {
@@ -529,14 +494,7 @@ impl<'a> TypeChecker<'a> {
                         var_span,
                     );
 
-                    Statement::new(
-                        span,
-                        StatementData::Let {
-                            variable,
-                            explicit_ty,
-                            initializer,
-                        },
-                    )
+                    Statement::new(span, StatementData::Let { variable, explicit_ty, initializer })
                 }
                 ast::Stmt::Item(it) => Statement::new(
                     it.span(),
@@ -570,11 +528,7 @@ impl<'a> TypeChecker<'a> {
                         body: if let Some(block) = it.block_expr() {
                             self.check_block(&block, id)
                         } else {
-                            Block {
-                                stmts: Vec::new(),
-                                tail_expr: None,
-                                return_ty: void(),
-                            }
+                            Block { stmts: Vec::new(), tail_expr: None, return_ty: void() }
                         },
                     },
                 ),
@@ -582,20 +536,12 @@ impl<'a> TypeChecker<'a> {
             .collect();
         let (tail_expr, return_ty) = if let Some(tail_expr) = block.tail_expr() {
             let tail_expr = self.check(tail_expr.span(), Some(tail_expr));
-            (
-                Some(tail_expr),
-                self.expr_ty(tail_expr)
-                    .with_ghost(self, self.scope.is_ghost()),
-            )
+            (Some(tail_expr), self.expr_ty(tail_expr).with_ghost(self, self.scope.is_ghost()))
         } else {
             (None, void().with_ghost(self, self.scope.is_ghost()))
         };
         self.pop_scope();
-        Block {
-            stmts,
-            tail_expr,
-            return_ty: return_ty.ty(self),
-        }
+        Block { stmts, tail_expr, return_ty: return_ty.ty(self) }
     }
     pub fn declare_variable(
         &mut self,
@@ -604,10 +550,10 @@ impl<'a> TypeChecker<'a> {
         ty_span: impl Into<SpanOrAstPtr<ast::Type>>,
     ) -> VariableIdx {
         let name = decl.name();
-        let var = self.cx.declarations.alloc(
-            decl,
-            Variable::new(self.db, VariableId::new(self.db, name.clone())),
-        );
+        let var = self
+            .cx
+            .declarations
+            .alloc(decl, Variable::new(self.db, VariableId::new(self.db, name.clone())));
         self.scope.insert(name, var);
         self.cx.var_types.insert(var, ty);
         let ty_src = ty_span.into();
@@ -616,12 +562,7 @@ impl<'a> TypeChecker<'a> {
         var
     }
     pub fn var_ty(&self, var: VariableIdx) -> TypeId {
-        self.cx[*self
-            .cx
-            .var_types
-            .get(var)
-            .expect("VariableIdx was not in types map")]
-        .ty
+        self.cx[*self.cx.var_types.get(var).expect("VariableIdx was not in types map")].ty
     }
     pub fn lookup_name(&mut self, name: &ast::NameRef) -> VariableIdx {
         if let Some(var) = self.scope.get(&name.clone().into()) {
@@ -634,11 +575,7 @@ impl<'a> TypeChecker<'a> {
                 TypeCheckErrorKind::UndefinedVariable(name.to_string()),
             );
             let ty = self.unsourced_ty(err_ty);
-            self.declare_variable(
-                VariableDeclaration::new_undefined(name.clone()),
-                ty,
-                name.span(),
-            )
+            self.declare_variable(VariableDeclaration::new_undefined(name.clone()), ty, name.span())
         }
     }
 
@@ -655,10 +592,7 @@ impl<'a> TypeChecker<'a> {
     }
 
     fn return_ty(&self) -> TypeId {
-        self.cx
-            .return_ty
-            .map(|ty| self.cx[ty].ty)
-            .unwrap_or_else(void)
+        self.cx.return_ty.map(|ty| self.cx[ty].ty).unwrap_or_else(void)
     }
 
     fn self_ty(&self) -> Option<TypeId> {
@@ -724,10 +658,7 @@ impl Typed for TypeId {
             if data.is_ghost {
                 self
             } else {
-                typing.alloc_ty_data(TypeData {
-                    is_ghost: true,
-                    kind: data.kind,
-                })
+                typing.alloc_ty_data(TypeData { is_ghost: true, kind: data.kind })
             }
         } else {
             self
