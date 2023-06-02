@@ -1,5 +1,5 @@
 mod expression;
-mod typer;
+mod typing;
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -17,19 +17,20 @@ use tracing::error;
 use crate::{
     def::StructField,
     hir::{
-        self, AssertionKind, Block, Condition, Decreases, Expr, ExprData, ExprIdx, Field, Name,
-        Param, Primitive, Statement, StatementData, TypeData, Variable, VariableId, VariableIdx,
-        VariableRef,
+        self, AssertionKind, Block, Condition, Decreases, Expr, ExprData, ExprIdx, Name, Param,
+        Statement, StatementData, Variable, VariableId, VariableIdx, VariableRef,
+    },
+    types::{
+        builtin::{error, ghost_bool, void},
+        Field, TypeData, TypeId, TypeProvider, TypeTable, Typer,
     },
 };
 
-pub use typer::{builtin, TypeId};
-use typer::{builtin::*, Typer};
+pub(crate) use typing::{TypingMut, TypingMutExt};
 
 use super::{
     item_context::{FunctionContext, SpanOrAstPtr},
-    types::TypeProvider,
-    ItemContext, ItemSourceMap, TypeSrc, TypeSrcId, TypeTable,
+    ItemContext, ItemSourceMap, TypeSrc, TypeSrcId,
 };
 
 fn id<T>(t: T) -> T {
@@ -108,20 +109,41 @@ impl Spanned for &'_ VariableDeclaration {
 }
 
 impl TypeId {
-    pub(super) fn tc_strip_ghost(self, typer: &mut Typer) -> TypeId {
-        match typer.probe_type(self) {
-            TypeData::Ghost(inner) => inner,
-            _ => self,
+    pub(super) fn strip_ghost(self, typer: &mut impl TypingMut) -> TypeId {
+        let data = typer.ty_data(self);
+        if data.is_ghost {
+            typer.alloc_ty_data(TypeData {
+                is_ghost: false,
+                kind: data.kind,
+            })
+        } else {
+            self
         }
     }
-    pub(super) fn with_ghost(self, ghost: bool) -> impl Typed + Copy {
-        Ghosted(self, ghost)
+    pub(super) fn set_ghost(self, typer: &mut impl TypingMut, ghost: bool) -> TypeId {
+        let data = typer.ty_data(self);
+        if data.is_ghost != ghost {
+            typer.alloc_ty_data(TypeData {
+                is_ghost: ghost,
+                kind: data.kind,
+            })
+        } else {
+            self
+        }
     }
-    pub(super) fn ghost(self) -> impl Typed + Copy {
-        self.with_ghost(true)
+    /// If `ghost` is true, then the returned type id will definitely be ghost,
+    /// otherwise, it will have the ghost label of `self`
+    pub(super) fn with_ghost(self, typer: &mut impl TypingMut, ghost: bool) -> TypeId {
+        if !ghost {
+            return self;
+        }
+        self.set_ghost(typer, true)
     }
-    pub(super) fn tc_is_ghost(self, typer: &mut Typer) -> bool {
-        matches!(typer.probe_type(self), TypeData::Ghost(_))
+    pub(super) fn ghosted(self, typer: &mut impl TypingMut) -> TypeId {
+        self.with_ghost(typer, true)
+    }
+    pub(super) fn is_ghost(self, typer: &impl TypeProvider) -> bool {
+        typer.ty_data(self).is_ghost
     }
 }
 
@@ -162,7 +184,7 @@ impl Scope {
     }
 }
 
-pub struct TypeChecker<'w> {
+pub(crate) struct TypeChecker<'w> {
     db: &'w dyn crate::Db,
     scope: Scope,
     scope_stack: Vec<Scope>,
@@ -174,17 +196,18 @@ pub struct TypeChecker<'w> {
 
 impl From<TypeChecker<'_>> for hir::DefinitionHir {
     fn from(mut tc: TypeChecker<'_>) -> Self {
-        tc.cx.ty_table = Arc::new(TypeTable::new(
+        tc.cx.ty_table = Some(Arc::new(TypeTable::new(
             tc.typer.canonicalized().collect_vec(),
             tc.cx
-                .structs
-                .values()
-                .flat_map(|fields| fields.iter().map(|&(f, ty_src)| (f.into(), ty_src)))
+                .file_context
+                .struct_field_types
+                .iter()
+                .map(|(&f, &ty_src)| (f.into(), ty_src))
                 .chain(tc.field_tys.iter().map(|(&f, &ty)| (f, ty)))
                 .collect_vec()
                 .into_iter()
-                .map(|(f, ty)| (f, ty.ty(&mut tc))),
-        ));
+                .map(|(f, ty)| (f, ty.ty(&tc))),
+        )));
 
         hir::DefinitionHir::new(tc.db, tc.cx.def(), tc.cx, tc.source_map)
     }
@@ -192,16 +215,40 @@ impl From<TypeChecker<'_>> for hir::DefinitionHir {
 
 impl<'a> TypeChecker<'a> {
     pub(crate) fn init(db: &'a dyn crate::Db, def: hir::Def) -> Self {
-        let typer = Typer::new();
+        let (fc, source_map) = super::file_context::initialize_file_context(db, def.file(db));
+
         let mut checker = Self {
             db,
-            typer,
+            typer: fc.typer(),
             field_tys: Default::default(),
             scope: Default::default(),
             scope_stack: vec![],
-            source_map: Default::default(),
-            cx: ItemContext::new(def),
+            source_map,
+            cx: ItemContext::new(def, fc),
         };
+
+        let functions: HashMap<_, _> = checker
+            .cx
+            .file_context
+            .function_types
+            .values()
+            .copied()
+            .collect_vec()
+            .into_iter()
+            .map(|(f, f_ty)| {
+                let f_ast = f.ast_node(db);
+                let ty = checker.unsourced_ty(f_ty);
+
+                (
+                    f.name(db),
+                    checker.declare_variable(
+                        VariableDeclaration::new_function(f_ast.name().unwrap()),
+                        ty,
+                        f_ast.name().unwrap().span(),
+                    ),
+                )
+            })
+            .collect();
 
         let is_ghost = match def.kind(db) {
             hir::DefKind::Function(f) => f.ast_node(db).attr_flags().is_ghost(),
@@ -214,105 +261,17 @@ impl<'a> TypeChecker<'a> {
             checker = checker.ghosted();
         }
 
-        for def in hir::file_definitions(db, def.file(db)) {
-            let f = match def.kind(db) {
-                hir::DefKind::Function(f) => f,
-                hir::DefKind::Struct(s) => {
-                    let s_ast = s.ast_node(db);
-
-                    let s_ty = *checker
-                        .cx
-                        .named_types
-                        .entry(s.name(db))
-                        .or_insert_with(|| checker.typer.ty_id(TypeData::Struct(s)));
-                    if let Some(name) = s_ast.name() {
-                        let ts = checker.alloc_type_src(
-                            TypeSrc {
-                                data: Some(TypeData::Struct(s)),
-                                ty: s_ty,
-                            },
-                            name.span(),
-                        );
-                        checker.cx.struct_types.insert(s, ts);
-                    }
-
-                    let fields = s
-                        .fields(db)
-                        .map(|f| {
-                            let data = f.ast_node(db).ty();
-                            let ty = checker.expect_find_type_src(&data);
-                            let ty_id = *checker.field_tys.entry(f.into()).or_insert_with(|| ty);
-                            (f, ty_id)
-                        })
-                        .collect();
-                    checker.cx.structs.insert(s, fields);
-
-                    continue;
-                }
-                _ => continue,
-            };
-            let is_ghost = f.attrs(db).is_ghost();
-            let f_ast = f.ast_node(db);
-
-            let params = f
-                .param_list(db)
-                .map(|param| {
-                    let ty = checker.expect_find_type_src(&param.ty);
-                    Param {
-                        is_ghost: param.is_ghost,
-                        name: param.name.into(),
-                        ty: checker.ghostify(ty, is_ghost),
-                    }
-                })
-                .collect();
-            let return_ty_src = f_ast.ret().map(|ty| {
-                checker
-                    .find_type_src(&ty)
-                    .with_ghost(is_ghost)
-                    .ts(&mut checker)
-            });
-            let return_ty = return_ty_src
-                .map(|ts| checker.cx[ts].ty)
-                .unwrap_or_else(void)
-                .with_ghost(is_ghost)
-                .ty(&mut checker);
-
-            if let Some(name) = f_ast.name() {
-                let ty = checker.ty_id(TypeData::Function {
-                    attrs: f.attrs(db),
-                    name: Some(f.name(db).clone()),
-                    params,
-                    return_ty,
-                });
-                let ts = checker.unsourced_ty(ty);
-                let name_span = name.span();
-                let var = checker.declare_variable(
-                    VariableDeclaration::new_function(name),
-                    ts,
-                    name_span,
-                );
-
-                if let hir::DefKind::Function(_) = def.kind(db) {
-                    checker.cx.function_context = Some(FunctionContext {
-                        function_var: VariableRef::new(var, name_span),
-                        decreases: Default::default(),
-                        conditions: vec![],
-                        return_ty_src,
-                    });
-                }
-            }
-        }
-
         if let hir::DefKind::Function(f) = def.kind(db) {
             let f_ast = f.ast_node(db);
+            let function_var =
+                VariableRef::new(functions[&f.name(db)], f_ast.name().unwrap().span());
 
             checker.cx.params = f
                 .param_list(db)
                 .map(|p| {
                     let ty = checker
                         .expect_find_type_src(&p.ty)
-                        .with_ghost(is_ghost || p.is_ghost)
-                        .ts(&mut checker);
+                        .with_ghost(&mut checker, is_ghost || p.is_ghost);
                     let var = checker.declare_variable(
                         VariableDeclaration::new_param(p.name.clone()),
                         ty,
@@ -348,13 +307,15 @@ impl<'a> TypeChecker<'a> {
 
             let decreases = checker.check_decreases(f_ast.decreases());
 
-            if let Some(cx) = &mut checker.cx.function_context {
-                cx.conditions = conditions;
-                cx.decreases = decreases;
-            }
+            checker.cx.function_context = Some(FunctionContext {
+                function_var,
+                conditions,
+                decreases,
+                return_ty_src: Default::default(),
+            });
 
             if !f_ast.is_ghost() && f_ast.body().is_none() {
-                checker.push_error(
+                checker.ty_error(
                     f_ast
                         .semicolon_token()
                         .map(|t| t.span())
@@ -391,9 +352,6 @@ impl<'a> TypeChecker<'a> {
     pub fn set_return_ty(&mut self, ty: TypeSrcId) {
         self.cx.return_ty = Some(ty);
     }
-    pub fn set_self_ty(&mut self, ty: TypeSrcId) {
-        self.cx.self_ty = Some(ty);
-    }
 
     pub fn ghosted(mut self) -> Self {
         debug_assert!(
@@ -425,12 +383,8 @@ impl<'a> TypeChecker<'a> {
     pub fn check(&mut self, fallback_span: impl Spanned, expr: Option<ast::Expr>) -> ExprIdx {
         expression::check_opt(self, fallback_span, expr)
     }
-
-    fn ty_data(&self, ty: TypeId) -> TypeData {
-        self.typer.probe_type(ty)
-    }
     pub(crate) fn pretty_ty(&self, ty: TypeId) -> String {
-        hir::pretty::ty(self, self.db, ty)
+        hir::pretty::ty(self, self.db, false, ty)
     }
     pub fn expect_ty(
         &mut self,
@@ -442,7 +396,7 @@ impl<'a> TypeChecker<'a> {
         let actual = actual.ty(self);
         match self.unify_inner(expected, actual) {
             Some(x) => x,
-            None => self.push_error(
+            None => self.ty_error(
                 span.span(),
                 None,
                 None,
@@ -458,7 +412,7 @@ impl<'a> TypeChecker<'a> {
         let t2 = t2.ty(self);
         match self.unify_inner(t1, t2) {
             Some(x) => x,
-            None => self.push_error(
+            None => self.ty_error(
                 span,
                 None,
                 None,
@@ -472,25 +426,6 @@ impl<'a> TypeChecker<'a> {
 
         self.typer.unify(expected, actual)
     }
-    fn push_error(
-        &self,
-        span: impl Spanned,
-        label: Option<String>,
-        help: Option<String>,
-        kind: TypeCheckErrorKind,
-    ) -> TypeId {
-        let span = span.span();
-        let err = TypeCheckError {
-            input: self.cx.def.file(self.db).text(self.db).clone(),
-            span,
-            label,
-            help,
-            kind,
-        };
-        TypeCheckErrors::push(self.db, err);
-        // eprintln!("{:?}", miette::Error::new(err));
-        error()
-    }
     fn expr_error(
         &mut self,
         expr_or_span: impl Into<SpanOrAstPtr<ast::Expr>>,
@@ -500,7 +435,7 @@ impl<'a> TypeChecker<'a> {
     ) -> ExprIdx {
         let expr_or_span = expr_or_span.into();
 
-        self.push_error(&expr_or_span, label, help, kind);
+        self.ty_error(&expr_or_span, label, help, kind);
 
         self.alloc_expr(ExprData::Missing.typed(error()), expr_or_span)
     }
@@ -541,101 +476,6 @@ impl<'a> TypeChecker<'a> {
             },
         )
     }
-    pub(super) fn find_type_src(&mut self, ast_ty: &ast::Type) -> TypeSrcId {
-        let (td, ty) = match ast_ty {
-            mist_syntax::ast::Type::NamedType(ast_name) => {
-                let name = ast_name.name().unwrap();
-                let ty = self.find_named_type(ast_name, name.into());
-                let td = match self.ty_data(ty) {
-                    TypeData::Struct(s) => TypeData::Struct(s),
-                    TypeData::Error => TypeData::Error,
-                    _ => todo!(),
-                };
-                (td, ty)
-            }
-            mist_syntax::ast::Type::Primitive(it) => match () {
-                _ if it.int_token().is_some() => (TypeData::Primitive(Primitive::Int), int()),
-                _ if it.bool_token().is_some() => (TypeData::Primitive(Primitive::Bool), bool()),
-                _ => {
-                    todo!();
-                    // TypeData::Error
-                }
-            },
-            mist_syntax::ast::Type::Optional(it) => {
-                let inner = if let Some(ty) = it.ty() {
-                    self.find_type_src(&ty)
-                } else {
-                    let ty = self.new_free();
-                    self.unsourced_ty(ty)
-                };
-                let td = TypeData::Optional(inner);
-                let ty = td.canonical(&self.cx);
-                let ty = self.ty_id(ty);
-                (td, ty)
-            }
-            mist_syntax::ast::Type::RefType(r) => {
-                let is_mut = r.mut_token().is_some();
-
-                let inner = if let Some(ty) = r.ty() {
-                    self.find_type_src(&ty)
-                } else {
-                    todo!()
-                    // let err = TypeCheckError {
-                    //     input: program.program(db).to_string(),
-                    //     span: r.span(),
-                    //     label: None,
-                    //     help: None,
-                    //     kind: TypeCheckErrorKind::UndefinedType("what is this".to_string()),
-                    // };
-                    // eprintln!("{:?}", miette::Error::new(err));
-
-                    // TypeData::Ref {
-                    //     is_mut,
-                    //     inner: Type::error(db),
-                    // }
-                };
-                let td = TypeData::Ref { is_mut, inner };
-                let ty = td.canonical(&self.cx);
-                let ty = self.ty_id(ty);
-                (td, ty)
-            }
-            mist_syntax::ast::Type::ListType(t) => {
-                let inner = if let Some(ty) = t.ty() {
-                    self.find_type_src(&ty)
-                } else {
-                    let ty = self.new_free();
-                    self.unsourced_ty(ty)
-                };
-                let td = TypeData::List(inner);
-                let ty = td.canonical(&self.cx);
-                let ty = self.ty_id(ty);
-                (td, ty)
-            }
-            mist_syntax::ast::Type::GhostType(t) => {
-                let inner = if let Some(ty) = t.ty() {
-                    self.find_type_src(&ty)
-                } else {
-                    todo!()
-                    // let err = TypeCheckError {
-                    //     input: program.program(db).to_string(),
-                    //     span: t.span(),
-                    //     label: None,
-                    //     help: None,
-                    //     kind: TypeCheckErrorKind::UndefinedType("ghost of what".to_string()),
-                    // };
-                    // eprintln!("{:?}", miette::Error::new(err));
-                    // return Type::error(db);
-                };
-                let td = TypeData::Ghost(inner);
-                let ty = td.canonical(&self.cx);
-                let ty = self.ty_id(ty);
-                (td, ty)
-            }
-        };
-
-        let ts = TypeSrc { data: Some(td), ty };
-        self.alloc_type_src(ts, ast_ty)
-    }
     fn check_decreases(&mut self, decreases: Option<ast::Decreases>) -> Decreases {
         if let Some(d) = decreases {
             if d.underscore_token().is_some() {
@@ -673,8 +513,7 @@ impl<'a> TypeChecker<'a> {
                     } else {
                         self.expr_ty(initializer)
                     }
-                    .with_ghost(self.scope.is_ghost())
-                    .ty(self);
+                    .with_ghost(self, self.scope.is_ghost());
 
                     let var_span = name.span();
                     let var_ty = explicit_ty.unwrap_or_else(|| self.unsourced_ty(ty));
@@ -745,10 +584,11 @@ impl<'a> TypeChecker<'a> {
             let tail_expr = self.check(tail_expr.span(), Some(tail_expr));
             (
                 Some(tail_expr),
-                self.expr_ty(tail_expr).with_ghost(self.scope.is_ghost()),
+                self.expr_ty(tail_expr)
+                    .with_ghost(self, self.scope.is_ghost()),
             )
         } else {
-            (None, void().with_ghost(self.scope.is_ghost()))
+            (None, void().with_ghost(self, self.scope.is_ghost()))
         };
         self.pop_scope();
         Block {
@@ -756,17 +596,6 @@ impl<'a> TypeChecker<'a> {
             tail_expr,
             return_ty: return_ty.ty(self),
         }
-    }
-    pub fn alloc_type_src(
-        &mut self,
-        ts: TypeSrc,
-        ty_src: impl Into<SpanOrAstPtr<ast::Type>>,
-    ) -> TypeSrcId {
-        let id = self.cx.ty_src_arena.alloc(ts);
-        let span = ty_src.into();
-        self.source_map.ty_src_map.insert(id, span.clone());
-        self.source_map.ty_src_map_back.insert(span, id);
-        id
     }
     pub fn declare_variable(
         &mut self,
@@ -798,7 +627,7 @@ impl<'a> TypeChecker<'a> {
         if let Some(var) = self.scope.get(&name.clone().into()) {
             var
         } else {
-            let err_ty = self.push_error(
+            let err_ty = self.ty_error(
                 name,
                 None,
                 None,
@@ -813,37 +642,16 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    pub(super) fn find_named_type(&self, span: impl Spanned, name: Name) -> TypeId {
-        self.cx.named_types.get(&name).copied().unwrap_or_else(|| {
-            self.push_error(
-                span,
-                None,
-                None,
-                TypeCheckErrorKind::UndefinedType(name.to_string()),
-            )
-        })
-    }
-
     fn struct_fields(&self, s: crate::hir::Struct) -> impl Iterator<Item = StructField> + 'a {
         s.fields(self.db)
     }
 
-    fn is_ghost(&mut self, e: ExprIdx) -> bool {
-        self.expr_ty(e).tc_is_ghost(&mut self.typer)
-    }
-
-    pub(super) fn unsourced_ty(&mut self, ty: impl Typed) -> TypeSrcId {
-        let ty = ty.ty(self);
-        self.cx.ty_src_arena.alloc(TypeSrc { data: None, ty })
+    fn is_ghost(&self, e: ExprIdx) -> bool {
+        self.expr_ty(e).is_ghost(self)
     }
 
     pub(super) fn ghostify(&mut self, ts: TypeSrcId, is_ghost: bool) -> TypeSrcId {
-        let ty = self.cx[ts].ty;
-        if is_ghost && !ty.tc_is_ghost(&mut self.typer) {
-            self.unsourced_ty(ty.ghost())
-        } else {
-            ts
-        }
+        ts.with_ghost(self, is_ghost)
     }
 
     fn return_ty(&self) -> TypeId {
@@ -856,71 +664,98 @@ impl<'a> TypeChecker<'a> {
     fn self_ty(&self) -> Option<TypeId> {
         self.cx.self_ty.map(|ty| self.cx[ty].ty)
     }
+}
 
-    pub(super) fn expect_find_type(&mut self, ty: &Option<ast::Type>) -> TypeId {
-        match ty {
-            Some(ty) => {
-                let ts = self.find_type_src(ty);
-                self.cx[ts].ty
-            }
-            None => error(),
-        }
+impl<'a> TypeProvider for TypeChecker<'a> {
+    fn ty_data(&self, ty: TypeId) -> TypeData {
+        self.typer.probe_type(ty)
     }
-    pub(super) fn expect_find_type_src(&mut self, ty: &Option<ast::Type>) -> TypeSrcId {
-        match ty {
-            Some(ty) => self.find_type_src(ty),
-            None => self.unsourced_ty(error()),
-        }
+
+    fn struct_field_ty(&self, f: StructField) -> TypeId {
+        self.field_tys[&f.into()].ty(self)
+    }
+}
+
+impl<'a> TypingMut for TypeChecker<'a> {
+    fn push_error(&self, err: TypeCheckError) {
+        TypeCheckErrors::push(self.db, err);
+    }
+
+    fn ty_src(&self, ty_src_id: TypeSrcId) -> &TypeSrc {
+        &self.cx.file_context.ty_src_arena[ty_src_id]
+    }
+
+    fn lookup_named_ty(&self, name: Name) -> Option<TypeId> {
+        self.cx.file_context.named_types.get(&name).copied()
     }
 
     fn new_free(&mut self) -> TypeId {
         self.typer.new_free()
     }
+
+    fn alloc_ty_data(&mut self, data: TypeData) -> TypeId {
+        self.typer.ty_id(data)
+    }
+
+    fn alloc_ty_src(&mut self, ts: TypeSrc, ty_src: Option<SpanOrAstPtr<ast::Type>>) -> TypeSrcId {
+        let id = self.cx.file_context.ty_src_arena.alloc(ts);
+        if let Some(src) = ty_src {
+            self.source_map.ty_src_map.insert(id, src.clone());
+            self.source_map.ty_src_map_back.insert(src, id);
+        }
+        id
+    }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Ghosted<T>(pub T, pub bool);
-impl Ghosted<TypeSrcId> {
-    pub fn ts(&self, tc: &mut TypeChecker) -> TypeSrcId {
-        if self.1 {
-            tc.ghostify(self.0, self.1)
-        } else {
-            self.0
-        }
-    }
-}
-pub trait Typed {
-    fn with_ghost(self, ghost: bool) -> Ghosted<Self>
+pub(crate) trait Typed {
+    fn with_ghost(self, typing: &mut impl TypingMut, ghost: bool) -> Self
     where
-        Self: Sized,
-    {
-        Ghosted(self, ghost)
-    }
-    fn ty(&self, tc: &mut TypeChecker) -> TypeId;
+        Self: Sized;
+    fn ty(&self, tc: &impl TypingMut) -> TypeId;
 }
 
 impl Typed for TypeId {
-    fn ty(&self, _tc: &mut TypeChecker) -> TypeId {
+    fn with_ghost(self, typing: &mut impl TypingMut, ghost: bool) -> Self
+    where
+        Self: Sized,
+    {
+        if ghost {
+            let data = typing.ty_data(self);
+            if data.is_ghost {
+                self
+            } else {
+                typing.alloc_ty_data(TypeData {
+                    is_ghost: true,
+                    kind: data.kind,
+                })
+            }
+        } else {
+            self
+        }
+    }
+    fn ty(&self, _tc: &impl TypeProvider) -> TypeId {
         *self
     }
 }
 impl Typed for TypeSrcId {
-    fn ty(&self, tc: &mut TypeChecker) -> TypeId {
-        tc.cx[*self].ty
-    }
-}
-impl<T: Typed> Typed for Ghosted<T> {
-    fn ty(&self, tc: &mut TypeChecker) -> TypeId {
-        if self.1 {
-            let ty = self.0.ty(tc);
-            if ty.tc_is_ghost(&mut tc.typer) {
-                ty
+    fn with_ghost(self, typing: &mut impl TypingMut, ghost: bool) -> Self
+    where
+        Self: Sized,
+    {
+        if ghost {
+            let ty_src = typing.ty_src(self);
+            if typing.ty_data(ty_src.ty).is_ghost {
+                self
             } else {
-                tc.ty_id(TypeData::Ghost(ty))
+                let ty = ty_src.ty.with_ghost(typing, ghost);
+                typing.unsourced_ty(ty)
             }
         } else {
-            self.0.ty(tc)
+            self
         }
+    }
+    fn ty(&self, tc: &impl TypingMut) -> TypeId {
+        tc.ty_src(*self).ty
     }
 }
 
@@ -938,16 +773,11 @@ impl hir::pretty::PrettyPrint for ItemContext {
     }
 
     fn resolve_ty(&self, ty: TypeId) -> TypeData {
-        if self.ty_table.contains_ty(ty) {
-            self.ty_table.ty_data(ty).map(|t| t.id())
-        } else {
-            error!(?ty, "tried to get type id which was not in ItemContext");
-            TypeData::Error
-        }
+        self.ty_data(ty)
     }
 
     fn resolve_src_ty(&self, ts: TypeSrcId) -> TypeId {
-        self.ty_src_arena[ts].ty
+        self.file_context.ty_src_arena[ts].ty
     }
 }
 
@@ -969,7 +799,7 @@ impl hir::pretty::PrettyPrint for TypeChecker<'_> {
     }
 
     fn resolve_src_ty(&self, ts: TypeSrcId) -> TypeId {
-        self.cx.ty_src_arena[ts].ty
+        self.cx.file_context.ty_src_arena[ts].ty
     }
 }
 
@@ -978,7 +808,7 @@ impl ItemContext {
         hir::pretty::expr(self, db, expr)
     }
     pub fn pretty_ty(&self, db: &dyn crate::Db, ty: TypeId) -> String {
-        hir::pretty::ty(self, db, ty)
+        hir::pretty::ty(self, db, false, ty)
     }
 }
 
@@ -988,8 +818,6 @@ pub struct TypeCheckErrors(TypeCheckError);
 #[derive(Debug, Diagnostic, Clone, Eq, PartialEq, Error)]
 #[error("{kind}")]
 pub struct TypeCheckError {
-    #[source_code]
-    pub input: String,
     #[label("{}", label.as_deref().unwrap_or("here"))]
     pub span: SourceSpan,
     pub label: Option<String>,

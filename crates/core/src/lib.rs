@@ -4,6 +4,7 @@ mod db;
 pub mod def;
 pub mod hir;
 pub mod mir;
+pub mod types;
 pub mod util;
 pub mod visit;
 
@@ -21,6 +22,7 @@ pub struct Jar(
     crate::def::TypeInvariant,
     crate::hir::file::parse_file,
     crate::hir::file::ast_map,
+    crate::hir::file_context::initialize_file_context,
     crate::hir::SourceFile,
     crate::hir::VariableId,
     crate::hir::Variable,

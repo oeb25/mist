@@ -9,19 +9,21 @@ use mist_syntax::{
 
 use crate::{
     def::{Struct, StructField},
+    types::{Field, TypeData, TypeId, TypeProvider, TypePtr, TypeTable},
     util::{IdxArena, IdxMap, IdxWrap},
     VariableDeclaration,
 };
 
 use super::{
-    types::{TypeDataPtr, TypeProvider, TypePtr, TypeTable},
-    Condition, Decreases, Def, Expr, ExprIdx, Field, Name, Param, TypeId, TypeSrc, TypeSrcId,
-    Variable, VariableIdx, VariableRef,
+    file_context::FileContext, Condition, Decreases, Def, Expr, ExprIdx, Name, Param, TypeSrc,
+    TypeSrcId, Variable, VariableIdx, VariableRef,
 };
 
 #[derive(new, Debug, Clone, PartialEq, Eq)]
 pub struct ItemContext {
     pub(super) def: Def,
+    pub(super) file_context: FileContext,
+
     #[new(default)]
     pub(super) function_context: Option<FunctionContext>,
     #[new(default)]
@@ -30,17 +32,9 @@ pub struct ItemContext {
     pub(super) var_types: IdxMap<VariableIdx, TypeSrcId>,
     #[new(default)]
     pub(super) expr_arena: IdxArena<ExprIdx>,
-    #[new(default)]
-    pub(super) ty_src_arena: IdxArena<TypeSrcId>,
 
     #[new(default)]
-    pub(super) ty_table: Arc<TypeTable>,
-    #[new(default)]
-    pub(super) named_types: HashMap<Name, TypeId>,
-    #[new(default)]
-    pub(super) structs: HashMap<Struct, Vec<(StructField, TypeSrcId)>>,
-    #[new(default)]
-    pub(super) struct_types: HashMap<Struct, TypeSrcId>,
+    pub(super) ty_table: Option<Arc<TypeTable>>,
 
     #[new(default)]
     pub(super) params: Vec<Param<VariableIdx>>,
@@ -72,16 +66,7 @@ impl std::ops::Index<TypeSrcId> for ItemContext {
     type Output = TypeSrc;
 
     fn index(&self, index: TypeSrcId) -> &Self::Output {
-        &self.ty_src_arena[index]
-    }
-}
-impl TypeProvider for ItemContext {
-    fn field_ty(&self, db: &dyn crate::Db, f: Field) -> TypePtr<Self> {
-        self.ty_table.field_ty(db, f).with_provider(self)
-    }
-
-    fn ty_data(&self, ty: TypeId) -> TypeDataPtr<Self> {
-        self.ty_table.ty_data(ty).with_provider(self)
+        &self.file_context.ty_src_arena[index]
     }
 }
 
@@ -137,23 +122,18 @@ impl ItemContext {
     pub fn var_name(&self, var: impl Into<VariableIdx>) -> Name {
         self.declarations.map[var.into()].name()
     }
-    pub fn field_ty_src(&self, db: &dyn crate::Db, field: Field) -> Option<TypeSrcId> {
+    pub fn field_ty_src(&self, field: Field) -> Option<TypeSrcId> {
         match field {
-            Field::StructField(sf) => {
-                let s = sf.parent_struct(db);
-                self.structs[&s]
-                    .iter()
-                    .find_map(|&(f, ty)| if sf == f { Some(ty) } else { None })
-            }
+            Field::StructField(sf) => Some(self.file_context.struct_field_types[&sf]),
             Field::List(_, _) | Field::Undefined => None,
         }
     }
     pub fn struct_ty(&self, s: Struct) -> TypeSrcId {
-        self.struct_types[&s]
+        self.file_context.struct_types[&s]
     }
 
     pub fn ty_table(&self) -> Arc<TypeTable> {
-        Arc::clone(&self.ty_table)
+        Arc::clone(self.ty_table.as_ref().expect("TypeTable was not yet built"))
     }
 }
 
@@ -163,6 +143,22 @@ pub struct ItemSourceMap {
     pub(super) expr_map_back: IdxMap<ExprIdx, SpanOrAstPtr<ast::Expr>>,
     pub(super) ty_src_map: IdxMap<TypeSrcId, SpanOrAstPtr<ast::Type>>,
     pub(super) ty_src_map_back: HashMap<SpanOrAstPtr<ast::Type>, TypeSrcId>,
+}
+
+impl TypeProvider for ItemContext {
+    fn ty_data(&self, ty: TypeId) -> TypeData {
+        self.ty_table
+            .as_ref()
+            .expect("TypeTable was not yet set")
+            .ty_data(ty)
+    }
+
+    fn struct_field_ty(&self, f: StructField) -> TypeId {
+        self.ty_table
+            .as_ref()
+            .expect("TypeTable was not yet set")
+            .struct_field_ty(f)
+    }
 }
 
 impl ItemSourceMap {

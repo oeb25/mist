@@ -1,8 +1,8 @@
 use itertools::Itertools;
 
-use super::{
-    pretty, Expr, ExprData, ExprIdx, Literal, Name, Param, TypeData, TypeId, TypeSrcId, VariableIdx,
-};
+use crate::types::{TypeData, TypeId, TDK};
+
+use super::{pretty, Expr, ExprData, ExprIdx, Literal, Name, Param, TypeSrcId, VariableIdx};
 
 pub trait PrettyPrint {
     fn resolve_var(&self, idx: VariableIdx) -> Name;
@@ -16,54 +16,45 @@ use expr as pp_expr;
 use params as pp_params;
 use ty as pp_ty;
 
-fn pp_strip_ghost(pp: &impl PrettyPrint, strip: bool, ty: TypeId) -> TypeId {
-    if strip {
-        match pp.resolve_ty(ty) {
-            TypeData::Ghost(inner) => inner,
-            _ => ty,
-        }
-    } else {
-        ty
-    }
-}
-
 pub fn params(
     pp: &impl PrettyPrint,
     db: &dyn crate::Db,
     strip_ghost: bool,
     params: impl IntoIterator<Item = Param<Name>>,
 ) -> String {
-    format!(
-        "({})",
-        params
-            .into_iter()
-            .map(|param| {
-                let ty = pp_strip_ghost(pp, strip_ghost, pp.resolve_src_ty(param.ty));
-                format!("{}: {}", param.name, pp_ty(pp, db, ty))
-            })
-            .format(", ")
-    )
+    let params = params
+        .into_iter()
+        .map(|param| {
+            format!(
+                "{}: {}",
+                param.name,
+                pp_ty(pp, db, strip_ghost, pp.resolve_src_ty(param.ty))
+            )
+        })
+        .format(", ");
+    format!("({params})")
 }
-pub fn ty(pp: &impl PrettyPrint, db: &dyn crate::Db, ty: TypeId) -> String {
-    match pp.resolve_ty(ty) {
-        TypeData::Error => "Error".to_string(),
-        TypeData::Void => "void".to_string(),
-        TypeData::Free => "free".to_string(),
-        TypeData::Ref { is_mut, inner } => {
+pub fn ty(pp: &impl PrettyPrint, db: &dyn crate::Db, strip_ghost: bool, ty: TypeId) -> String {
+    let rty = pp.resolve_ty(ty);
+
+    let s = match rty.kind {
+        TDK::Error => "Error".to_string(),
+        TDK::Void => "void".to_string(),
+        TDK::Free => "free".to_string(),
+        TDK::Ref { is_mut, inner } => {
             format!(
                 "&{}{}",
                 if is_mut { "mut " } else { "" },
-                pp_ty(pp, db, inner)
+                pp_ty(pp, db, false, inner)
             )
         }
-        TypeData::Ghost(inner) => format!("ghost {}", pp_ty(pp, db, inner)),
-        TypeData::Range(inner) => format!("range {}", pp_ty(pp, db, inner)),
-        TypeData::List(inner) => format!("[{}]", pp_ty(pp, db, inner)),
-        TypeData::Optional(inner) => format!("?{}", pp_ty(pp, db, inner)),
-        TypeData::Primitive(t) => format!("{t:?}").to_lowercase(),
-        TypeData::Struct(s) => s.name(db).to_string(),
-        TypeData::Null => "null".to_string(),
-        TypeData::Function {
+        TDK::Range(inner) => format!("range {}", pp_ty(pp, db, false, inner)),
+        TDK::List(inner) => format!("[{}]", pp_ty(pp, db, false, inner)),
+        TDK::Optional(inner) => format!("?{}", pp_ty(pp, db, false, inner)),
+        TDK::Primitive(t) => format!("{t:?}").to_lowercase(),
+        TDK::Struct(s) => s.name(db).to_string(),
+        TDK::Null => "null".to_string(),
+        TDK::Function {
             attrs,
             name,
             params,
@@ -80,15 +71,20 @@ pub fn ty(pp: &impl PrettyPrint, db: &dyn crate::Db, ty: TypeId) -> String {
                 .map(|name| format!(" {name}"))
                 .unwrap_or_default();
             let params = pp_params(pp, db, is_ghost, params);
-            let ret = if let TypeData::Void = pp.resolve_ty(pp_strip_ghost(pp, true, return_ty)) {
+            let ret = if let TDK::Void = pp.resolve_ty(return_ty).kind {
                 String::new()
             } else {
-                let ty = pretty::ty(pp, db, pp_strip_ghost(pp, is_ghost, return_ty));
+                let ty = pretty::ty(pp, db, is_ghost, return_ty);
                 format!(" -> {ty}")
             };
 
             format!("{attrs}fn{name}{params}{ret}")
         }
+    };
+    if rty.is_ghost && !strip_ghost {
+        format!("ghost {s}")
+    } else {
+        s
     }
 }
 pub fn expr(pp: &impl PrettyPrint, db: &dyn crate::Db, expr: ExprIdx) -> String {

@@ -18,11 +18,8 @@ use tracing::debug;
 
 use crate::{
     def::{Def, Struct, StructField},
-    hir::{
-        self,
-        types::{TypeDataPtr, TypeProvider, TypePtr},
-        AssertionKind, Field, Literal, Quantifier, TypeId, VariableIdx,
-    },
+    hir::{self, AssertionKind, Literal, Quantifier, VariableIdx},
+    types::{Field, TypeData, TypeId, TypeProvider, TypePtr, TypeTable},
     util::{impl_idx, IdxArena, IdxMap, IdxWrap},
 };
 
@@ -338,8 +335,8 @@ impl From<SlotId> for Place {
 impl_idx!(ProjectionList, Vec<Projection>, default_debug);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Projection {
-    Field(Field, hir::TypeId),
-    Index(SlotId, hir::TypeId),
+    Field(Field, TypeId),
+    Index(SlotId, TypeId),
 }
 impl Projection {
     /// Construct an empty [`ProjectionList`]
@@ -417,7 +414,7 @@ pub enum RangeKind {
 pub struct Body {
     def: Def,
 
-    ty_table: Arc<hir::TypeTable>,
+    ty_table: Arc<TypeTable>,
 
     #[new(default)]
     blocks: IdxArena<BlockId>,
@@ -481,12 +478,12 @@ pub enum BlockOrInstruction {
 }
 
 impl TypeProvider for Body {
-    fn field_ty(&self, db: &dyn crate::Db, f: Field) -> TypePtr<Self> {
-        self.ty_table.field_ty(db, f).with_provider(self)
+    fn ty_data(&self, ty: TypeId) -> TypeData {
+        self.ty_table.ty_data(ty)
     }
 
-    fn ty_data(&self, ty: TypeId) -> TypeDataPtr<Self> {
-        self.ty_table.ty_data(ty).with_provider(self)
+    fn struct_field_ty(&self, f: StructField) -> TypeId {
+        self.ty_table.struct_field_ty(f)
     }
 }
 

@@ -65,7 +65,7 @@ fn non_ghost_math(x: int, y: int) -> int {
     z
 }
 
-fn ghost_math(x: int, y: ghost int) -> int {
+fn ghost_arg_math(x: int, y: ghost int) -> int {
     let z = x + y;
     z
 }
@@ -108,7 +108,7 @@ fn get_spooks(g: &Casper) -> int {
     s
 }
 
-fn ghost_arg(x: int, ghost y: int) -> int {
+fn ghost_arg_add(x: int, ghost y: int) -> int {
     x + y
 }
 fn call_ghost_arg(y: ghost int) -> int {

@@ -2,8 +2,9 @@ use std::ops::ControlFlow;
 
 use derive_new::new;
 use mist_core::{
-    hir::{self, types::TypeProvider, SourceFile, VariableRef},
+    hir::{self, SourceFile, VariableRef},
     salsa,
+    types::{Field, TypeProvider, TDK},
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
 };
 use mist_syntax::{
@@ -41,20 +42,20 @@ impl Visitor for DeclarationFinder<'_> {
     fn visit_field(
         &mut self,
         _: &VisitContext,
-        field: hir::Field,
+        field: Field,
         reference: &ast::NameOrNameRef,
     ) -> ControlFlow<Option<DeclarationSpans>> {
         if reference.contains_pos(self.byte_offset) {
             let original_span = reference.span();
             match field {
-                hir::Field::StructField(sf) => {
+                Field::StructField(sf) => {
                     let target_span = sf.ast_node(self.db).name().unwrap().span();
                     return ControlFlow::Break(Some(DeclarationSpans {
                         original_span,
                         target_span,
                     }));
                 }
-                hir::Field::List(_, _) | hir::Field::Undefined => {}
+                Field::List(_, _) | Field::Undefined => {}
             }
         }
         ControlFlow::Continue(())
@@ -67,8 +68,8 @@ impl Visitor for DeclarationFinder<'_> {
     ) -> ControlFlow<Option<DeclarationSpans>> {
         let original_span = vcx.source_map[ty].span();
         if original_span.contains(self.byte_offset) {
-            match vcx.cx.ty_data(vcx.cx[ty].ty) {
-                hir::TypeData::Struct(s) => {
+            match vcx.cx.ty_kind(vcx.cx[ty].ty) {
+                TDK::Struct(s) => {
                     let target_span = s.ast_node(self.db).name().unwrap().span();
                     ControlFlow::Break(Some(DeclarationSpans {
                         original_span,

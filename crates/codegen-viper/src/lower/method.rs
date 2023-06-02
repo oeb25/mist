@@ -1,11 +1,11 @@
 use mist_core::{
-    hir::{self, types::TypeProvider},
-    mir::{self, Projection},
+    hir, mir,
+    types::{Field, TypeProvider},
 };
 use silvers::{
     ast::Declaration,
     expression::{Exp, FieldAccess, PermExp, PredicateAccess, PredicateAccessPredicate, SeqExp},
-    program::{AnyLocalVarDecl, Field},
+    program::{AnyLocalVarDecl, Field as VField},
     statement::{Label, Seqn, Stmt},
 };
 use tracing::warn;
@@ -183,7 +183,7 @@ impl BodyLower<'_> {
                 } => {
                     let var = self.place_for_assignment(*destination)?;
                     let f = self.function(block, *func, args)?;
-                    let voided = self.body.place_ty(*destination).strip_ghost().is_void();
+                    let voided = self.body.place_ty(*destination).is_void();
 
                     match f {
                         Exp::FuncApp { funcname, args } => {
@@ -247,23 +247,23 @@ impl BodyLower<'_> {
                             rhs,
                         });
                     }
-                    [Projection::Field(f, ty)] => {
+                    [mir::Projection::Field(f, ty)] => {
                         match f {
-                            hir::Field::StructField(sf) => insts.push(Stmt::FieldAssign {
+                            Field::StructField(sf) => insts.push(Stmt::FieldAssign {
                                 lhs: FieldAccess::new(
                                     self.place_to_ref(inst, s.slot.into())?,
-                                    Field::new(
+                                    VField::new(
                                         mangle::mangled_field(self.db, sf),
                                         // TODO: should we respect the extra constraints in such a scenario?
-                                        self.lower_type(self.body.ty(ty))?.vty,
+                                        self.lower_type(self.body.ty_ptr(ty))?.vty,
                                     ),
                                 ),
                                 rhs,
                             }),
-                            hir::Field::List(_, _) | hir::Field::Undefined => {}
+                            Field::List(_, _) | Field::Undefined => {}
                         };
                     }
-                    [Projection::Index(index, _)] => {
+                    [mir::Projection::Index(index, _)] => {
                         let idx = self.place_to_ref(inst, index.into())?;
                         let seq = self.place_to_ref(inst, s.parent(self.body).unwrap())?;
                         let new_rhs = self.alloc(
@@ -277,7 +277,7 @@ impl BodyLower<'_> {
                         let lhs = self.place_for_assignment(s.without_projection())?;
                         insts.push(Stmt::LocalVarAssign { lhs, rhs: new_rhs })
                     }
-                    [Projection::Field(f, ty), Projection::Index(index, _)] => {
+                    [mir::Projection::Field(f, ty), mir::Projection::Index(index, _)] => {
                         let idx = self.place_to_ref(inst, index.into())?;
                         let seq = self.place_to_ref(inst, s.parent(self.body).unwrap())?;
                         let new_rhs = self.alloc(
@@ -289,18 +289,18 @@ impl BodyLower<'_> {
                             },
                         );
                         match f {
-                            hir::Field::StructField(sf) => {
+                            Field::StructField(sf) => {
                                 let lhs = FieldAccess::new(
                                     self.place_to_ref(inst, s.slot.into())?,
-                                    Field::new(
+                                    VField::new(
                                         mangle::mangled_field(self.db, sf),
                                         // TODO: should we respect the extra constraints in such a scenario?
-                                        self.lower_type(self.body.ty(ty))?.vty,
+                                        self.lower_type(self.body.ty_ptr(ty))?.vty,
                                     ),
                                 );
                                 insts.push(Stmt::FieldAssign { lhs, rhs: new_rhs });
                             }
-                            hir::Field::List(_, _) | hir::Field::Undefined => {}
+                            Field::List(_, _) | Field::Undefined => {}
                         }
                     }
                     _ => todo!(),

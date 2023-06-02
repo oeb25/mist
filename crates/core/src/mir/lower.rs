@@ -4,12 +4,14 @@ use tracing::debug;
 use crate::{
     def::Def,
     hir::{
-        self, pretty,
-        typecheck::builtin::{bool, error, int},
-        AssertionKind, ExprData, ExprIdx, IfExpr, ItemContext, Statement, StatementData, TypeData,
-        TypeId, VariableIdx,
+        self, pretty, AssertionKind, ExprData, ExprIdx, IfExpr, ItemContext, Statement,
+        StatementData, VariableIdx,
     },
     mir::{MirError, MirErrors, Operand},
+    types::{
+        builtin::{bool, error, int},
+        Field, ListField, Primitive, TypeDataKind as TDK, TypeId,
+    },
 };
 
 use super::{
@@ -143,8 +145,8 @@ impl<'a> MirLower<'a> {
         if let Some(old_ty) = self.body.slot_type.insert(id, ty) {
             debug!(
                 "replaced a type. old was '{}' and new was '{}'",
-                pretty::ty(self.cx, self.db, old_ty),
-                pretty::ty(self.cx, self.db, ty)
+                pretty::ty(self.cx, self.db, false, old_ty),
+                pretty::ty(self.cx, self.db, false, ty)
             );
         }
         id
@@ -465,18 +467,17 @@ impl MirLower<'_> {
         let b = || Operand::Move(initial_variant);
 
         let variant_ty = self.cx.expr_ty(variant);
-        match variant_ty.data() {
-            TypeData::Error => {}
-            TypeData::Void => {}
-            TypeData::Ghost(_) => todo!(),
-            TypeData::Ref { .. } => todo!(),
+        match variant_ty.kind() {
+            TDK::Error => {}
+            TDK::Void => {}
+            TDK::Ref { .. } => todo!(),
             // a <_ b <==> |a| < |b|
-            TypeData::List(_) => {
+            TDK::List(_) => {
                 let mut len = |o| match o {
                     Operand::Copy(p) | Operand::Move(p) => self.project_deeper(
                         p,
                         &[Projection::Field(
-                            hir::Field::List(variant_ty.id(), hir::ListField::Len),
+                            Field::List(variant_ty.id(), ListField::Len),
                             int(),
                         )],
                     ),
@@ -490,7 +491,7 @@ impl MirLower<'_> {
                 ));
             }
             // a <_ b <==> a == null && b != null
-            TypeData::Optional(_) => {
+            TDK::Optional(_) => {
                 assertions.push(MExpr::BinaryOp(
                     BinaryOp::eq(),
                     a(),
@@ -503,7 +504,7 @@ impl MirLower<'_> {
                 ));
             }
             // a <_ b <==> a < b && 0 <= b
-            TypeData::Primitive(hir::Primitive::Int) => {
+            TDK::Primitive(Primitive::Int) => {
                 assertions.push(MExpr::BinaryOp(BinaryOp::lt(), a(), b()));
                 assertions.push(MExpr::BinaryOp(
                     BinaryOp::le(),
@@ -512,7 +513,7 @@ impl MirLower<'_> {
                 ));
             }
             // a <_ b <==> a == false && b == true
-            TypeData::Primitive(hir::Primitive::Bool) => {
+            TDK::Primitive(Primitive::Bool) => {
                 assertions.push(MExpr::BinaryOp(
                     BinaryOp::eq(),
                     a(),
@@ -524,10 +525,10 @@ impl MirLower<'_> {
                     Operand::Literal(hir::Literal::Bool(true)),
                 ));
             }
-            TypeData::Struct(_) => todo!(),
-            TypeData::Function { .. } => todo!(),
-            TypeData::Range(_) => todo!(),
-            TypeData::Null | TypeData::Free => {
+            TDK::Struct(_) => todo!(),
+            TDK::Function { .. } => todo!(),
+            TDK::Range(_) => todo!(),
+            TDK::Null | TDK::Free => {
                 assertions.push(MExpr::Use(Operand::Literal(hir::Literal::Bool(false))))
             }
         }
@@ -562,14 +563,14 @@ impl MirLower<'_> {
             } => {
                 let (bid, place) = self.lhs_expr(*base, bid, None);
                 match field {
-                    hir::Field::StructField(_) | hir::Field::List(_, _) => {
+                    Field::StructField(_) | Field::List(_, _) => {
                         let f_ty = expr_data.ty;
                         (
                             bid,
                             self.project_deeper(place, &[Projection::Field(*field, f_ty)]),
                         )
                     }
-                    hir::Field::Undefined => {
+                    Field::Undefined => {
                         MirErrors::push(
                             self.db,
                             MirError::NotYetImplemented {
@@ -697,7 +698,7 @@ impl MirLower<'_> {
                 field_name: _,
                 field,
             } => match field {
-                hir::Field::StructField(_) | hir::Field::List(_, _) => {
+                Field::StructField(_) | Field::List(_, _) => {
                     let tmp = self.expr_into_operand(*base, &mut bid, None);
                     if let Some(place) = tmp.place() {
                         let f_ty = expr_data.ty;
@@ -714,7 +715,7 @@ impl MirLower<'_> {
                         todo!()
                     }
                 }
-                hir::Field::Undefined => {
+                Field::Undefined => {
                     if !self.cx.expr_ty(*base).data().is_error() {
                         MirErrors::push(
                             self.db,
@@ -784,10 +785,7 @@ impl MirLower<'_> {
                         bid
                     }
                     BinaryOp::ArithOp(ArithOp::Add)
-                        if matches!(
-                            self.cx.expr_ty(lhs).strip_ghost().data(),
-                            TypeData::List(_),
-                        ) =>
+                        if matches!(self.cx.expr_ty(lhs).kind(), TDK::List(_),) =>
                     {
                         let left = self.expr_into_operand(lhs, &mut bid, None);
                         let right = self.expr_into_operand(rhs, &mut bid, None);
@@ -816,10 +814,10 @@ impl MirLower<'_> {
                 bid
             }
             &ExprData::Index { base, index } => {
-                let f = match self.cx.expr_ty(index).strip_ghost().data() {
-                    hir::TypeData::Range(_) => FunctionData::RangeIndex,
-                    hir::TypeData::Primitive(hir::Primitive::Int) => FunctionData::Index,
-                    hir::TypeData::Error => FunctionData::Index,
+                let f = match self.cx.expr_ty(index).kind() {
+                    TDK::Range(_) => FunctionData::RangeIndex,
+                    TDK::Primitive(Primitive::Int) => FunctionData::Index,
+                    TDK::Error => FunctionData::Index,
                     ty => todo!("tried to index with {ty:?}"),
                 };
                 let base_s = self.expr_into_operand(base, &mut bid, None);

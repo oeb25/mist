@@ -1,27 +1,22 @@
 mod name;
 
-use std::fmt;
-
-use derive_more::{Display, From};
+use derive_more::Display;
 use derive_new::new;
 use mist_syntax::{
     ast::{
         self,
         operators::{BinaryOp, UnaryOp},
-        AttrFlags, Spanned,
+        Spanned,
     },
     ptr::AstPtr,
     SourceSpan,
 };
-use tracing::error;
 
 use crate::{
     def::{Struct, StructField},
+    types::{Field, TypeData, TypeId},
     util::impl_idx,
 };
-
-pub use super::typecheck::TypeId;
-use super::ItemContext;
 
 pub use name::Name;
 #[salsa::interned]
@@ -127,36 +122,6 @@ impl Expr {
         Expr {
             ty: if_expr.return_ty,
             data: ExprData::If(if_expr),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, From)]
-pub enum Field {
-    StructField(StructField),
-    List(TypeId, ListField),
-    Undefined,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, From)]
-pub enum ListField {
-    Len,
-}
-
-impl Field {
-    pub fn name(&self, db: &dyn crate::Db) -> Name {
-        match self {
-            Field::StructField(sf) => sf.name(db),
-            Field::List(_, lf) => Name::new(&lf.to_string()),
-            Field::Undefined => Name::new("?undefined"),
-        }
-    }
-}
-
-impl fmt::Display for ListField {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ListField::Len => write!(f, "len"),
         }
     }
 }
@@ -322,96 +287,4 @@ impl_idx!(TypeSrcId, TypeSrc, default_debug);
 pub struct TypeSrc {
     pub data: Option<TypeData<TypeSrcId>>,
     pub ty: TypeId,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum TypeData<T = TypeId> {
-    Error,
-    Void,
-    Ghost(T),
-    Ref {
-        is_mut: bool,
-        inner: T,
-    },
-    List(T),
-    Optional(T),
-    Primitive(Primitive),
-    Struct(Struct),
-    Null,
-    Function {
-        attrs: AttrFlags,
-        name: Option<Name>,
-        params: Vec<Param<Name>>,
-        return_ty: T,
-    },
-    Range(T),
-    Free,
-}
-impl_idx!(TypeDataIdx, TypeData, default_debug);
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Primitive {
-    Int,
-    Bool,
-}
-
-impl ena::unify::UnifyValue for TypeData {
-    type Error = ();
-
-    fn unify_values(ty1: &Self, ty2: &Self) -> Result<Self, ()> {
-        match (ty1, ty2) {
-            (TypeData::Free, other) | (other, TypeData::Free) => Ok(other.clone()),
-            _ => {
-                error!("could not unify {ty1:?} with {ty2:?}");
-                Err(())
-            }
-        }
-    }
-}
-
-impl<T> TypeData<T> {
-    pub fn map<S>(&self, mut f: impl FnMut(&T) -> S) -> TypeData<S> {
-        match self {
-            TypeData::Error => TypeData::Error,
-            TypeData::Void => TypeData::Void,
-            TypeData::Ghost(it) => TypeData::Ghost(f(it)),
-            TypeData::Ref { is_mut, inner } => TypeData::Ref {
-                is_mut: *is_mut,
-                inner: f(inner),
-            },
-            TypeData::List(it) => TypeData::List(f(it)),
-            TypeData::Optional(it) => TypeData::Optional(f(it)),
-            TypeData::Primitive(it) => TypeData::Primitive(it.clone()),
-            TypeData::Struct(it) => TypeData::Struct(*it),
-            TypeData::Null => TypeData::Null,
-            TypeData::Function {
-                attrs,
-                name,
-                params,
-                return_ty,
-            } => TypeData::Function {
-                attrs: *attrs,
-                name: name.clone(),
-                params: params.clone(),
-                return_ty: f(return_ty),
-            },
-            TypeData::Range(it) => TypeData::Range(f(it)),
-            TypeData::Free => TypeData::Free,
-        }
-    }
-
-    pub fn is_void(&self) -> bool {
-        matches!(self, TypeData::Void)
-    }
-    pub fn is_ghost(&self) -> bool {
-        matches!(self, TypeData::Ghost(_))
-    }
-    pub fn is_error(&self) -> bool {
-        matches!(self, TypeData::Error)
-    }
-}
-impl TypeData<TypeSrcId> {
-    pub fn canonical(&self, cx: &ItemContext) -> TypeData {
-        self.map(|&id| cx[id].ty)
-    }
 }

@@ -1,0 +1,8 @@
+struct T {
+    n: int,
+}
+
+fn f(p: &mut T) -> int {
+    let p = p;
+    p.n
+}

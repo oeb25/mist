@@ -1,11 +1,7 @@
 use itertools::Itertools;
 use mist_core::{
-    def,
-    hir::{
-        self,
-        types::{TypeProvider, TypePtr},
-    },
-    mir,
+    def, hir, mir,
+    types::{Primitive, TypeProvider, TypePtr, TDK},
     util::IdxMap,
 };
 
@@ -65,7 +61,7 @@ impl<'a> FunctionLowerer<'a> {
                 layout
                     .field_offsets
                     .push((layout.types.len(), current_offset));
-                let next = self.compute_ty_layout(self.body.field_ty(self.db, f.into()));
+                let next = self.compute_ty_layout(self.body.field_ty_ptr(f.into()));
                 let size: u32 = next.iter().map(|ty| ty.num_bytes()).sum();
                 let next_offset = current_offset + size;
                 layout.types.extend(next);
@@ -77,25 +73,24 @@ impl<'a> FunctionLowerer<'a> {
     }
 
     fn compute_ty_layout(&self, ty: TypePtr<mir::Body>) -> Vec<wasm::ValType> {
-        match ty.data() {
-            hir::TypeData::Ref { .. } => vec![wasm::ValType::I32],
-            hir::TypeData::Primitive(p) => match p {
-                hir::Primitive::Int | hir::Primitive::Bool => vec![wasm::ValType::I32],
+        match ty.kind() {
+            TDK::Ref { .. } => vec![wasm::ValType::I32],
+            TDK::Primitive(p) => match p {
+                Primitive::Int | Primitive::Bool => vec![wasm::ValType::I32],
             },
-            hir::TypeData::Optional(inner) => {
+            TDK::Optional(inner) => {
                 let mut layout = self.compute_ty_layout(inner);
                 layout.insert(0, wasm::ValType::I32);
                 layout
             }
-            hir::TypeData::Struct(s) => self.compute_struct_layout(s).types,
-            hir::TypeData::Range(_) => Vec::new(),
-            hir::TypeData::Error
-            | hir::TypeData::Void
-            | hir::TypeData::Ghost(_)
-            | hir::TypeData::List(_)
-            | hir::TypeData::Null
-            | hir::TypeData::Function { .. }
-            | hir::TypeData::Free => Vec::new(),
+            TDK::Struct(s) => self.compute_struct_layout(s).types,
+            TDK::Range(_) => Vec::new(),
+            TDK::Error
+            | TDK::Void
+            | TDK::List(_)
+            | TDK::Null
+            | TDK::Function { .. }
+            | TDK::Free => Vec::new(),
         }
     }
 

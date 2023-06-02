@@ -5,9 +5,10 @@ use std::{ops::ControlFlow, sync::Arc};
 use derive_new::new;
 use itertools::Itertools;
 use mist_core::{
-    hir::{self, types::TypeProvider, ExprIdx, SourceFile, VariableIdx, VariableRef},
+    hir::{self, ExprIdx, SourceFile, VariableIdx, VariableRef},
     mir::{self, pass::Pass},
     salsa,
+    types::{TypeProvider, TDK},
     util::Position,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
 };
@@ -257,10 +258,10 @@ impl<'src> Visitor for Highlighter<'src> {
         let e = vcx.cx.expr(expr);
         match &e.data {
             hir::ExprData::Literal(_) => {
-                let tt = match vcx.cx.expr_ty(expr).data() {
-                    hir::TypeData::Function { .. } => TT::Function,
-                    hir::TypeData::Primitive(_) => TT::Number,
-                    hir::TypeData::Null => TT::Number,
+                let tt = match vcx.cx.expr_ty(expr).kind() {
+                    TDK::Function { .. } => TT::Function,
+                    TDK::Primitive(_) => TT::Number,
+                    TDK::Null => TT::Number,
                     _ => return ControlFlow::Continue(()),
                 };
 
@@ -291,15 +292,15 @@ impl<'src> Visitor for Highlighter<'src> {
 
     fn visit_ty(&mut self, vcx: &VisitContext, ty: hir::TypeSrcId) -> ControlFlow<()> {
         let ts = &vcx.cx[ty];
-        match vcx.cx.ty_data(ts.ty) {
-            hir::TypeData::Primitive(_) => {
+        match vcx.cx.ty_kind(ts.ty) {
+            TDK::Primitive(_) => {
                 self.push_opt(
                     Some(vcx.source_map[ty].span()),
                     TT::Type,
                     Some(TM::DefaultLibrary),
                 );
             }
-            hir::TypeData::Struct(_) => {
+            TDK::Struct(_) => {
                 self.push_opt(Some(vcx.source_map[ty].span()), TT::Type, None);
             }
             _ => {}

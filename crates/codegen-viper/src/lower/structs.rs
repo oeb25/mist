@@ -1,4 +1,4 @@
-use mist_core::{def, hir::types::TypeProvider, mir, util::IdxWrap};
+use mist_core::{def, mir, types::TypeProvider, util::IdxWrap};
 use silvers::{
     expression::{AbstractLocalVar, BinOp, Exp, FieldAccess, PermExp},
     program::{Field, Predicate},
@@ -29,7 +29,7 @@ impl BodyLower<'_> {
         let field_invs: Vec<_> = s
             .fields(self.db)
             .map(|f| {
-                let field_ty = self.body.field_ty(self.db, f.into());
+                let field_ty = self.body.field_ty_ptr(f.into());
                 let ty = self.lower_type(field_ty)?;
                 let viper_field = Field {
                     name: mangle::mangled_field(self.db, f),

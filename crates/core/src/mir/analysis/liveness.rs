@@ -1,4 +1,4 @@
-use crate::{hir, mir, util::IdxSet};
+use crate::{mir, types::TDK, util::IdxSet};
 
 use super::{
     folding_tree::FoldingTree,
@@ -91,7 +91,7 @@ impl MonotoneFramework for FoldingAnalysis {
         // see which slots should be folded at the exit
         let mut t = FoldingTree::default();
         for &param in body.params() {
-            if let hir::TypeData::Ref { .. } = body.slot_ty(param).strip_ghost().data() {
+            if let TDK::Ref { .. } = body.slot_ty(param).kind() {
                 t.require(body, None, param.into());
             }
         }

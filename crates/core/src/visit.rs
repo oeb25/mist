@@ -6,9 +6,10 @@ use mist_syntax::ast::{self, HasName};
 use crate::{
     def::{DefKind, Function, Struct, TypeInvariant},
     hir::{
-        self, Block, Decreases, ExprData, ExprIdx, Field, IfExpr, ItemContext, ItemSourceMap,
-        Param, SourceFile, Statement, StatementData, TypeData, TypeSrcId, VariableIdx, VariableRef,
+        self, Block, Decreases, ExprData, ExprIdx, IfExpr, ItemContext, ItemSourceMap, Param,
+        SourceFile, Statement, StatementData, TypeSrcId, VariableIdx, VariableRef,
     },
+    types::{Field, TDK},
 };
 
 pub trait Walker<'db>: Sized {
@@ -276,7 +277,7 @@ where
         if self.pre() {
             visitor.visit_field(&self.vcx, field, reference)?;
         }
-        if let Some(ty) = self.vcx.cx.field_ty_src(self.db, field) {
+        if let Some(ty) = self.vcx.cx.field_ty_src(field) {
             self.walk_ty(visitor, ty)?;
         }
         if self.post() {
@@ -327,21 +328,16 @@ where
             return ControlFlow::Continue(());
         };
 
-        match td {
-            TypeData::Error
-            | TypeData::Void
-            | TypeData::Primitive(_)
-            | TypeData::Null
-            | TypeData::Free => {}
-            TypeData::Ghost(inner)
-            | TypeData::Ref { inner, .. }
-            | TypeData::List(inner)
-            | TypeData::Range(inner)
-            | TypeData::Optional(inner) => {
+        match td.kind {
+            TDK::Error | TDK::Void | TDK::Primitive(_) | TDK::Null | TDK::Free => {}
+            TDK::Ref { inner, .. }
+            | TDK::List(inner)
+            | TDK::Range(inner)
+            | TDK::Optional(inner) => {
                 self.walk_ty(visitor, inner)?;
             }
-            TypeData::Struct(_) => {}
-            TypeData::Function {
+            TDK::Struct(_) => {}
+            TDK::Function {
                 params, return_ty, ..
             } => {
                 for param in params.iter() {

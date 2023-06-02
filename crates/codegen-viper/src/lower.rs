@@ -7,12 +7,9 @@ use derive_new::new;
 
 use miette::Diagnostic;
 use mist_core::{
-    def,
-    hir::{
-        self,
-        types::{TypeProvider, TypePtr},
-    },
+    def, hir,
     mir::{self, analysis::cfg, BlockOrInstruction},
+    types::{Field, ListField, Primitive, TypeProvider, TypePtr, TDK},
     util::{IdxArena, IdxMap, IdxWrap},
 };
 use mist_syntax::{
@@ -24,7 +21,7 @@ use silvers::{
         AbstractLocalVar, AccessPredicate, BinOp, Exp, LocalVar, PermExp, PredicateAccess,
         PredicateAccessPredicate, SeqExp, UnOp,
     },
-    program::{Field, LocalVarDecl},
+    program::{Field as VField, LocalVarDecl},
     typ::Type as VTy,
 };
 use tracing::error;
@@ -251,23 +248,22 @@ impl<'a> BodyLower<'a> {
     }
 
     pub fn lower_type(&mut self, ty: TypePtr<impl TypeProvider>) -> Result<ViperType> {
-        Ok(match ty.data() {
-            hir::TypeData::Error => {
+        Ok(match ty.kind() {
+            TDK::Error => {
                 // TODO: Perhaps this should be handeld at a previous stage?
                 VTy::int().into()
             }
-            hir::TypeData::Void => {
-                // TODO: Perhaps this should be handeld at a previous stage?
-                // VTy::internal_type().into()
-                VTy::int().into()
-            }
-            hir::TypeData::Free => {
+            TDK::Void => {
                 // TODO: Perhaps this should be handeld at a previous stage?
                 // VTy::internal_type().into()
                 VTy::int().into()
             }
-            hir::TypeData::Ghost(inner) => self.lower_type(inner)?,
-            hir::TypeData::Ref { is_mut, inner } => ViperType {
+            TDK::Free => {
+                // TODO: Perhaps this should be handeld at a previous stage?
+                // VTy::internal_type().into()
+                VTy::int().into()
+            }
+            TDK::Ref { is_mut, inner } => ViperType {
                 vty: VTy::ref_(),
                 is_mut,
                 is_ref: true,
@@ -275,22 +271,22 @@ impl<'a> BodyLower<'a> {
                 inner: Some(Box::new(self.lower_type(inner)?)),
                 strukt: None,
             },
-            hir::TypeData::List(inner) => VTy::Seq {
+            TDK::List(inner) => VTy::Seq {
                 element_type: Box::new(self.lower_type(inner)?.vty),
             }
             .into(),
-            hir::TypeData::Optional(inner) => {
+            TDK::Optional(inner) => {
                 let vty = self.lower_type(inner)?;
                 ViperType {
                     optional: true,
                     ..vty
                 }
             }
-            hir::TypeData::Primitive(p) => match p {
-                hir::Primitive::Int => VTy::int().into(),
-                hir::Primitive::Bool => VTy::bool().into(),
+            TDK::Primitive(p) => match p {
+                Primitive::Int => VTy::int().into(),
+                Primitive::Bool => VTy::bool().into(),
             },
-            hir::TypeData::Struct(s) => match s.name(self.db).as_str() {
+            TDK::Struct(s) => match s.name(self.db).as_str() {
                 "Multiset" => VTy::Multiset {
                     element_type: Box::new(VTy::int()),
                 }
@@ -304,7 +300,7 @@ impl<'a> BodyLower<'a> {
                     strukt: Some(s),
                 },
             },
-            hir::TypeData::Null => ViperType {
+            TDK::Null => ViperType {
                 vty: VTy::ref_(),
                 optional: true,
                 is_mut: false,
@@ -312,7 +308,7 @@ impl<'a> BodyLower<'a> {
                 is_ref: false,
                 strukt: None,
             },
-            hir::TypeData::Function { .. } => {
+            TDK::Function { .. } => {
                 return Err(ViperLowerError::NotYetImplemented {
                     msg: "lower_type(Function)".to_string(),
                     def: self.body.def(),
@@ -320,7 +316,7 @@ impl<'a> BodyLower<'a> {
                     span: None,
                 })
             }
-            hir::TypeData::Range(_inner) => VTy::Domain {
+            TDK::Range(_inner) => VTy::Domain {
                 domain_name: "Range".to_string(),
                 partial_typ_vars_map: Default::default(),
             }
@@ -478,20 +474,20 @@ impl BodyLower<'_> {
                 Ok(match proj {
                     mir::Projection::Field(f, ty) => {
                         match f {
-                            hir::Field::List(_, hir::ListField::Len) => {
+                            Field::List(_, ListField::Len) => {
                                 let exp = SeqExp::Length { s: base };
                                 self.alloc(source, exp)
                             }
-                            hir::Field::StructField(sf) => {
-                                let exp = Field::new(
+                            Field::StructField(sf) => {
+                                let exp = VField::new(
                                     mangle::mangled_field(self.db, sf),
                                     // TODO: Should we look at the contraints?
-                                    self.lower_type(self.body.ty(ty))?.vty,
+                                    self.lower_type(self.body.ty_ptr(ty))?.vty,
                                 )
                                 .access_exp(base);
                                 self.alloc(source, exp)
                             }
-                            hir::Field::Undefined => todo!(),
+                            Field::Undefined => todo!(),
                         }
                     }
                     mir::Projection::Index(index, _) => {

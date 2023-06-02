@@ -1,22 +1,25 @@
 pub mod def;
 pub mod file;
+pub(crate) mod file_context;
 mod item_context;
 pub mod pretty;
 pub mod typecheck;
-pub mod types;
 
 use itertools::Itertools;
 use mist_syntax::ast::{self, HasName, Spanned};
 
 use crate::{
     def::{Def, DefKind, Function, Struct, TypeInvariant},
-    hir::{self, typecheck::Typed},
+    hir::{
+        self,
+        typecheck::{Typed, TypingMutExt},
+    },
+    types::builtin::*,
 };
 
 pub use def::*;
 pub use item_context::{ItemContext, ItemSourceMap, SpanOrAstPtr};
-use typecheck::{builtin::*, TypeChecker};
-pub use types::TypeTable;
+use typecheck::TypeChecker;
 
 #[salsa::input]
 pub struct SourceFile {
@@ -109,7 +112,7 @@ pub(crate) fn lower_def(db: &dyn crate::Db, def: Def) -> Option<DefinitionHir> {
             if let Some(ast_body) = ty_inv_ast.block_expr() {
                 let body = checker.check_block(&ast_body, |f| f);
                 let name_span = ty_inv_ast.name_ref().unwrap().span();
-                let ret = checker.expect_ty(name_span, bool().ghost(), body.return_ty);
+                let ret = checker.expect_ty(name_span, ghost_bool(), body.return_ty);
                 let ret_ty = checker.unsourced_ty(ret);
                 checker.set_return_ty(ret_ty);
                 checker.set_body_expr_from_block(body, ast_body);
@@ -137,10 +140,10 @@ pub(crate) fn lower_def(db: &dyn crate::Db, def: Def) -> Option<DefinitionHir> {
                     .map(|n| n.span())
                     .unwrap_or_else(|| fn_ast.fn_token().unwrap().span());
                 if let Some((ret_ast, ret_ty)) = ret_ty {
-                    let ret_ty = ret_ty.with_ghost(is_ghost).ts(&mut checker);
+                    let ret_ty = ret_ty.with_ghost(&mut checker, is_ghost);
                     checker.expect_ty(ret_ast.span(), checker.cx[ret_ty].ty, body.return_ty);
                 } else {
-                    checker.expect_ty(name_span, void().with_ghost(is_ghost), body.return_ty);
+                    checker.expect_ty(name_span, void(), body.return_ty);
                 }
                 checker.set_body_expr_from_block(body, ast_body);
             }
