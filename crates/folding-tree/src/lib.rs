@@ -35,22 +35,30 @@ pub struct FoldingTree<E> {
 
 impl<E: fmt::Display> fmt::Display for FoldingTree<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut prefix_space = false;
         for event in self.preorder() {
+            if prefix_space {
+                write!(f, " ")?;
+            }
             match event {
                 WalkEvent::Enter((edge, folding)) => {
+                    prefix_space = true;
                     if let Some(edge) = edge {
-                        write!(f, "{edge} ")?
+                        write!(f, "{edge} ")?;
                     }
 
                     match folding {
-                        Folding::Uninitialized => write!(f, "@ ")?,
-                        Folding::Folded => write!(f, "X ")?,
-                        Folding::Unfolded => write!(f, "{{ ")?,
+                        Folding::Uninitialized => write!(f, "@")?,
+                        Folding::Folded => write!(f, "X")?,
+                        Folding::Unfolded => write!(f, "{{")?,
                     }
                 }
                 WalkEvent::Leave((_, folding)) => {
                     if let Folding::Unfolded = folding {
-                        write!(f, "}} ")?
+                        write!(f, "}}")?;
+                        prefix_space = true;
+                    } else {
+                        prefix_space = false;
                     }
                 }
             }
@@ -198,7 +206,9 @@ impl<E> FoldingTree<E> {
                 }
             };
 
-            self.unfold_node(current_node);
+            if !self.nodes[current_node].is_unfolded() {
+                self.unfold_node(current_node);
+            }
             current_node = next_node;
 
             current_path.push(edge);
@@ -733,5 +743,12 @@ mod tests {
         a.drop(&["a"]);
         eprintln!("{a}");
         panic!();
+    }
+
+    #[test]
+    fn parse() {
+        let s = "{ a { f X } b X }";
+        let t = FoldingTree::try_from(s).unwrap();
+        assert_eq!(t.to_string(), s);
     }
 }
