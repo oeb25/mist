@@ -64,6 +64,7 @@ pub(super) fn check_lhs(tc: &mut TypeChecker, expr: ast::Expr) -> ExprIdx {
         | ast::Expr::IfExpr(_)
         | ast::Expr::ReturnExpr(_)
         | ast::Expr::WhileExpr(_)
+        | ast::Expr::ForExpr(_)
         | ast::Expr::PrefixExpr(_)
         | ast::Expr::BinExpr(_)
         | ast::Expr::BlockExpr(_)
@@ -102,6 +103,30 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
         },
         ast::Expr::IfExpr(it) => return Left(check_if_expr(tc, it.clone())),
         ast::Expr::WhileExpr(_) => todo!(),
+        ast::Expr::ForExpr(it) => {
+            if let Some(name) = it.name() {
+                let ty = tc.unsourced_ty(int());
+                let span = name.span();
+                tc.declare_variable(VariableDeclaration::new_let(name), ty, span);
+            }
+
+            let range_expr = check_opt(tc, it.span(), it.expr());
+            let range_ty = tc.ty_id(TDK::Range(int()).into());
+            tc.expect_ty(
+                it.expr().map_or(it.span(), |x| x.span()),
+                range_ty,
+                tc.expr_ty(range_expr),
+            );
+
+            let _block_expr = it.block_expr().map(|b| tc.check_block(&b, |flags| flags));
+
+            return Left(tc.expr_error(
+                expr.span().set_len(0),
+                None,
+                None,
+                TypeCheckErrorKind::NotYetImplemented("for-loops".to_string()),
+            ));
+        }
         ast::Expr::PrefixExpr(it) => {
             let (_op_token, op) =
                 if let Some(op) = it.op_details() { op } else { todo!("{it:#?}") };

@@ -2038,6 +2038,41 @@ impl AstNode for WhileExpr {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ForExpr {
+    pub(crate) syntax: SyntaxNode,
+}
+impl crate::ast::HasName for ForExpr {}
+impl crate::ast::HasExpr for ForExpr {}
+impl ForExpr {
+    pub fn for_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![for])
+    }
+    pub fn in_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![in])
+    }
+    pub fn invariants(&self) -> AstChildren<Invariant> {
+        support::children(&self.syntax)
+    }
+    pub fn block_expr(&self) -> Option<BlockExpr> {
+        support::child(&self.syntax)
+    }
+}
+impl AstNode for ForExpr {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == FOR_EXPR
+    }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PrefixExpr {
     pub(crate) syntax: SyntaxNode,
 }
@@ -2669,6 +2704,7 @@ pub enum Expr {
     IfExpr(IfExpr),
     ReturnExpr(ReturnExpr),
     WhileExpr(WhileExpr),
+    ForExpr(ForExpr),
     PrefixExpr(PrefixExpr),
     BinExpr(BinExpr),
     BlockExpr(BlockExpr),
@@ -2704,6 +2740,11 @@ impl From<ReturnExpr> for Expr {
 impl From<WhileExpr> for Expr {
     fn from(node: WhileExpr) -> Expr {
         Expr::WhileExpr(node)
+    }
+}
+impl From<ForExpr> for Expr {
+    fn from(node: ForExpr) -> Expr {
+        Expr::ForExpr(node)
     }
 }
 impl From<PrefixExpr> for Expr {
@@ -2794,6 +2835,7 @@ impl AstNode for Expr {
                 | IF_EXPR
                 | RETURN_EXPR
                 | WHILE_EXPR
+                | FOR_EXPR
                 | PREFIX_EXPR
                 | BIN_EXPR
                 | BLOCK_EXPR
@@ -2818,6 +2860,7 @@ impl AstNode for Expr {
             IF_EXPR => Expr::IfExpr(IfExpr { syntax }),
             RETURN_EXPR => Expr::ReturnExpr(ReturnExpr { syntax }),
             WHILE_EXPR => Expr::WhileExpr(WhileExpr { syntax }),
+            FOR_EXPR => Expr::ForExpr(ForExpr { syntax }),
             PREFIX_EXPR => Expr::PrefixExpr(PrefixExpr { syntax }),
             BIN_EXPR => Expr::BinExpr(BinExpr { syntax }),
             BLOCK_EXPR => Expr::BlockExpr(BlockExpr { syntax }),
@@ -2844,6 +2887,7 @@ impl AstNode for Expr {
             Expr::IfExpr(it) => &it.syntax,
             Expr::ReturnExpr(it) => &it.syntax,
             Expr::WhileExpr(it) => &it.syntax,
+            Expr::ForExpr(it) => &it.syntax,
             Expr::PrefixExpr(it) => &it.syntax,
             Expr::BinExpr(it) => &it.syntax,
             Expr::BlockExpr(it) => &it.syntax,
@@ -3176,6 +3220,11 @@ impl std::fmt::Display for IfExpr {
     }
 }
 impl std::fmt::Display for WhileExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for ForExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }

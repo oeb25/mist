@@ -18,7 +18,7 @@
       ]
     },
     "keywords": {
-      "match": "\\b(const|struct|return|mut|assume|fn|assert|let|self|in|if|else|ghost|pure|requires|req|ensures|ens|decreases|dec|invariant|inv|result|macro|forall|exists|while|true|false)\\b",
+      "match": "\\b(const|struct|return|mut|assume|fn|assert|let|self|in|if|else|ghost|pure|requires|req|ensures|ens|decreases|dec|invariant|inv|result|macro|forall|exists|while|for|true|false)\\b",
       "name": "keyword"
     },
     "primitive-type": {

@@ -144,6 +144,7 @@ Expr =
 | IfExpr
 | ReturnExpr
 | WhileExpr
+| ForExpr
 | PrefixExpr
 | BinExpr
 | BlockExpr
@@ -170,6 +171,11 @@ IfExprElse =
 
 WhileExpr =
   'while' condition:Expr body:BlockExpr
+
+ForExpr =
+  'for' Name 'in' Expr
+  Invariant*
+  BlockExpr
 
 PrefixExpr =
   op:('-' | '!') Expr

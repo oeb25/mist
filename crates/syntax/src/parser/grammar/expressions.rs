@@ -92,6 +92,10 @@ fn expr_bp(p: &mut Parser, loc: Location, min_bp: u8) -> Option<BlockLike> {
             if_expr(p);
             block_like = BlockLike::Block;
         }
+        T![for] => {
+            for_expr(p);
+            block_like = BlockLike::Block;
+        }
         EOF => {
             p.unexpected_eof();
             return None;
@@ -216,6 +220,28 @@ pub fn if_expr(p: &mut Parser) {
     });
 }
 
+pub fn for_expr(p: &mut Parser) {
+    assert!(p.at(T![for]));
+    p.start_node(FOR_EXPR, |p| {
+        p.bump();
+
+        name(p);
+
+        p.expect(T![in]);
+
+        expr(p, Location::NO_STRUCT);
+
+        while let T![invariant] | T![inv] = p.current() {
+            p.start_node(INVARIANT, |p| {
+                p.bump();
+                comma_expr(p, Location::NO_STRUCT);
+            });
+        }
+
+        block(p);
+    });
+}
+
 pub fn is_start_of_expr(token: SyntaxKind) -> bool {
     matches!(
         token,
@@ -225,6 +251,7 @@ pub fn is_start_of_expr(token: SyntaxKind) -> bool {
             | T![false]
             | T![result]
             | T![if]
+            | T![for]
             | T![return]
             | T![forall]
             | T![exists]
