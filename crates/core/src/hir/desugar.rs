@@ -3,11 +3,14 @@ use mist_syntax::{
     SourceSpan,
 };
 
-use crate::types::builtin::{bool, int, void};
+use crate::{
+    hir::{IfExpr, Param},
+    types::builtin::{bool, int, void},
+};
 
 use super::{
-    Block, BuiltinExpr, Decreases, ExprData, ItemContext, Literal, Statement, StatementData,
-    WhileStmt,
+    Block, BuiltinExpr, Decreases, ExprData, ItemContext, Literal, QuantifierOver, Statement,
+    StatementData, WhileStmt,
 };
 
 pub fn desugar(cx: &mut ItemContext) {
@@ -19,7 +22,9 @@ pub fn desugar(cx: &mut ItemContext) {
         }
 
         match &expr.data {
-            ExprData::For(_) => desugar_queue.push(eid),
+            ExprData::Quantifier { over: QuantifierOver::In(_, _), .. } | ExprData::For(_) => {
+                desugar_queue.push(eid)
+            }
             _ => continue,
         }
     }
@@ -34,6 +39,38 @@ pub fn desugar(cx: &mut ItemContext) {
         }
 
         let new_eid = match cx.expr_arena[eid].data.clone() {
+            ExprData::Quantifier { quantifier, over: QuantifierOver::In(var, in_expr), expr } => {
+                // TODO: this is a bad span
+                let span = SourceSpan::new_start_end(0, 0);
+
+                let params =
+                    vec![Param { is_ghost: false, name: var.idx(), ty: cx.var_ty_src(var) }];
+
+                let var_expr = alloc_expr!(ExprData::Ident(var), cx.var_ty(var.idx()).id());
+                let condition =
+                    alloc_expr!(ExprData::Builtin(BuiltinExpr::InRange(var_expr, in_expr)), bool());
+                let true_expr = alloc_expr!(ExprData::Literal(Literal::Bool(true)), bool());
+                let body_expr = alloc_expr!(
+                    ExprData::If(IfExpr {
+                        if_span: span,
+                        is_ghost: true,
+                        return_ty: bool(),
+                        condition,
+                        then_branch: expr,
+                        else_branch: Some(true_expr)
+                    }),
+                    bool()
+                );
+
+                alloc_expr!(
+                    ExprData::Quantifier {
+                        quantifier,
+                        over: QuantifierOver::Params(params),
+                        expr: body_expr
+                    },
+                    bool()
+                )
+            }
             ExprData::For(it) => {
                 // TODO: this is a bad span
                 let span = SourceSpan::new_start_end(0, 0);

@@ -10,11 +10,12 @@ use mist_syntax::{
     },
     ptr::AstPtr,
 };
+use tracing::warn;
 
 use crate::{
     hir::{
-        Expr, ExprData, ExprIdx, ForExpr, IfExpr, Literal, Name, Param, Quantifier, SpanOrAstPtr,
-        StructExprField, VariableRef,
+        Expr, ExprData, ExprIdx, ForExpr, IfExpr, Literal, Name, Param, Quantifier, QuantifierOver,
+        SpanOrAstPtr, StructExprField, VariableRef,
     },
     types::{
         builtin::{bool, error, ghost_bool, ghost_int, int, null, void},
@@ -670,34 +671,51 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             };
             tc.push_scope(|f| f);
 
-            let params = it
-                .param_list()
-                .into_iter()
-                .flat_map(|pl| pl.params())
-                .map(|p| {
-                    let name = if let Some(name) = p.name() { name } else { todo!() };
-                    let ty = if let Some(ty) = p.ty() {
-                        tc.find_type_src(&ty)
-                    } else {
-                        let t = tc.new_free();
-                        tc.unsourced_ty(t)
-                    }
-                    .with_ghost(tc, p.is_ghost());
+            let over = match it.quantifier_over() {
+                Some(ast::QuantifierOver::ParamList(param_list)) => QuantifierOver::Params(
+                    param_list
+                        .params()
+                        .map(|p| {
+                            let name = if let Some(name) = p.name() { name } else { todo!() };
+                            let ty = if let Some(ty) = p.ty() {
+                                tc.find_type_src(&ty)
+                            } else {
+                                let t = tc.new_free();
+                                tc.unsourced_ty(t)
+                            }
+                            .with_ghost(tc, p.is_ghost());
 
-                    let var_decl = VariableDeclaration::new_param(name.clone());
-                    let name = if let Some(ty_ast) = p.ty() {
-                        tc.declare_variable(var_decl, ty, &ty_ast)
-                    } else {
-                        tc.declare_variable(var_decl, ty, name.span())
-                    };
-                    Param { is_ghost: true, name, ty }
-                })
-                .collect();
+                            let var_decl = VariableDeclaration::new_param(name.clone());
+                            let name = if let Some(ty_ast) = p.ty() {
+                                tc.declare_variable(var_decl, ty, &ty_ast)
+                            } else {
+                                tc.declare_variable(var_decl, ty, name.span())
+                            };
+                            Param { is_ghost: true, name, ty }
+                        })
+                        .collect(),
+                ),
+                Some(ast::QuantifierOver::NameInExpr(it)) => {
+                    let ty = tc.new_free();
+                    let ty = tc.unsourced_ty(ty);
+                    let name = it.name().unwrap();
+                    let name_span = name.span();
+                    let var_decl =
+                        tc.declare_variable(VariableDeclaration::new_let(name), ty, name_span);
+                    let var_ref = VariableRef::new(var_decl, name_span);
+                    let over_expr = check_opt(tc, it.span(), it.expr());
+                    QuantifierOver::In(var_ref, over_expr)
+                }
+                None => {
+                    warn!("quantifier does not quantify over anything");
+                    QuantifierOver::Params(vec![])
+                }
+            };
 
             let expr = check_inner(tc, it);
             tc.pop_scope();
 
-            ExprData::Quantifier { quantifier, params, expr }.typed(bool())
+            ExprData::Quantifier { quantifier, over, expr }.typed(bool())
         }
     })
 }

@@ -133,7 +133,7 @@ pub enum ExprData {
     Ref { is_mut: bool, expr: ExprIdx },
     Index { base: ExprIdx, index: ExprIdx },
     List { elems: Vec<ExprIdx> },
-    Quantifier { quantifier: Quantifier, params: Vec<Param<VariableIdx>>, expr: ExprIdx },
+    Quantifier { quantifier: Quantifier, over: QuantifierOver, expr: ExprIdx },
     Result,
     Range { lhs: Option<ExprIdx>, rhs: Option<ExprIdx> },
     Return(Option<ExprIdx>),
@@ -144,6 +144,11 @@ impl ExprData {
     pub(super) fn typed(self, ty: TypeId) -> Expr {
         Expr { ty, data: self }
     }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum QuantifierOver {
+    Params(Vec<Param<VariableIdx>>),
+    In(VariableRef, ExprIdx),
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BuiltinExpr {

@@ -1,6 +1,9 @@
 use itertools::Itertools;
 
-use crate::types::{TypeData, TypeId, TDK};
+use crate::{
+    hir::QuantifierOver,
+    types::{TypeData, TypeId, TDK},
+};
 
 use super::{
     pretty, BuiltinExpr, Expr, ExprData, ExprIdx, Literal, Name, Param, TypeSrcId, VariableIdx,
@@ -129,16 +132,20 @@ pub fn expr(pp: &impl PrettyPrint, db: &dyn crate::Db, expr: ExprIdx) -> String 
         ExprData::Ref { is_mut, expr } => {
             format!("&{}{}", if *is_mut { "mut" } else { "" }, pp_expr(pp, db, *expr))
         }
-        ExprData::Quantifier { quantifier, params, expr } => format!(
-            "{quantifier}{} {{ {} }}",
-            pp_params(
-                pp,
-                db,
-                true,
-                params.iter().map(|param| param.map_var(|var| pp.resolve_var(*var)))
-            ),
-            pp_expr(pp, db, *expr)
-        ),
+        ExprData::Quantifier { quantifier, over, expr } => {
+            let over = match over {
+                QuantifierOver::Params(params) => pp_params(
+                    pp,
+                    db,
+                    true,
+                    params.iter().map(|param| param.map_var(|var| pp.resolve_var(*var))),
+                ),
+                QuantifierOver::In(var, over) => {
+                    format!(" {} in {}", pp.resolve_var(var.idx()), pp_expr(pp, db, *over))
+                }
+            };
+            format!("{quantifier}{over} {{ {} }}", pp_expr(pp, db, *expr))
+        }
         ExprData::Result => "result".to_string(),
         ExprData::Builtin(b) => match b {
             BuiltinExpr::RangeMin(r) => format!("#range-min({})", pp_expr(pp, db, *r)),

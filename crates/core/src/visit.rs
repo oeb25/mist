@@ -467,8 +467,16 @@ where
             ExprData::NotNull(inner) => {
                 self.walk_expr(visitor, inner)?;
             }
-            ExprData::Quantifier { params, expr, .. } => {
-                self.walk_param_list(visitor, &params)?;
+            ExprData::Quantifier { over, expr, .. } => {
+                match over {
+                    hir::QuantifierOver::Params(params) => {
+                        self.walk_param_list(visitor, &params)?
+                    }
+                    hir::QuantifierOver::In(var, expr) => {
+                        visitor.visit_var(&self.vcx, var)?;
+                        self.walk_expr(visitor, expr)?;
+                    }
+                }
                 self.walk_expr(visitor, expr)?;
             }
             ExprData::Builtin(b) => match b {

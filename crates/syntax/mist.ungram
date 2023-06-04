@@ -235,8 +235,11 @@ NullExpr = 'null'
 
 ResultExpr = 'result'
 
-QuantifierExpr =
-  Quantifier ParamList Expr
+QuantifierExpr = Quantifier QuantifierOver Expr
+
+QuantifierOver = ParamList | NameInExpr
+
+NameInExpr = Name 'in' Expr
 
 Quantifier =
   'forall' | 'exists'

@@ -117,7 +117,17 @@ fn expr_bp(p: &mut Parser, loc: Location, min_bp: u8) -> Option<BlockLike> {
                     T![forall] | T![exists] => {
                         p.start_node(QUANTIFIER_EXPR, |p| {
                             p.start_node(QUANTIFIER, |p| p.bump());
-                            param_list(p);
+
+                            if let T!['('] = p.current() {
+                                param_list(p);
+                            } else {
+                                p.start_node(NAME_IN_EXPR, |p| {
+                                    name(p);
+                                    p.expect(T![in]);
+                                    expr(p, loc);
+                                });
+                            }
+
                             expr_bp(p, loc, r_bp);
                         });
                     }
