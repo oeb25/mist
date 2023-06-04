@@ -357,6 +357,9 @@ pub enum FunctionData {
     Index,
     RangeIndex,
     Range(RangeKind),
+    InRange,
+    RangeMin,
+    RangeMax,
     List,
     ListConcat,
 }

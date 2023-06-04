@@ -6,6 +6,8 @@ use derive_more::Display;
 pub enum UnaryOp {
     Not,
     Neg,
+    RangeMin,
+    RangeMax,
 }
 
 impl std::fmt::Display for UnaryOp {
@@ -13,6 +15,8 @@ impl std::fmt::Display for UnaryOp {
         let op = match self {
             UnaryOp::Not => "!",
             UnaryOp::Neg => "-",
+            UnaryOp::RangeMin => "#range-min",
+            UnaryOp::RangeMax => "#range-max",
         };
         write!(f, "{op}")
     }

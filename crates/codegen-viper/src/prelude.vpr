@@ -2,6 +2,34 @@ domain Range {
   function range_from(x: Int): Range
   function range_to(x: Int): Range
   function range_from_to(from: Int, to: Int): Range
+
+  function range_min(r: Range): Int
+  function range_max(r: Range): Int
+
+  function in_range(idx: Int, r: Range): Bool
+
+  axiom axRangeMin {
+    forall x: Int, y: Int ::
+      range_min(range_from(x)) == x &&
+      range_min(range_from_to(x, y)) == x
+  }
+  axiom axRangeMax {
+    forall x: Int, y: Int ::
+      range_max(range_from_to(x, y)) == y &&
+      range_max(range_to(y)) == y
+  }
+
+  axiom axRangeIn {
+    forall x: Int, y: Int, idx: Int ::
+      in_range(idx, range_from(x)) == (x <= idx) &&
+      in_range(idx, range_from_to(x, y)) == (x <= idx && idx < y) &&
+      in_range(idx, range_to(y)) == (idx < y)
+  }
+
+  axiom axRangeOrdered {
+    forall r: Range, idx: Int ::
+      in_range(idx, r) ==> range_min(r) < range_max(r)
+  }
 }
 
 domain RangeIndex[T] {

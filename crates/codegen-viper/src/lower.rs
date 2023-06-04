@@ -5,6 +5,7 @@ use std::{
 
 use derive_new::new;
 
+use itertools::Either;
 use miette::Diagnostic;
 use mist_core::{
     def, hir,
@@ -389,6 +390,19 @@ impl BodyLower<'_> {
                 self.operand_to_ref(source, &args[1])?,
             )
             .into(),
+            mir::FunctionData::InRange => {
+                let idx = self.operand_to_ref(source, &args[0])?;
+                let r = self.operand_to_ref(source, &args[1])?;
+                Exp::new_func_app("in_range".to_string(), vec![idx, r])
+            }
+            mir::FunctionData::RangeMin => {
+                let r = self.operand_to_ref(source, &args[0])?;
+                Exp::new_func_app("range_min".to_string(), vec![r])
+            }
+            mir::FunctionData::RangeMax => {
+                let r = self.operand_to_ref(source, &args[0])?;
+                Exp::new_func_app("range_max".to_string(), vec![r])
+            }
         })
     }
 
@@ -526,12 +540,18 @@ impl BodyLower<'_> {
             mir::MExpr::UnaryOp(op, x) => {
                 use mist_syntax::ast::operators::UnaryOp;
 
-                let op = match op {
-                    UnaryOp::Not => UnOp::Not,
-                    UnaryOp::Neg => UnOp::Minus,
-                };
                 let x = self.operand_to_ref(inst, x)?;
-                Exp::new_un(op, x)
+
+                let op = match op {
+                    UnaryOp::Not => Either::Left(UnOp::Not),
+                    UnaryOp::Neg => Either::Left(UnOp::Minus),
+                    UnaryOp::RangeMin => Either::Right("range_min".to_string()),
+                    UnaryOp::RangeMax => Either::Right("range_max".to_string()),
+                };
+                match op {
+                    Either::Left(op) => Exp::new_un(op, x),
+                    Either::Right(funcname) => Exp::new_func_app(funcname, vec![x]),
+                }
             }
         };
         Ok(self.alloc(inst, exp))

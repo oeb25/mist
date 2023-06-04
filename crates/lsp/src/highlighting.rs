@@ -251,8 +251,8 @@ impl<'src> Visitor for Highlighter<'src> {
     }
 
     fn visit_expr(&mut self, vcx: &VisitContext, expr: ExprIdx) -> ControlFlow<()> {
-        let span = vcx.source_map.expr_span(expr);
-        let e = vcx.cx.expr(expr);
+        let span = vcx.source_map.expr_span(&vcx.cx, expr);
+        let e = vcx.cx.original_expr(expr);
         match &e.data {
             hir::ExprData::Literal(_) => {
                 let tt = match vcx.cx.expr_ty(expr).kind() {

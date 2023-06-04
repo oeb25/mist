@@ -29,8 +29,9 @@ use crate::{
 pub(crate) use typing::{TypingMut, TypingMutExt};
 
 use super::{
+    desugar,
     item_context::{FunctionContext, SpanOrAstPtr},
-    ItemContext, ItemSourceMap, TypeSrc, TypeSrcId,
+    ItemContext, ItemSourceMap, TypeSrc, TypeSrcId, WhileStmt,
 };
 
 fn id<T>(t: T) -> T {
@@ -186,6 +187,7 @@ impl From<TypeChecker<'_>> for hir::DefinitionHir {
                 .into_iter()
                 .map(|(f, ty)| (f, ty.ty(&tc))),
         )));
+        desugar::desugar(&mut tc.cx);
 
         hir::DefinitionHir::new(tc.db, tc.cx.def(), tc.cx, tc.source_map)
     }
@@ -346,7 +348,7 @@ impl<'a> TypeChecker<'a> {
         self.scope = self.scope_stack.pop().expect("tried to pop scope while none was pushed");
     }
     pub fn expr_ty(&self, expr: ExprIdx) -> TypeId {
-        self.cx.expr_arena[expr].ty
+        self.cx.expr_ty(expr).id()
     }
     pub fn expr_span(&self, expr: ExprIdx) -> SourceSpan {
         self.source_map.expr_map_back[expr].span()
@@ -518,7 +520,7 @@ impl<'a> TypeChecker<'a> {
                 }
                 ast::Stmt::WhileStmt(it) => Statement::new(
                     it.span(),
-                    StatementData::While {
+                    StatementData::While(WhileStmt {
                         expr: self.check(&it, it.expr()),
                         invariants: it
                             .invariants()
@@ -530,7 +532,7 @@ impl<'a> TypeChecker<'a> {
                         } else {
                             Block { stmts: Vec::new(), tail_expr: None, return_ty: void() }
                         },
-                    },
+                    }),
                 ),
             })
             .collect();

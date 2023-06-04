@@ -1,6 +1,41 @@
-fn a() {
-    let a = [];
-    for x in 0..10 {
-        a = [x];
+fn fib_iter(n: int) -> int
+  req n > 0
+  ens result == fib(n)
+{
+  let a = 1;
+  let b = 1;
+  for i in 0..n
+    inv a == fib(i), b == fib(i + 1)
+  {
+    let c = a + b;
+    a = b;
+    b = c;
+  }
+  a
+}
+
+fn fib_list(n: int) -> [int]
+  ens result.len >= n
+  ens forall(j) if 0 <= j && j < result.len {
+        result[j] == fib(j)
+      } else { true }
+{
+    let a = [1, 1];
+    for i in 2..n
+      inv a.len == i,
+          // forall j in 0..i { a[j] == fib(j) }
+          forall(j) if 0 <= j && j < i {
+            a[j] == fib(j)
+          } else { true }
+    {
+        a = a + [a[a.len - 1] + a[a.len - 2]]
     }
+    a
+
+}
+
+pure fn fib(n: int) -> int
+  req n >= 0
+{
+    if n < 2 { 1 } else { fib(n - 1) + fib(n - 2) }
 }

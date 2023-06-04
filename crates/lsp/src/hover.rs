@@ -121,9 +121,9 @@ impl<'a> Visitor for HoverFinder<'a> {
         vcx: &VisitContext,
         expr: ExprIdx,
     ) -> ControlFlow<Option<HoverResult>> {
-        let span = vcx.source_map.expr_span(expr);
+        let span = vcx.source_map.expr_span(&vcx.cx, expr);
         if span.contains_pos(self.byte_offset) {
-            let expr = vcx.cx.expr(expr);
+            let expr = vcx.cx.original_expr(expr);
             let ty = pretty::ty(&*vcx.cx, self.db, false, expr.ty);
             if let ExprData::Result = &expr.data {
                 return break_code([format!("result: {ty}")], None);

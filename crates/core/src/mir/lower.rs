@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use mist_syntax::ast::operators::{ArithOp, BinaryOp, CmpOp};
 use tracing::debug;
 
@@ -44,7 +45,7 @@ pub fn lower_item(db: &dyn crate::Db, def: Def) -> Option<DefinitionMir> {
         match cond {
             hir::Condition::Requires(es) => {
                 for &e in es {
-                    let slot = lower.alloc_expr(e);
+                    let slot = lower.alloc_place_for_expr(e);
                     let entry_bid = lower.alloc_block(Some(e));
                     lower.expr(e, entry_bid, None, Placement::Assign(slot));
                     lower.body.requires.push(entry_bid);
@@ -52,7 +53,7 @@ pub fn lower_item(db: &dyn crate::Db, def: Def) -> Option<DefinitionMir> {
             }
             hir::Condition::Ensures(es) => {
                 for &e in es {
-                    let slot = lower.alloc_expr(e);
+                    let slot = lower.alloc_place_for_expr(e);
                     let entry_bid = lower.alloc_block(Some(e));
                     lower.expr(e, entry_bid, None, Placement::Assign(slot));
                     lower.body.ensures.push(entry_bid);
@@ -62,7 +63,7 @@ pub fn lower_item(db: &dyn crate::Db, def: Def) -> Option<DefinitionMir> {
     }
 
     for &ty_inv in cx.self_invariants() {
-        let slot = lower.alloc_expr(ty_inv);
+        let slot = lower.alloc_place_for_expr(ty_inv);
         let entry_bid = lower.alloc_block(Some(ty_inv));
         lower.expr(ty_inv, entry_bid, None, Placement::Assign(slot));
         lower.body.invariants.push(entry_bid);
@@ -97,7 +98,7 @@ impl<'a> MirLower<'a> {
     fn alloc_tmp(&mut self, ty: impl Into<TypeId>) -> Place {
         self.alloc_place(Slot::default(), ty)
     }
-    fn alloc_expr(&mut self, expr: ExprIdx) -> Place {
+    fn alloc_place_for_expr(&mut self, expr: ExprIdx) -> Place {
         self.alloc_tmp(self.cx.expr_ty(expr))
     }
     fn alloc_place(&mut self, slot: Slot, ty: impl Into<TypeId>) -> Place {
@@ -262,9 +263,11 @@ impl MirLower<'_> {
         target: Option<BlockId>,
     ) -> BlockId {
         let (destination, next_bid, assertion) = match dest {
-            Placement::Ignore => {
-                (self.alloc_expr(expr), target.unwrap_or_else(|| self.alloc_block(None)), None)
-            }
+            Placement::Ignore => (
+                self.alloc_place_for_expr(expr),
+                target.unwrap_or_else(|| self.alloc_block(None)),
+                None,
+            ),
             Placement::Assign(slot) => {
                 (slot, target.unwrap_or_else(|| self.alloc_block(None)), None)
             }
@@ -279,7 +282,7 @@ impl MirLower<'_> {
                 (tmp, target.unwrap_or_else(|| self.alloc_block(None)), None)
             }
             Placement::Assertion(kind) => {
-                (self.alloc_expr(expr), self.alloc_block(None), Some(kind))
+                (self.alloc_place_for_expr(expr), self.alloc_block(None), Some(kind))
             }
         };
 
@@ -328,83 +331,7 @@ impl MirLower<'_> {
                 let dest = self.alloc_local(variable.idx());
                 self.expr(*initializer, bid, target, Placement::Assign(dest.into()))
             }
-            StatementData::While { expr, invariants, decreases, body } => {
-                let cond_block = self.alloc_block(None);
-                assert_ne!(bid, cond_block);
-                self.body.blocks[bid].set_terminator(Terminator::Goto(cond_block));
-
-                bid = cond_block;
-                let cond_place = self.alloc_tmp(bool());
-                // let cond_place = self.expr_into_place(*expr, &mut bid, None);
-                bid = self.expr(*expr, bid, None, Placement::Assign(cond_place));
-
-                let cond_inv_bid = {
-                    let cond_inv_bid = self.alloc_block(None);
-                    let mut end_bid = cond_inv_bid;
-                    let inv_result = self.expr_into_operand(*expr, &mut end_bid, None);
-                    let bool_ty = self.body.place_ty(cond_place).id();
-                    let some_place = self.alloc_place(Slot::Temp, bool_ty);
-                    self.alloc_instruction(
-                        Some(*expr),
-                        end_bid,
-                        Instruction::Assign(
-                            some_place,
-                            MExpr::BinaryOp(
-                                BinaryOp::CmpOp(CmpOp::Eq { negated: false }),
-                                inv_result,
-                                Operand::Copy(cond_place),
-                            ),
-                        ),
-                    );
-                    cond_inv_bid
-                };
-
-                let invariants: Vec<_> = invariants
-                    .iter()
-                    .flatten()
-                    .map(|inv| {
-                        let inv_block = self.alloc_block(None);
-                        let inv_result = self.alloc_expr(*inv);
-                        self.expr(*inv, inv_block, None, Placement::Assign(inv_result));
-                        inv_block
-                    })
-                    .chain([cond_inv_bid])
-                    .collect();
-
-                self.body.block_invariants.insert(bid, invariants);
-
-                let body_bid = self.alloc_block(None);
-                let mut next_bid = body_bid;
-
-                let variant_slot = match *decreases {
-                    hir::Decreases::Unspecified => None,
-                    hir::Decreases::Expr(variant) => {
-                        let variant_slot = self.alloc_tmp(self.cx.expr_ty(variant));
-                        next_bid =
-                            self.expr(variant, next_bid, None, Placement::Assign(variant_slot));
-                        Some(variant_slot)
-                    }
-                    hir::Decreases::Inferred => None,
-                };
-
-                let mut body_bid_last = self.block(body, next_bid, None, Placement::Ignore);
-                if let (hir::Decreases::Expr(variant), Some(variant_slot)) =
-                    (*decreases, variant_slot)
-                {
-                    self.emit_decreases_assertion(variant_slot, variant, &mut body_bid_last);
-                }
-
-                let exit_bid = self.alloc_block(None);
-
-                assert_ne!(body_bid_last, cond_block);
-                self.body.blocks[body_bid_last].set_terminator(Terminator::Goto(cond_block));
-                self.body.blocks[bid].set_terminator(Terminator::Switch(
-                    Operand::Copy(cond_place),
-                    SwitchTargets::new([(1, body_bid)], exit_bid),
-                ));
-
-                exit_bid
-            }
+            StatementData::While(it) => self.while_stmt(it, bid),
             StatementData::Assertion { kind, exprs } => {
                 for &expr in exprs {
                     bid = self.expr(expr, bid, None, Placement::Assertion(*kind));
@@ -413,6 +340,7 @@ impl MirLower<'_> {
             }
         }
     }
+
     fn emit_decreases_assertion(
         &mut self,
         initial_variant: Place,
@@ -540,6 +468,7 @@ impl MirLower<'_> {
             ExprData::Struct { .. } => todo!(),
             ExprData::Missing => (bid, self.alloc_tmp(error())),
             ExprData::If(_) => todo!(),
+            ExprData::For { .. } => todo!(),
             ExprData::Call { .. } => todo!(),
             ExprData::Unary { .. } => todo!(),
             ExprData::Bin { .. } => todo!(),
@@ -555,6 +484,7 @@ impl MirLower<'_> {
             ExprData::Result => todo!(),
             ExprData::Range { .. } => todo!(),
             ExprData::Return(_) => todo!(),
+            ExprData::Builtin(_) => todo!(),
         }
     }
     fn expr_into_operand(
@@ -570,7 +500,7 @@ impl MirLower<'_> {
             target,
             Placement::IntoOperand(self.cx.expr_ty(expr).id(), &mut tmp),
         );
-        tmp.unwrap_or_else(|| Operand::Move(self.alloc_expr(expr)))
+        tmp.unwrap_or_else(|| Operand::Move(self.alloc_place_for_expr(expr)))
     }
 
     fn expr_into_place(
@@ -678,6 +608,7 @@ impl MirLower<'_> {
             }
             ExprData::Missing => bid,
             ExprData::If(it) => self.if_expr(it, bid, target, dest, expr),
+            ExprData::For(it) => self.for_expr(it, bid, expr),
             ExprData::Call { expr: f_expr, args: input_args } => {
                 let (func, mut args) = self.expr_to_function(*f_expr);
 
@@ -824,6 +755,24 @@ impl MirLower<'_> {
                 self.body.blocks[bid].set_terminator(Terminator::Return);
                 target.unwrap_or_else(|| self.alloc_block(None))
             }
+            ExprData::Builtin(b) => match b {
+                hir::BuiltinExpr::RangeMin(r) => {
+                    let r = self.expr_into_operand(*r, &mut bid, None);
+                    let func = self.alloc_function(Function::new(FunctionData::RangeMin));
+                    self.put_call(expr, func, vec![r], dest, bid, target)
+                }
+                hir::BuiltinExpr::RangeMax(r) => {
+                    let r = self.expr_into_operand(*r, &mut bid, None);
+                    let func = self.alloc_function(Function::new(FunctionData::RangeMax));
+                    self.put_call(expr, func, vec![r], dest, bid, target)
+                }
+                hir::BuiltinExpr::InRange(idx, r) => {
+                    let idx = self.expr_into_operand(*idx, &mut bid, None);
+                    let r = self.expr_into_operand(*r, &mut bid, None);
+                    let func = self.alloc_function(Function::new(FunctionData::InRange));
+                    self.put_call(expr, func, vec![idx, r], dest, bid, target)
+                }
+            },
         }
     }
     fn expr_to_function(&mut self, expr: ExprIdx) -> (FunctionId, Vec<Operand>) {
@@ -885,5 +834,75 @@ impl MirLower<'_> {
             SwitchTargets::new([(1, then_block)], else_block),
         ));
         final_block
+    }
+
+    // TODO: perhaps remove this, since for-loops should be desugared into while loops
+    fn for_expr(&mut self, _it: &hir::ForExpr, bid: BlockId, _expr: ExprIdx) -> BlockId {
+        bid
+    }
+
+    fn while_stmt(&mut self, it: &hir::WhileStmt, mut bid: BlockId) -> BlockId {
+        let cond_block = self.alloc_block(None);
+        assert_ne!(bid, cond_block);
+        self.body.blocks[bid].set_terminator(Terminator::Goto(cond_block));
+        bid = cond_block;
+        let cond_place = self.alloc_tmp(bool());
+        bid = self.expr(it.expr, bid, None, Placement::Assign(cond_place));
+        let cond_inv_bid = {
+            let cond_inv_bid = self.alloc_block(None);
+            let mut end_bid = cond_inv_bid;
+            let inv_result = self.expr_into_operand(it.expr, &mut end_bid, None);
+            let some_place = self.alloc_place(Slot::Temp, bool());
+            self.alloc_instruction(
+                Some(it.expr),
+                end_bid,
+                Instruction::Assign(
+                    some_place,
+                    MExpr::BinaryOp(
+                        BinaryOp::CmpOp(CmpOp::Eq { negated: false }),
+                        inv_result,
+                        Operand::Copy(cond_place),
+                    ),
+                ),
+            );
+            cond_inv_bid
+        };
+        let invariants = it
+            .invariants
+            .iter()
+            .flatten()
+            .map(|inv| {
+                let inv_block = self.alloc_block(None);
+                let inv_result = self.alloc_place_for_expr(*inv);
+                self.expr(*inv, inv_block, None, Placement::Assign(inv_result));
+                inv_block
+            })
+            .chain([cond_inv_bid])
+            .collect_vec();
+        let cond_bid_last = bid;
+        self.body.block_invariants.insert(cond_bid_last, invariants);
+        let body_bid = self.alloc_block(None);
+        let mut next_bid = body_bid;
+        let variant_slot = match it.decreases {
+            hir::Decreases::Unspecified => None,
+            hir::Decreases::Expr(variant) => {
+                let variant_slot = self.alloc_tmp(self.cx.expr_ty(variant));
+                next_bid = self.expr(variant, next_bid, None, Placement::Assign(variant_slot));
+                Some(variant_slot)
+            }
+            hir::Decreases::Inferred => None,
+        };
+        let mut body_bid_last = self.block(&it.body, next_bid, None, Placement::Ignore);
+        if let (hir::Decreases::Expr(variant), Some(variant_slot)) = (it.decreases, variant_slot) {
+            self.emit_decreases_assertion(variant_slot, variant, &mut body_bid_last);
+        }
+        let exit_bid = self.alloc_block(None);
+        assert_ne!(body_bid_last, cond_block);
+        self.body.blocks[body_bid_last].set_terminator(Terminator::Goto(cond_block));
+        self.body.blocks[cond_bid_last].set_terminator(Terminator::Switch(
+            Operand::Copy(cond_place),
+            SwitchTargets::new([(1, body_bid)], exit_bid),
+        ));
+        exit_bid
     }
 }

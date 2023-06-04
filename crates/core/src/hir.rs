@@ -1,4 +1,5 @@
 pub mod def;
+pub mod desugar;
 pub mod file;
 pub(crate) mod file_context;
 mod item_context;

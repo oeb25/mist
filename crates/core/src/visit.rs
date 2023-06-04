@@ -6,8 +6,9 @@ use mist_syntax::ast::{self, HasName};
 use crate::{
     def::{DefKind, Function, Struct, TypeInvariant},
     hir::{
-        self, Block, Decreases, ExprData, ExprIdx, IfExpr, ItemContext, ItemSourceMap, Param,
-        SourceFile, Statement, StatementData, TypeSrcId, VariableIdx, VariableRef,
+        self, Block, Decreases, ExprData, ExprIdx, ForExpr, IfExpr, ItemContext, ItemSourceMap,
+        Param, SourceFile, Statement, StatementData, TypeSrcId, VariableIdx, VariableRef,
+        WhileStmt,
     },
     types::{Field, TDK},
 };
@@ -88,6 +89,12 @@ pub trait Walker<'db>: Sized {
         &mut self,
         visitor: &mut V,
         if_expr: &IfExpr,
+    ) -> ControlFlow<V::Item>;
+    #[must_use]
+    fn walk_for_expr<V: Visitor>(
+        &mut self,
+        visitor: &mut V,
+        for_expr: &ForExpr,
     ) -> ControlFlow<V::Item>;
     #[must_use]
     fn walk_block<V: Visitor>(&mut self, visitor: &mut V, block: &Block) -> ControlFlow<V::Item>;
@@ -381,7 +388,7 @@ where
             visitor.visit_expr(&self.vcx, expr)?;
         }
 
-        match self.vcx.cx.expr(expr).data.clone() {
+        match self.vcx.cx.original_expr(expr).data.clone() {
             ExprData::Literal(_) | ExprData::Missing | ExprData::Result => {}
             ExprData::Ident(var) => {
                 visitor.visit_var(&self.vcx, var)?;
@@ -391,7 +398,7 @@ where
             }
             ExprData::Field { expr: inner, field, .. } => {
                 self.walk_expr(visitor, inner)?;
-                let expr_src = self.vcx.source_map.expr_src(expr);
+                let expr_src = self.vcx.source_map.expr_src(&self.vcx.cx, expr);
 
                 // TODO: This should be replaces with a try-block when stable
                 let res: Option<_> = (|| {
@@ -413,6 +420,9 @@ where
             }
             ExprData::If(if_expr) => {
                 self.walk_if_expr(visitor, &if_expr)?;
+            }
+            ExprData::For(for_expr) => {
+                self.walk_for_expr(visitor, &for_expr)?;
             }
             ExprData::Call { expr, args } => {
                 self.walk_expr(visitor, expr)?;
@@ -461,6 +471,15 @@ where
                 self.walk_param_list(visitor, &params)?;
                 self.walk_expr(visitor, expr)?;
             }
+            ExprData::Builtin(b) => match b {
+                hir::BuiltinExpr::RangeMin(r) | hir::BuiltinExpr::RangeMax(r) => {
+                    self.walk_expr(visitor, r)?
+                }
+                hir::BuiltinExpr::InRange(idx, r) => {
+                    self.walk_expr(visitor, idx)?;
+                    self.walk_expr(visitor, r)?;
+                }
+            },
         };
 
         if self.post() {
@@ -485,6 +504,20 @@ where
     }
 
     #[must_use]
+    fn walk_for_expr<V: Visitor>(
+        &mut self,
+        visitor: &mut V,
+        for_expr: &ForExpr,
+    ) -> ControlFlow<V::Item> {
+        visitor.visit_var(&self.vcx, for_expr.variable)?;
+        self.walk_expr(visitor, for_expr.in_expr)?;
+        for inv in &for_expr.invariants {
+            self.walk_exprs(visitor, inv)?;
+        }
+        self.walk_expr(visitor, for_expr.body)
+    }
+
+    #[must_use]
     fn walk_block<V: Visitor>(&mut self, visitor: &mut V, block: &Block) -> ControlFlow<V::Item> {
         for stmt in &block.stmts {
             if self.pre() {
@@ -500,7 +533,7 @@ where
                     }
                     self.walk_expr(visitor, initializer)?;
                 }
-                StatementData::While { expr, invariants, decreases, body } => {
+                StatementData::While(WhileStmt { expr, invariants, decreases, body }) => {
                     self.walk_expr(visitor, *expr)?;
                     for inv in invariants {
                         self.walk_exprs(visitor, inv)?;

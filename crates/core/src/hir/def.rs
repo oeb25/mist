@@ -126,6 +126,7 @@ pub enum ExprData {
     Struct { struct_declaration: Struct, struct_span: SourceSpan, fields: Vec<StructExprField> },
     Missing,
     If(IfExpr),
+    For(ForExpr),
     Call { expr: ExprIdx, args: Vec<ExprIdx> },
     Unary { op: UnaryOp, inner: ExprIdx },
     Bin { lhs: ExprIdx, op: BinaryOp, rhs: ExprIdx },
@@ -137,11 +138,18 @@ pub enum ExprData {
     Range { lhs: Option<ExprIdx>, rhs: Option<ExprIdx> },
     Return(Option<ExprIdx>),
     NotNull(ExprIdx),
+    Builtin(BuiltinExpr),
 }
 impl ExprData {
     pub(super) fn typed(self, ty: TypeId) -> Expr {
         Expr { ty, data: self }
     }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum BuiltinExpr {
+    RangeMin(ExprIdx),
+    RangeMax(ExprIdx),
+    InRange(ExprIdx, ExprIdx),
 }
 #[derive(Debug, Display, Clone, PartialEq, Eq, Hash)]
 pub enum Literal {
@@ -193,6 +201,21 @@ pub struct IfExpr {
     pub then_branch: ExprIdx,
     pub else_branch: Option<ExprIdx>,
 }
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ForExpr {
+    pub is_ghost: bool,
+    pub variable: VariableRef,
+    pub in_expr: ExprIdx,
+    pub invariants: Vec<Vec<ExprIdx>>,
+    pub body: ExprIdx,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct WhileStmt {
+    pub expr: ExprIdx,
+    pub invariants: Vec<Vec<ExprIdx>>,
+    pub decreases: Decreases,
+    pub body: Block,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Block {
@@ -211,7 +234,7 @@ pub struct Statement {
 pub enum StatementData {
     Expr(ExprIdx),
     Let { variable: VariableRef, explicit_ty: Option<TypeSrcId>, initializer: ExprIdx },
-    While { expr: ExprIdx, invariants: Vec<Vec<ExprIdx>>, decreases: Decreases, body: Block },
+    While(WhileStmt),
     Assertion { kind: AssertionKind, exprs: Vec<ExprIdx> },
 }
 

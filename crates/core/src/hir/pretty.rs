@@ -2,7 +2,9 @@ use itertools::Itertools;
 
 use crate::types::{TypeData, TypeId, TDK};
 
-use super::{pretty, Expr, ExprData, ExprIdx, Literal, Name, Param, TypeSrcId, VariableIdx};
+use super::{
+    pretty, BuiltinExpr, Expr, ExprData, ExprIdx, Literal, Name, Param, TypeSrcId, VariableIdx,
+};
 
 pub trait PrettyPrint {
     fn resolve_var(&self, idx: VariableIdx) -> Name;
@@ -94,6 +96,9 @@ pub fn expr(pp: &impl PrettyPrint, db: &dyn crate::Db, expr: ExprIdx) -> String 
         ExprData::NotNull(it) => format!("{}!", pp_expr(pp, db, *it)),
         ExprData::Missing => "<missing>".to_string(),
         ExprData::If(it) => format!("if {}", pp_expr(pp, db, it.condition)),
+        ExprData::For(it) => {
+            format!("for {} in {}", pp.resolve_var(it.variable.idx()), pp_expr(pp, db, it.in_expr))
+        }
         ExprData::Block(_block) => "<block>".to_string(),
         ExprData::Return(Some(e)) => format!("return {}", pp_expr(pp, db, *e)),
         ExprData::Return(None) => "return".to_string(),
@@ -135,5 +140,12 @@ pub fn expr(pp: &impl PrettyPrint, db: &dyn crate::Db, expr: ExprIdx) -> String 
             pp_expr(pp, db, *expr)
         ),
         ExprData::Result => "result".to_string(),
+        ExprData::Builtin(b) => match b {
+            BuiltinExpr::RangeMin(r) => format!("#range-min({})", pp_expr(pp, db, *r)),
+            BuiltinExpr::RangeMax(r) => format!("#range-max({})", pp_expr(pp, db, *r)),
+            BuiltinExpr::InRange(idx, r) => {
+                format!("#in-range({}, {})", pp_expr(pp, db, *idx), pp_expr(pp, db, *r))
+            }
+        },
     }
 }

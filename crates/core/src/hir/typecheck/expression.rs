@@ -13,7 +13,7 @@ use mist_syntax::{
 
 use crate::{
     hir::{
-        Expr, ExprData, ExprIdx, IfExpr, Literal, Name, Param, Quantifier, SpanOrAstPtr,
+        Expr, ExprData, ExprIdx, ForExpr, IfExpr, Literal, Name, Param, Quantifier, SpanOrAstPtr,
         StructExprField, VariableRef,
     },
     types::{
@@ -104,28 +104,47 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
         ast::Expr::IfExpr(it) => return Left(check_if_expr(tc, it.clone())),
         ast::Expr::WhileExpr(_) => todo!(),
         ast::Expr::ForExpr(it) => {
-            if let Some(name) = it.name() {
+            let variable = if let Some(name) = it.name() {
                 let ty = tc.unsourced_ty(int());
                 let span = name.span();
-                tc.declare_variable(VariableDeclaration::new_let(name), ty, span);
-            }
+                let var = tc.declare_variable(VariableDeclaration::new_let(name), ty, span);
+                VariableRef::new(var, span)
+            } else {
+                return Left(tc.expr_error(
+                    expr.span().set_len(0),
+                    None,
+                    None,
+                    TypeCheckErrorKind::NotYetImplemented("for-loop without variable".to_string()),
+                ));
+            };
 
-            let range_expr = check_opt(tc, it.span(), it.expr());
-            let range_ty = tc.ty_id(TDK::Range(int()).into());
-            tc.expect_ty(
-                it.expr().map_or(it.span(), |x| x.span()),
-                range_ty,
-                tc.expr_ty(range_expr),
-            );
+            let in_expr = check_opt(tc, it.span(), it.expr());
+            let in_ty = tc.ty_id(TDK::Range(int()).into());
+            tc.expect_ty(it.expr().map_or(it.span(), |x| x.span()), in_ty, tc.expr_ty(in_expr));
 
-            let _block_expr = it.block_expr().map(|b| tc.check_block(&b, |flags| flags));
+            let invariants =
+                it.invariants().map(|inv| tc.check_boolean_exprs(inv.comma_exprs())).collect();
 
-            return Left(tc.expr_error(
-                expr.span().set_len(0),
-                None,
-                None,
-                TypeCheckErrorKind::NotYetImplemented("for-loops".to_string()),
-            ));
+            let body = if let Some(b) = it.block_expr() {
+                let block = tc.check_block(&b, |flags| flags);
+                tc.alloc_expr(Expr::new_block(block), b.span())
+            } else {
+                return Left(tc.expr_error(
+                    expr.span().set_len(0),
+                    None,
+                    None,
+                    TypeCheckErrorKind::NotYetImplemented("for-loop without body".to_string()),
+                ));
+            };
+
+            ExprData::For(ForExpr {
+                is_ghost: tc.is_ghost(in_expr),
+                variable,
+                in_expr,
+                invariants,
+                body,
+            })
+            .typed(void())
         }
         ast::Expr::PrefixExpr(it) => {
             let (_op_token, op) =
@@ -144,6 +163,12 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 ast::operators::UnaryOp::Neg => {
                     tc.expect_ty(inner_span, int(), inner_ty);
                     int()
+                }
+                ast::operators::UnaryOp::RangeMin | ast::operators::UnaryOp::RangeMax => {
+                    let range_over = tc.new_free();
+                    let range_ty = tc.alloc_ty_data(TDK::Range(range_over).into());
+                    tc.expect_ty(inner_span, range_ty, inner_ty);
+                    range_over
                 }
             };
 

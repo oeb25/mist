@@ -85,13 +85,17 @@ pub fn accumulated_errors(
             MistError::Parse(_) => {}
             MistError::TypeCheck(_) => {}
             MistError::Mir(err) => err.populate_spans(
-                |def, expr| Some(def.hir(db)?.source_map(db).expr_span(expr)),
+                |def, expr| Some(def.hir(db)?.source_map(db).expr_span(def.hir(db)?.cx(db), expr)),
                 |def, var| Some(def.hir(db)?.cx(db).var_span(var)),
             ),
             MistError::ViperLower(err) => {
                 err.populate_spans(|def, block_or_instr| {
-                    let (source_map, mir_source_map) = def.hir_mir_source_map(db)?;
-                    Some(source_map.expr_span(mir_source_map.trace_expr(block_or_instr).unwrap()))
+                    let hir = def.hir(db)?;
+                    let mir = def.mir(db)?;
+                    Some(hir.source_map(db).expr_span(
+                        hir.cx(db),
+                        mir.source_map(db).trace_expr(block_or_instr).unwrap(),
+                    ))
                 });
             }
         }
@@ -162,9 +166,10 @@ impl VerificationContext<'_> {
     fn trace_span(&self, db: &dyn crate::Db, viper_span: SourceSpan) -> Option<SourceSpan> {
         if let Some(back) = self.viper_output.trace_expr(viper_span) {
             if let Some((def, back)) = self.viper_source_map.trace_exp(back) {
-                let (source_map, mir_source_map) = def.hir_mir_source_map(db)?;
-                if let Some(back) = mir_source_map.trace_expr(back) {
-                    Some(source_map.expr_span(back))
+                let hir = def.hir(db)?;
+                let mir = def.mir(db)?;
+                if let Some(back) = mir.source_map(db).trace_expr(back) {
+                    Some(hir.source_map(db).expr_span(hir.cx(db), back))
                 } else {
                     match back {
                         mir::BlockOrInstruction::Block(_) => {

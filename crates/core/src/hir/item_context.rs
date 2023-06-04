@@ -21,7 +21,7 @@ use super::{
 
 #[derive(new, Debug, Clone, PartialEq, Eq)]
 pub struct ItemContext {
-    pub(super) def: Def,
+    def: Def,
     pub(super) file_context: FileContext,
 
     #[new(default)]
@@ -46,6 +46,11 @@ pub struct ItemContext {
     pub(super) self_ty: Option<TypeSrcId>,
     #[new(default)]
     pub(super) self_invariants: Vec<ExprIdx>,
+
+    #[new(default)]
+    pub(super) desugared: IdxMap<ExprIdx, ExprIdx>,
+    #[new(default)]
+    pub(super) desugared_back: IdxMap<ExprIdx, ExprIdx>,
 }
 
 impl std::ops::Index<ExprIdx> for ItemContext {
@@ -104,8 +109,16 @@ impl ItemContext {
     pub fn var_ty(&self, var: impl Into<VariableIdx>) -> TypePtr<Self> {
         self[self.var_types[var.into()]].ty.wrap(self)
     }
-    pub fn expr(&self, expr: ExprIdx) -> &Expr {
+    /// Returns the original expr, without going through the desugared table
+    pub fn original_expr(&self, expr: ExprIdx) -> &Expr {
         &self.expr_arena[expr]
+    }
+    pub fn expr(&self, expr: ExprIdx) -> &Expr {
+        if let Some(desugared) = self.desugared.get(expr) {
+            &self.expr_arena[*desugared]
+        } else {
+            &self.expr_arena[expr]
+        }
     }
     pub fn expr_ty(&self, expr: ExprIdx) -> TypePtr<Self> {
         self.expr_arena[expr].ty.wrap(self)
@@ -156,11 +169,19 @@ impl TypeProvider for ItemContext {
 }
 
 impl ItemSourceMap {
-    pub fn expr_src(&self, expr: ExprIdx) -> SpanOrAstPtr<ast::Expr> {
-        self.expr_map_back[expr].clone()
+    pub fn expr_src(&self, cx: &ItemContext, expr: ExprIdx) -> SpanOrAstPtr<ast::Expr> {
+        if let Some(&desugared) = cx.desugared_back.get(expr) {
+            self.expr_map_back[desugared].clone()
+        } else {
+            self.expr_map_back[expr].clone()
+        }
     }
-    pub fn expr_span(&self, expr: ExprIdx) -> SourceSpan {
-        self.expr_map_back[expr].span()
+    pub fn expr_span(&self, cx: &ItemContext, expr: ExprIdx) -> SourceSpan {
+        if let Some(&desugared) = cx.desugared_back.get(expr) {
+            self.expr_map_back[desugared].span()
+        } else {
+            self.expr_map_back[expr].span()
+        }
     }
 }
 

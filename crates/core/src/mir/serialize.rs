@@ -322,6 +322,9 @@ impl Serializer<'_> {
             FunctionData::Index => w!(self, Default, "#index"),
             FunctionData::RangeIndex => w!(self, Default, "#range-index"),
             FunctionData::Range(kind) => w!(self, Default, "#range[{kind}]"),
+            FunctionData::InRange => w!(self, Default, "#in_range"),
+            FunctionData::RangeMin => w!(self, Default, "#range_min"),
+            FunctionData::RangeMax => w!(self, Default, "#range_max"),
         }
     }
 
