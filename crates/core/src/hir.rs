@@ -19,7 +19,7 @@ use crate::{
 };
 
 pub use def::*;
-pub use item_context::{ItemContext, ItemSourceMap, SpanOrAstPtr};
+pub use item_context::{ItemContext, ItemSourceMap, Named, SpanOrAstPtr};
 use typecheck::TypeChecker;
 
 #[salsa::input]

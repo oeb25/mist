@@ -1,14 +1,17 @@
 use std::{ops::ControlFlow, sync::Arc};
 
 use derive_new::new;
-use mist_syntax::ast::{self, HasName};
+use mist_syntax::{
+    ast::{self, HasName, Spanned},
+    ptr::AstPtr,
+    AstNode, SourceSpan, WalkEvent,
+};
 
 use crate::{
     def::{DefKind, Function, Struct, TypeInvariant},
     hir::{
-        self, Block, Decreases, ExprData, ExprIdx, ForExpr, IfExpr, ItemContext, ItemSourceMap,
-        Param, SourceFile, Statement, StatementData, TypeSrcId, VariableIdx, VariableRef,
-        WhileExpr,
+        self, Block, Decreases, ExprData, ExprIdx, IfExpr, ItemContext, ItemSourceMap, Param,
+        SourceFile, Statement, StatementData, TypeSrcId, VariableIdx, WhileExpr,
     },
     types::{Field, TDK},
 };
@@ -27,7 +30,8 @@ pub trait Walker<'db>: Sized {
             let Some(hir) = def.hir(db) else { continue };
             let cx = Arc::new(hir.cx(db).clone());
             let source_map = Arc::new(hir.source_map(db).clone());
-            let mut walker = Self::init(db, VisitContext { cx, source_map });
+            let vcx = VisitContext { cx, source_map: source_map.clone() };
+            let mut walker = Self::init(db, vcx.clone());
             match def.kind(db) {
                 DefKind::Struct(st) => {
                     walker.walk_struct(visitor, st)?;
@@ -41,6 +45,22 @@ pub trait Walker<'db>: Sized {
                 }
                 DefKind::Function(f) => {
                     walker.walk_function(visitor, f)?;
+                }
+            }
+            for event in def.syntax(db).preorder() {
+                match event {
+                    WalkEvent::Enter(node) => {
+                        if let Some(n) = ast::NameOrNameRef::cast(node) {
+                            if let Some(named) = source_map.name_var(&AstPtr::new(&n)) {
+                                match named {
+                                    hir::Named::Variable(var) => {
+                                        visitor.visit_var(&vcx, var, n.span())?
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    WalkEvent::Leave(_) => {}
                 }
             }
         }
@@ -91,12 +111,6 @@ pub trait Walker<'db>: Sized {
         if_expr: &IfExpr,
     ) -> ControlFlow<V::Item>;
     #[must_use]
-    fn walk_for_expr<V: Visitor>(
-        &mut self,
-        visitor: &mut V,
-        for_expr: &ForExpr,
-    ) -> ControlFlow<V::Item>;
-    #[must_use]
     fn walk_block<V: Visitor>(&mut self, visitor: &mut V, block: &Block) -> ControlFlow<V::Item>;
     #[must_use]
     fn walk_param_list<V: Visitor>(
@@ -106,6 +120,7 @@ pub trait Walker<'db>: Sized {
     ) -> ControlFlow<V::Item>;
 }
 
+#[derive(Clone)]
 pub struct VisitContext {
     pub cx: Arc<ItemContext>,
     pub source_map: Arc<ItemSourceMap>,
@@ -137,7 +152,12 @@ pub trait Visitor {
         ControlFlow::Continue(())
     }
     #[must_use]
-    fn visit_var(&mut self, vcx: &VisitContext, var: VariableRef) -> ControlFlow<Self::Item> {
+    fn visit_var(
+        &mut self,
+        vcx: &VisitContext,
+        var: VariableIdx,
+        span: SourceSpan,
+    ) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
     #[must_use]
@@ -296,8 +316,6 @@ where
     ) -> ControlFlow<V::Item> {
         let Some(fx) = self.vcx.cx.function_context().cloned() else { return ControlFlow::Continue(()) };
 
-        visitor.visit_var(&self.vcx, fx.function_var())?;
-
         let params = self.vcx.cx.params().to_vec();
         self.walk_param_list(visitor, &params)?;
 
@@ -390,9 +408,7 @@ where
 
         match self.vcx.cx.original_expr(expr).data.clone() {
             ExprData::Literal(_) | ExprData::Missing | ExprData::Result => {}
-            ExprData::Ident(var) => {
-                visitor.visit_var(&self.vcx, var)?;
-            }
+            ExprData::Ident(_) => {}
             ExprData::Self_ => {
                 visitor.visit_self(&self.vcx, &self.vcx.source_map[expr])?;
             }
@@ -404,7 +420,7 @@ where
                 let res: Option<_> = (|| {
                     let src: ast::FieldExpr =
                         expr_src.into_ptr()?.cast()?.to_node(self.root.syntax());
-                    let field_ref = ast::NameOrNameRef::NameRef(src.field().unwrap());
+                    let field_ref = src.field().unwrap().into();
                     Some(self.walk_field(visitor, field, &field_ref))
                 })();
                 if let Some(res) = res {
@@ -413,7 +429,7 @@ where
             }
             ExprData::Struct { fields, .. } => {
                 for f in fields {
-                    let field_ref = ast::NameOrNameRef::NameRef(f.name.to_node(self.root.syntax()));
+                    let field_ref = f.name.to_node(self.root.syntax()).into();
                     self.walk_field(visitor, f.decl.into(), &field_ref)?;
                     self.walk_expr(visitor, f.value)?;
                 }
@@ -430,7 +446,11 @@ where
                 self.walk_expr(visitor, body)?;
             }
             ExprData::For(for_expr) => {
-                self.walk_for_expr(visitor, &for_expr)?;
+                self.walk_expr(visitor, for_expr.in_expr)?;
+                for inv in &for_expr.invariants {
+                    self.walk_exprs(visitor, inv)?;
+                }
+                self.walk_expr(visitor, for_expr.body)?
             }
             ExprData::Call { expr, args } => {
                 self.walk_expr(visitor, expr)?;
@@ -480,11 +500,9 @@ where
                     hir::QuantifierOver::Params(params) => {
                         self.walk_param_list(visitor, &params)?
                     }
-                    hir::QuantifierOver::In(var, expr) => {
-                        visitor.visit_var(&self.vcx, var)?;
-                        self.walk_expr(visitor, expr)?;
-                    }
+                    hir::QuantifierOver::In(_, expr) => self.walk_expr(visitor, expr)?,
                 }
+
                 self.walk_expr(visitor, expr)?;
             }
             ExprData::Builtin(b) => match b {
@@ -520,20 +538,6 @@ where
     }
 
     #[must_use]
-    fn walk_for_expr<V: Visitor>(
-        &mut self,
-        visitor: &mut V,
-        for_expr: &ForExpr,
-    ) -> ControlFlow<V::Item> {
-        visitor.visit_var(&self.vcx, for_expr.variable)?;
-        self.walk_expr(visitor, for_expr.in_expr)?;
-        for inv in &for_expr.invariants {
-            self.walk_exprs(visitor, inv)?;
-        }
-        self.walk_expr(visitor, for_expr.body)
-    }
-
-    #[must_use]
     fn walk_block<V: Visitor>(&mut self, visitor: &mut V, block: &Block) -> ControlFlow<V::Item> {
         for stmt in &block.stmts {
             if self.pre() {
@@ -542,8 +546,7 @@ where
 
             match &stmt.data {
                 StatementData::Expr(expr) => self.walk_expr(visitor, *expr)?,
-                &StatementData::Let { variable, explicit_ty, initializer } => {
-                    visitor.visit_var(&self.vcx, variable)?;
+                &StatementData::Let { variable: _, explicit_ty, initializer } => {
                     if let Some(ty) = explicit_ty {
                         self.walk_ty(visitor, ty)?;
                     }

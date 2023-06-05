@@ -17,6 +17,16 @@ impl fmt::Display for NameOrNameRef {
         }
     }
 }
+impl From<Name> for NameOrNameRef {
+    fn from(name: Name) -> NameOrNameRef {
+        NameOrNameRef::Name(name)
+    }
+}
+impl From<NameRef> for NameOrNameRef {
+    fn from(name: NameRef) -> NameOrNameRef {
+        NameOrNameRef::NameRef(name)
+    }
+}
 
 impl AstNode for NameOrNameRef {
     fn can_cast(kind: super::SyntaxKind) -> bool

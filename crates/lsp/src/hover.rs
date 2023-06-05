@@ -2,7 +2,7 @@ use std::ops::ControlFlow;
 
 use derive_new::new;
 use mist_core::{
-    hir::{pretty, ExprData, ExprIdx, Param, SourceFile, TypeSrcId, VariableIdx, VariableRef},
+    hir::{pretty, ExprData, ExprIdx, Param, SourceFile, TypeSrcId, VariableIdx},
     salsa,
     types::{Field, ListField, TypeProvider, TDK},
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
@@ -81,9 +81,10 @@ impl<'a> Visitor for HoverFinder<'a> {
     fn visit_var(
         &mut self,
         vcx: &VisitContext,
-        var: VariableRef,
+        var: VariableIdx,
+        span: SourceSpan,
     ) -> ControlFlow<Option<HoverResult>> {
-        if var.contains_pos(self.byte_offset) {
+        if span.contains_pos(self.byte_offset) {
             let name = vcx.cx.var_name(var);
             let ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx.var_ty(var).id());
 

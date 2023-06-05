@@ -328,7 +328,7 @@ impl MirLower<'_> {
         match &stmt.data {
             StatementData::Expr(expr) => self.expr(*expr, bid, target, Placement::Ignore),
             StatementData::Let { variable, explicit_ty: _, initializer } => {
-                let dest = self.alloc_local(variable.idx());
+                let dest = self.alloc_local(*variable);
                 self.expr(*initializer, bid, target, Placement::Assign(dest.into()))
             }
             StatementData::Assertion { kind, exprs } => {
@@ -439,7 +439,7 @@ impl MirLower<'_> {
         match &expr_data.data {
             ExprData::Literal(_) => todo!(),
             ExprData::Self_ => todo!(),
-            ExprData::Ident(x) => (bid, self.var_place(x.idx())),
+            ExprData::Ident(x) => (bid, self.var_place(*x)),
             ExprData::Block(_) => todo!(),
             ExprData::NotNull(_) => todo!(),
             ExprData::Field { expr: base, field, .. } => {
@@ -548,7 +548,7 @@ impl MirLower<'_> {
                 bid
             }
             ExprData::Ident(var) => {
-                let var_place = self.var_place(var.idx());
+                let var_place = self.var_place(*var);
                 self.put(bid, dest, Some(expr), MExpr::Use(Operand::Move(var_place)));
                 bid
             }
@@ -786,7 +786,7 @@ impl MirLower<'_> {
     fn expr_to_function(&mut self, expr: ExprIdx) -> (FunctionId, Vec<Operand>) {
         match &self.cx.expr(expr).data {
             ExprData::Ident(var) => {
-                let id = self.alloc_function(Function::new(FunctionData::Named(var.idx())));
+                let id = self.alloc_function(Function::new(FunctionData::Named(*var)));
                 (id, vec![])
             }
             ExprData::Field { .. } => {

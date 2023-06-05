@@ -4,6 +4,7 @@ mod typing;
 use std::{collections::HashMap, sync::Arc};
 
 use bitflags::bitflags;
+use hir::item_context::Named;
 use itertools::Itertools;
 use miette::Diagnostic;
 use mist_syntax::{
@@ -18,7 +19,7 @@ use crate::{
     def::StructField,
     hir::{
         self, AssertionKind, Block, Condition, Decreases, Expr, ExprData, ExprIdx, Name, Param,
-        Statement, StatementData, Variable, VariableId, VariableIdx, VariableRef,
+        Statement, StatementData, Variable, VariableIdx,
     },
     types::{
         builtin::{error, ghost_bool, void},
@@ -51,22 +52,22 @@ pub struct VariableDeclaration {
 
 impl VariableDeclaration {
     pub(crate) fn new_let(name: ast::Name) -> Self {
-        let name = ast::NameOrNameRef::Name(name);
+        let name = name.into();
         let ast = AstPtr::new(&name);
         VariableDeclaration { ast, name: name.into(), kind: VariableDeclarationKind::Let }
     }
     pub(crate) fn new_param(name: ast::Name) -> Self {
-        let name = ast::NameOrNameRef::Name(name);
+        let name = name.into();
         let ast = AstPtr::new(&name);
         VariableDeclaration { ast, name: name.into(), kind: VariableDeclarationKind::Parameter }
     }
     pub(crate) fn new_function(name: ast::Name) -> Self {
-        let name = ast::NameOrNameRef::Name(name);
+        let name = name.into();
         let ast = AstPtr::new(&name);
         VariableDeclaration { ast, name: name.into(), kind: VariableDeclarationKind::Function }
     }
     pub(crate) fn new_undefined(name: ast::NameRef) -> Self {
-        let name = ast::NameOrNameRef::NameRef(name);
+        let name = name.into();
         let ast = AstPtr::new(&name);
         VariableDeclaration { ast, name: name.into(), kind: VariableDeclarationKind::Undefined }
     }
@@ -239,8 +240,7 @@ impl<'a> TypeChecker<'a> {
 
         if let hir::DefKind::Function(f) = def.kind(db) {
             let f_ast = f.ast_node(db);
-            let function_var =
-                VariableRef::new(functions[&f.name(db)], f_ast.name().unwrap().span());
+            let function_var = functions[&f.name(db)];
 
             checker.cx.params = f
                 .param_list(db)
@@ -476,16 +476,13 @@ impl<'a> TypeChecker<'a> {
 
                     let var_span = name.span();
                     let var_ty = explicit_ty.unwrap_or_else(|| self.unsourced_ty(ty));
-                    let variable = VariableRef::new(
-                        self.declare_variable(
-                            VariableDeclaration::new_let(name),
-                            var_ty,
-                            match it.ty() {
-                                Some(ty) => SpanOrAstPtr::from(&ty),
-                                None => SpanOrAstPtr::from(var_span),
-                            },
-                        ),
-                        var_span,
+                    let variable = self.declare_variable(
+                        VariableDeclaration::new_let(name),
+                        var_ty,
+                        match it.ty() {
+                            Some(ty) => SpanOrAstPtr::from(&ty),
+                            None => SpanOrAstPtr::from(var_span),
+                        },
                     );
 
                     Statement::new(span, StatementData::Let { variable, explicit_ty, initializer })
@@ -528,10 +525,9 @@ impl<'a> TypeChecker<'a> {
         ty_span: impl Into<SpanOrAstPtr<ast::Type>>,
     ) -> VariableIdx {
         let name = decl.name();
-        let var = self
-            .cx
-            .declarations
-            .alloc(decl, Variable::new(self.db, VariableId::new(self.db, name.clone())));
+        let ast = decl.ast.clone();
+        let var = self.cx.declarations.alloc(decl, Variable::new());
+        self.source_map.name_map.insert(ast, Named::Variable(var));
         self.scope.insert(name, var);
         self.cx.var_types.insert(var, ty);
         let ty_src = ty_span.into();
@@ -544,6 +540,8 @@ impl<'a> TypeChecker<'a> {
     }
     pub fn lookup_name(&mut self, name: &ast::NameRef) -> VariableIdx {
         if let Some(var) = self.scope.get(&name.clone().into()) {
+            let ast = AstPtr::new(&name.clone().into());
+            self.source_map.name_map.insert(ast, Named::Variable(var));
             var
         } else {
             let err_ty = self.ty_error(

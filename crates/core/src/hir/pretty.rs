@@ -84,7 +84,7 @@ pub fn expr(pp: &impl PrettyPrint, db: &dyn crate::Db, expr: ExprIdx) -> String 
             Literal::Bool(b) => b.to_string(),
         },
         ExprData::Self_ => "self".to_string(),
-        ExprData::Ident(i) => pp.resolve_var(i.idx()).to_string(),
+        ExprData::Ident(i) => pp.resolve_var(*i).to_string(),
         ExprData::Field { expr, field_name, .. } => {
             format!("{}.{field_name}", pp_expr(pp, db, *expr))
         }
@@ -103,7 +103,7 @@ pub fn expr(pp: &impl PrettyPrint, db: &dyn crate::Db, expr: ExprIdx) -> String 
             format!("while {}", pp_expr(pp, db, it.expr))
         }
         ExprData::For(it) => {
-            format!("for {} in {}", pp.resolve_var(it.variable.idx()), pp_expr(pp, db, it.in_expr))
+            format!("for {} in {}", pp.resolve_var(it.variable), pp_expr(pp, db, it.in_expr))
         }
         ExprData::Block(_block) => "<block>".to_string(),
         ExprData::Return(Some(e)) => format!("return {}", pp_expr(pp, db, *e)),
@@ -144,7 +144,7 @@ pub fn expr(pp: &impl PrettyPrint, db: &dyn crate::Db, expr: ExprIdx) -> String 
                     params.iter().map(|param| param.map_var(|var| pp.resolve_var(*var))),
                 ),
                 QuantifierOver::In(var, over) => {
-                    format!(" {} in {}", pp.resolve_var(var.idx()), pp_expr(pp, db, *over))
+                    format!(" {} in {}", pp.resolve_var(*var), pp_expr(pp, db, *over))
                 }
             };
             format!("{quantifier}{over} {{ {} }}", pp_expr(pp, db, *expr))

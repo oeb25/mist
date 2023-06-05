@@ -16,7 +16,7 @@ use crate::{
 
 use super::{
     file_context::FileContext, Condition, Decreases, Def, Expr, ExprIdx, Name, Param, TypeSrc,
-    TypeSrcId, Variable, VariableIdx, VariableRef,
+    TypeSrcId, Variable, VariableIdx,
 };
 
 #[derive(new, Debug, Clone, PartialEq, Eq)]
@@ -82,7 +82,7 @@ impl ItemContext {
     pub fn function_context(&self) -> Option<&FunctionContext> {
         self.function_context.as_ref()
     }
-    pub fn function_var(&self) -> Option<VariableRef> {
+    pub fn function_var(&self) -> Option<VariableIdx> {
         self.function_context.as_ref().map(|cx| cx.function_var)
     }
     pub fn conditions(&self) -> impl Iterator<Item = &Condition> {
@@ -149,9 +149,14 @@ impl ItemContext {
         Arc::clone(self.ty_table.as_ref().expect("TypeTable was not yet built"))
     }
 }
-
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Named {
+    Variable(VariableIdx),
+}
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ItemSourceMap {
+    pub(super) name_map: HashMap<AstPtr<ast::NameOrNameRef>, Named>,
+    pub(super) name_map_back: HashMap<Named, AstPtr<ast::NameOrNameRef>>,
     pub(super) expr_map: HashMap<SpanOrAstPtr<ast::Expr>, ExprIdx>,
     pub(super) expr_map_back: IdxMap<ExprIdx, SpanOrAstPtr<ast::Expr>>,
     pub(super) ty_src_map: IdxMap<TypeSrcId, SpanOrAstPtr<ast::Type>>,
@@ -182,6 +187,9 @@ impl ItemSourceMap {
         } else {
             self.expr_map_back[expr].span()
         }
+    }
+    pub fn name_var(&self, name: &AstPtr<ast::NameOrNameRef>) -> Option<Named> {
+        self.name_map.get(name).cloned()
     }
 }
 
@@ -259,14 +267,14 @@ impl<T: mist_syntax::AstNode> From<&'_ T> for SpanOrAstPtr<T> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FunctionContext {
-    pub(super) function_var: VariableRef,
+    pub(super) function_var: VariableIdx,
     pub(super) conditions: Vec<Condition>,
     pub(super) decreases: Decreases,
     pub(super) return_ty_src: Option<TypeSrcId>,
 }
 
 impl FunctionContext {
-    pub fn function_var(&self) -> VariableRef {
+    pub fn function_var(&self) -> VariableIdx {
         self.function_var
     }
     pub fn conditions(&self) -> &[Condition] {

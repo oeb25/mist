@@ -2,7 +2,7 @@ use std::ops::ControlFlow;
 
 use derive_new::new;
 use mist_core::{
-    hir::{self, SourceFile, VariableRef},
+    hir::{self, SourceFile, VariableIdx},
     salsa,
     types::{Field, TypeProvider, TDK},
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
@@ -82,10 +82,11 @@ impl Visitor for DeclarationFinder<'_> {
     fn visit_var(
         &mut self,
         vcx: &VisitContext,
-        var: VariableRef,
+        var: VariableIdx,
+        span: SourceSpan,
     ) -> ControlFlow<Option<DeclarationSpans>> {
-        if var.contains_pos(self.byte_offset) {
-            let original_span = var.span();
+        if span.contains_pos(self.byte_offset) {
+            let original_span = span;
             let target_span = vcx.cx.var_span(var);
             ControlFlow::Break(Some(DeclarationSpans { original_span, target_span }))
         } else {

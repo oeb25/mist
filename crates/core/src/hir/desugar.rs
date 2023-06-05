@@ -43,10 +43,9 @@ pub fn desugar(cx: &mut ItemContext) {
                 // TODO: this is a bad span
                 let span = SourceSpan::new_start_end(0, 0);
 
-                let params =
-                    vec![Param { is_ghost: false, name: var.idx(), ty: cx.var_ty_src(var) }];
+                let params = vec![Param { is_ghost: false, name: var, ty: cx.var_ty_src(var) }];
 
-                let var_expr = alloc_expr!(ExprData::Ident(var), cx.var_ty(var.idx()).id());
+                let var_expr = alloc_expr!(ExprData::Ident(var), cx.var_ty(var).id());
                 let condition =
                     alloc_expr!(ExprData::Builtin(BuiltinExpr::InRange(var_expr, in_expr)), bool());
                 let true_expr = alloc_expr!(ExprData::Literal(Literal::Bool(true)), bool());
@@ -88,7 +87,7 @@ pub fn desugar(cx: &mut ItemContext) {
                     },
                 );
                 let var_expr =
-                    alloc_expr!(ExprData::Ident(it.variable), cx.var_ty(it.variable.idx()).id());
+                    alloc_expr!(ExprData::Ident(it.variable), cx.var_ty(it.variable).id());
                 let cond_expr = alloc_expr!(
                     ExprData::Builtin(BuiltinExpr::InRange(var_expr, it.in_expr)),
                     bool()

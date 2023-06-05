@@ -5,7 +5,7 @@ use std::{ops::ControlFlow, sync::Arc};
 use derive_new::new;
 use itertools::Itertools;
 use mist_core::{
-    hir::{self, ExprIdx, SourceFile, VariableIdx, VariableRef},
+    hir::{self, ExprIdx, SourceFile, VariableIdx},
     mir::{self, pass::Pass},
     salsa,
     types::{TypeProvider, TDK},
@@ -207,7 +207,12 @@ impl<'src> Highlighter<'src> {
 
 impl<'src> Visitor for Highlighter<'src> {
     type Item = ();
-    fn visit_var(&mut self, vcx: &VisitContext, var: VariableRef) -> ControlFlow<()> {
+    fn visit_var(
+        &mut self,
+        vcx: &VisitContext,
+        var: VariableIdx,
+        span: SourceSpan,
+    ) -> ControlFlow<()> {
         use mist_core::VariableDeclarationKind::*;
 
         let tt = match vcx.cx.decl(var).kind() {
@@ -216,7 +221,7 @@ impl<'src> Visitor for Highlighter<'src> {
             Function => TT::Function,
             Undefined => return ControlFlow::Continue(()),
         };
-        self.push(var, tt, None);
+        self.push(span, tt, None);
         ControlFlow::Continue(())
     }
     fn visit_self(

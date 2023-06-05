@@ -6,7 +6,6 @@ use mist_syntax::{
     ast::{
         self,
         operators::{BinaryOp, UnaryOp},
-        Spanned,
     },
     ptr::AstPtr,
     SourceSpan,
@@ -19,50 +18,20 @@ use crate::{
 };
 
 pub use name::Name;
-#[salsa::interned]
-pub struct VariableId {
-    #[return_ref]
-    pub text: Name,
-}
 
-#[salsa::tracked]
-pub struct Variable {
-    #[id]
-    pub name: VariableId,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Variable {}
+impl Variable {
+    pub fn new() -> Variable {
+        Variable {}
+    }
+}
+impl Default for Variable {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 impl_idx!(VariableIdx, Variable, default_debug);
-#[derive(new, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct VariableRef {
-    idx: VariableIdx,
-    span: SourceSpan,
-}
-
-impl VariableRef {
-    pub fn idx(&self) -> VariableIdx {
-        self.idx
-    }
-}
-impl Spanned for VariableRef {
-    fn span(self) -> SourceSpan {
-        self.span
-    }
-}
-impl Spanned for &'_ VariableRef {
-    fn span(self) -> SourceSpan {
-        self.span
-    }
-}
-impl From<VariableRef> for VariableIdx {
-    fn from(value: VariableRef) -> Self {
-        value.idx
-    }
-}
-impl From<&'_ VariableRef> for VariableIdx {
-    fn from(value: &VariableRef) -> Self {
-        value.idx
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Param<I, T = TypeSrcId> {
     pub is_ghost: bool,
@@ -120,7 +89,7 @@ impl Expr {
 pub enum ExprData {
     Literal(Literal),
     Self_,
-    Ident(VariableRef),
+    Ident(VariableIdx),
     Block(Block),
     Field { expr: ExprIdx, field_name: Name, field: Field },
     Struct { struct_declaration: Struct, struct_span: SourceSpan, fields: Vec<StructExprField> },
@@ -149,7 +118,7 @@ impl ExprData {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum QuantifierOver {
     Params(Vec<Param<VariableIdx>>),
-    In(VariableRef, ExprIdx),
+    In(VariableIdx, ExprIdx),
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BuiltinExpr {
@@ -210,7 +179,7 @@ pub struct IfExpr {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ForExpr {
     pub is_ghost: bool,
-    pub variable: VariableRef,
+    pub variable: VariableIdx,
     pub in_expr: ExprIdx,
     pub invariants: Vec<Vec<ExprIdx>>,
     pub body: ExprIdx,
@@ -239,7 +208,7 @@ pub struct Statement {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StatementData {
     Expr(ExprIdx),
-    Let { variable: VariableRef, explicit_ty: Option<TypeSrcId>, initializer: ExprIdx },
+    Let { variable: VariableIdx, explicit_ty: Option<TypeSrcId>, initializer: ExprIdx },
     Assertion { kind: AssertionKind, exprs: Vec<ExprIdx> },
 }
 
