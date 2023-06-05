@@ -411,7 +411,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 .map(|comma_expr| {
                     let expr = check_inner(tc, &comma_expr);
                     if let Some(t) = elem_ty {
-                        tc.expect_ty(comma_expr.span(), t, tc.expr_ty(expr));
+                        tc.expect_ty(&comma_expr, t, tc.expr_ty(expr));
                     } else {
                         elem_ty = Some(tc.expr_ty(expr));
                     }
@@ -705,11 +705,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                     let var_ref = VariableRef::new(var_decl, name_span);
                     let over_expr = check_opt(tc, it.span(), it.expr());
                     let range_ty = tc.alloc_ty_data(TDK::Range(ty.ty(tc)).into());
-                    tc.expect_ty(
-                        it.expr().map_or(name_span, |e| e.span()),
-                        range_ty,
-                        tc.expr_ty(over_expr),
-                    );
+                    tc.expect_ty((it.expr().as_ref(), name_span), range_ty, tc.expr_ty(over_expr));
                     QuantifierOver::In(var_ref, over_expr)
                 }
                 None => {
@@ -732,17 +728,9 @@ fn check_if_expr(tc: &mut TypeChecker, if_expr: ast::IfExpr) -> ExprIdx {
     let condition_ty = tc.expr_ty(condition);
     let is_ghost = condition_ty.is_ghost(tc);
     if is_ghost {
-        tc.expect_ty(
-            if_expr.condition().map(|e| e.span()).unwrap_or_else(|| if_expr.span()),
-            ghost_bool(),
-            condition_ty,
-        );
+        tc.expect_ty((if_expr.condition().as_ref(), &if_expr), ghost_bool(), condition_ty);
     } else {
-        tc.expect_ty(
-            if_expr.condition().map(|e| e.span()).unwrap_or_else(|| if_expr.span()),
-            bool(),
-            condition_ty,
-        );
+        tc.expect_ty((if_expr.condition().as_ref(), if_expr.span()), bool(), condition_ty);
     }
 
     let (then_branch, then_ty) = if let Some(then_branch) = if_expr.then_branch() {

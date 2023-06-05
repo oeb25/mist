@@ -87,6 +87,21 @@ impl Spanned for SyntaxElement {
         SourceSpan::new_start_end(range.start().into(), range.end().into())
     }
 }
+macro_rules! tuple_span {
+    ($($t:ident: $n:tt),*; $e:ident: $m:tt) => {
+        impl<$($t: Spanned,)* $e: Spanned> Spanned for ($(Option<$t>,)* $e) {
+            fn span(self) -> SourceSpan {
+                None
+                    $(.or_else(|| (self.$n).map(|a| a.span())))*
+                    .unwrap_or_else(|| self.$m.span())
+            }
+        }
+    };
+}
+tuple_span!(A: 0; X: 1);
+tuple_span!(A: 0, B: 1; X: 2);
+tuple_span!(A: 0, B: 1, C: 2; X: 3);
+tuple_span!(A: 0, B: 1, C: 2, D: 3; X: 4);
 
 impl PartialEq<std::string::String> for Name {
     fn eq(&self, other: &std::string::String) -> bool {
