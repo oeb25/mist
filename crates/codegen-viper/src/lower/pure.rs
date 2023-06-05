@@ -310,6 +310,14 @@ impl BodyLower<'_> {
                 let exp = self.expr(inst, e)?;
                 acc.wrap_in_assignment(self, inst, *x, exp)?
             }
+            mir::Instruction::NewStruct(_, _, _) => {
+                return Err(ViperLowerError::NotYetImplemented {
+                    msg: "struct initialization in pure context".to_string(),
+                    def: self.cx.def(),
+                    block_or_inst: Some(inst.into()),
+                    span: None,
+                });
+            }
             mir::Instruction::Assertion(_, _) | mir::Instruction::PlaceMention(_) => acc,
             mir::Instruction::Folding(folding) => {
                 let unfolding_place = match folding {

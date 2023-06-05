@@ -3,7 +3,7 @@ struct Person {
     height: int,
 }
 
-fn get_age(p: &Person) -> int {
+fn get_age(p: &mut Person) -> int {
     let x = p.age;
     get_age(p);
     p.age + p.age

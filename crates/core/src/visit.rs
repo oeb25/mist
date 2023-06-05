@@ -261,7 +261,7 @@ where
         if self.pre() {
             visitor.visit_ty_decl(&self.vcx, s)?;
         }
-        self.walk_ty(visitor, self.vcx.cx.struct_ty(s))?;
+        self.walk_ty(visitor, self.vcx.cx.struct_ty_src(s))?;
         for f in s.fields(self.db) {
             let f_ast = f.ast_node(self.db);
             if let Some(name) = f_ast.name() {

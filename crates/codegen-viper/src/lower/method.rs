@@ -222,21 +222,19 @@ impl BodyLower<'_> {
         inst: mir::InstructionId,
         insts: &mut Vec<Stmt<VExprId>>,
     ) -> Result<()> {
-        match &self.body[inst] {
-            mir::Instruction::Assign(s, x) => {
-                let rhs = self.expr(inst, x)?;
-                match self.body[s.projection] {
+        match self.body[inst].clone() {
+            mir::Instruction::Assign(t, x) => {
+                let rhs = self.expr(inst, &x)?;
+                match self.body[t.projection] {
                     [] => {
-                        insts.push(Stmt::LocalVarAssign {
-                            lhs: self.place_for_assignment(*s)?,
-                            rhs,
-                        });
+                        insts
+                            .push(Stmt::LocalVarAssign { lhs: self.place_for_assignment(t)?, rhs });
                     }
                     [mir::Projection::Field(f, ty)] => {
                         match f {
                             Field::StructField(sf) => insts.push(Stmt::FieldAssign {
                                 lhs: FieldAccess::new(
-                                    self.place_to_ref(inst, s.slot.into())?,
+                                    self.place_to_ref(inst, t.slot.into())?,
                                     VField::new(
                                         mangle::mangled_field(self.db, sf),
                                         // TODO: should we respect the extra constraints in such a scenario?
@@ -250,19 +248,19 @@ impl BodyLower<'_> {
                     }
                     [mir::Projection::Index(index, _)] => {
                         let idx = self.place_to_ref(inst, index.into())?;
-                        let seq = self.place_to_ref(inst, s.parent(self.body).unwrap())?;
+                        let seq = self.place_to_ref(inst, t.parent(self.body).unwrap())?;
                         let new_rhs = self.alloc(inst, SeqExp::Update { s: seq, idx, elem: rhs });
-                        let lhs = self.place_for_assignment(s.without_projection())?;
+                        let lhs = self.place_for_assignment(t.without_projection())?;
                         insts.push(Stmt::LocalVarAssign { lhs, rhs: new_rhs })
                     }
                     [mir::Projection::Field(f, ty), mir::Projection::Index(index, _)] => {
                         let idx = self.place_to_ref(inst, index.into())?;
-                        let seq = self.place_to_ref(inst, s.parent(self.body).unwrap())?;
+                        let seq = self.place_to_ref(inst, t.parent(self.body).unwrap())?;
                         let new_rhs = self.alloc(inst, SeqExp::Update { s: seq, idx, elem: rhs });
                         match f {
                             Field::StructField(sf) => {
                                 let lhs = FieldAccess::new(
-                                    self.place_to_ref(inst, s.slot.into())?,
+                                    self.place_to_ref(inst, t.slot.into())?,
                                     VField::new(
                                         mangle::mangled_field(self.db, sf),
                                         // TODO: should we respect the extra constraints in such a scenario?
@@ -277,8 +275,37 @@ impl BodyLower<'_> {
                     _ => todo!(),
                 }
             }
+            mir::Instruction::NewStruct(t, s, fields) => {
+                let base = self.place_to_ref(inst, t)?;
+                let new_fields = s
+                    .fields(self.db)
+                    .map(|sf| {
+                        let ty = self.lower_type(self.cx.struct_field_ty_ptr(sf))?;
+                        Ok(VField::new(mangle::mangled_field(self.db, sf), ty.vty))
+                    })
+                    .collect::<Result<_>>()?;
+                insts
+                    .push(Stmt::NewStmt { lhs: self.place_for_assignment(t)?, fields: new_fields });
+                for (sf, f) in fields {
+                    let ty = self.lower_type(self.cx.struct_field_ty_ptr(sf))?;
+                    let lhs = FieldAccess::new(
+                        base,
+                        VField::new(mangle::mangled_field(self.db, sf), ty.vty),
+                    );
+                    insts.push(Stmt::FieldAssign { lhs, rhs: self.operand_to_ref(inst, &f)? });
+                }
+                insts.push(Stmt::Fold {
+                    acc: {
+                        let name = mangle::mangled_struct(self.db, s);
+                        PredicateAccessPredicate::new(
+                            PredicateAccess::new(name, vec![base]),
+                            self.alloc(inst, PermExp::Full),
+                        )
+                    },
+                })
+            }
             mir::Instruction::Assertion(kind, e) => {
-                let exp = self.expr(inst, e)?;
+                let exp = self.expr(inst, &e)?;
                 let stmt = match kind {
                     hir::AssertionKind::Assert => Stmt::Assert { exp },
                     hir::AssertionKind::Assume => Stmt::Assume { exp },
@@ -290,8 +317,8 @@ impl BodyLower<'_> {
             mir::Instruction::PlaceMention(_) => {}
             mir::Instruction::Folding(folding) => {
                 let place = match folding {
-                    mir::Folding::Fold { into, .. } => *into,
-                    mir::Folding::Unfold { consume, .. } => *consume,
+                    mir::Folding::Fold { into, .. } => into,
+                    mir::Folding::Unfold { consume, .. } => consume,
                 };
                 if let Some(s) = self.body.place_ty(place).ty_struct() {
                     let name = mangle::mangled_struct(self.db, s);

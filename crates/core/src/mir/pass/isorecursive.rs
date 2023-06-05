@@ -1,8 +1,11 @@
 use derive_new::new;
 
-use crate::mir::{
-    analysis::{cfg::Cfg, folding_tree::FoldingTree, liveness, monotone::MonotoneFramework},
-    BlockLocation, Body, BodyLocation, Folding, Instruction,
+use crate::{
+    mir::{
+        analysis::{cfg::Cfg, folding_tree::FoldingTree, liveness, monotone::MonotoneFramework},
+        BlockLocation, Body, BodyLocation, Folding, Instruction,
+    },
+    types::TDK,
 };
 
 use super::Pass;
@@ -25,10 +28,18 @@ impl Pass for IsorecursivePass {
         let cfg = Cfg::compute(body);
 
         let mut tree_from_params = FoldingTree::default();
+        let mut tree_from_returns = FoldingTree::default();
         for &s in body.params() {
             tree_from_params.require(body, None, s.into());
+            if let TDK::Ref { .. } = body.slot_ty(s).kind() {
+                tree_from_returns.require(body, None, s.into());
+            }
+        }
+        if let Some(s) = body.result_slot() {
+            tree_from_returns.require(body, None, s.into());
         }
         let tree_from_params = tree_from_params;
+        let tree_from_returns = tree_from_returns;
 
         let mut external_foldings = vec![];
 
@@ -72,9 +83,13 @@ impl Pass for IsorecursivePass {
 
         for bid in body.entry_blocks() {
             let first_inst_or_terminator = body[bid].first_loc();
-            for folding in tree_from_params
-                .clone()
-                .compute_transition_into(folding_analysis.entry(body.first_loc_in(bid)))
+            let mut tree = if body.is_ensures(bid) {
+                tree_from_returns.clone()
+            } else {
+                tree_from_params.clone()
+            };
+            for folding in
+                tree.compute_transition_into(folding_analysis.entry(body.first_loc_in(bid)))
             {
                 internal_foldings.push(InternalFolding::new(
                     BodyLocation::new(bid, first_inst_or_terminator),

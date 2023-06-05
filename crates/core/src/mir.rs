@@ -7,7 +7,7 @@ use std::{fmt, sync::Arc};
 
 use derive_more::{Display, From};
 use derive_new::new;
-use itertools::Either;
+use itertools::Either::{self, Left, Right};
 use la_arena::{Arena, ArenaMap, Idx};
 use miette::Diagnostic;
 use mist_syntax::{
@@ -147,22 +147,20 @@ impl Terminator {
             Terminator::Return
             | Terminator::Goto(_)
             | Terminator::Quantify(_, _, _)
-            | Terminator::QuantifyEnd(_) => Either::Left(None.into_iter()),
-            Terminator::Switch(op, _) => Either::Left(op.place().into_iter()),
-            Terminator::Call { args, .. } => {
-                Either::Right(args.iter().filter_map(|arg| arg.place()))
-            }
+            | Terminator::QuantifyEnd(_) => Left(None.into_iter()),
+            Terminator::Switch(op, _) => Left(op.place().into_iter()),
+            Terminator::Call { args, .. } => Right(args.iter().filter_map(|arg| arg.place())),
         }
     }
 
     fn places_written_to(&self) -> impl Iterator<Item = Place> + '_ {
         match self {
-            Terminator::Call { destination, .. } => Either::Left([*destination].into_iter()),
+            Terminator::Call { destination, .. } => Left([*destination].into_iter()),
             Terminator::Return
             | Terminator::Goto(_)
             | Terminator::Quantify(_, _, _)
             | Terminator::QuantifyEnd(_)
-            | Terminator::Switch(_, _) => Either::Right([].into_iter()),
+            | Terminator::Switch(_, _) => Right([].into_iter()),
         }
     }
 
@@ -171,10 +169,10 @@ impl Terminator {
             Terminator::Return
             | Terminator::Goto(_)
             | Terminator::Quantify(_, _, _)
-            | Terminator::QuantifyEnd(_) => Either::Left(None.into_iter()),
-            Terminator::Switch(op, _) => Either::Left(op.place().into_iter()),
+            | Terminator::QuantifyEnd(_) => Left(None.into_iter()),
+            Terminator::Switch(op, _) => Left(op.place().into_iter()),
             Terminator::Call { args, destination, .. } => {
-                Either::Right(args.iter().filter_map(|arg| arg.place()).chain([*destination]))
+                Right(args.iter().filter_map(|arg| arg.place()).chain([*destination]))
             }
         }
     }
@@ -245,6 +243,7 @@ impl_idx!(InstructionId, Instruction, default_debug);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Instruction {
     Assign(Place, MExpr),
+    NewStruct(Place, Struct, Vec<(StructField, Operand)>),
     Assertion(AssertionKind, MExpr),
     Folding(Folding),
     PlaceMention(Place),
@@ -324,7 +323,6 @@ pub enum BorrowKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MExpr {
-    Struct(Struct, Vec<(StructField, Operand)>),
     Use(Operand),
     Ref(BorrowKind, Place),
     BinaryOp(BinaryOp, Operand, Operand),
@@ -334,9 +332,6 @@ impl MExpr {
     #[allow(dead_code)]
     fn map_operand(&self, mut map: impl FnMut(&Operand) -> Operand) -> MExpr {
         match self {
-            MExpr::Struct(st, fields) => {
-                MExpr::Struct(*st, fields.iter().map(|(f, o)| (*f, map(o))).collect())
-            }
             MExpr::Use(o) => MExpr::Use(map(o)),
             MExpr::Ref(bk, o) => MExpr::Ref(*bk, *o),
             MExpr::BinaryOp(op, l, r) => MExpr::BinaryOp(*op, map(l), map(r)),
@@ -470,13 +465,17 @@ impl Body {
     }
 
     pub fn entry_blocks(&self) -> impl Iterator<Item = BlockId> + '_ {
-        self.requires()
-            .iter()
-            .chain(self.invariants())
-            .chain(self.ensures())
-            .copied()
-            .chain(self.body_block())
-            .chain(self.block_invariants.iter().flat_map(|(_, invs)| invs).copied())
+        itertools::chain!(
+            itertools::chain!(self.requires(), self.invariants(), self.ensures()).copied(),
+            self.body_block(),
+            self.block_invariants.iter().flat_map(|(_, invs)| invs).copied()
+        )
+    }
+    pub fn is_requires(&self, bid: BlockId) -> bool {
+        self.requires.contains(&bid)
+    }
+    pub fn is_ensures(&self, bid: BlockId) -> bool {
+        self.ensures.contains(&bid)
     }
 
     fn exit_blocks(&self) -> impl Iterator<Item = BlockId> + '_ {
@@ -522,7 +521,7 @@ impl Body {
                 }
                 _ => None,
             })
-            .map(Either::Left)
+            .map(Left)
             .chain(
                 self.blocks
                     .iter()
@@ -540,7 +539,7 @@ impl Body {
                             | Terminator::QuantifyEnd(_) => None,
                         }
                     })
-                    .map(Either::Right),
+                    .map(Right),
             )
     }
 
@@ -704,6 +703,19 @@ impl Body {
     fn locations_in(&self, bid: BlockId) -> impl Iterator<Item = BodyLocation> + '_ {
         self[bid].locations().map(move |loc| loc.in_block(bid))
     }
+
+    pub fn project_deeper(&mut self, mut place: Place, projection: &[Projection]) -> Place {
+        let mut new_projection = self[place.projection].to_vec();
+        new_projection.extend_from_slice(projection);
+
+        if let Some((id, _)) = self.projections.iter().find(|(_, proj)| proj == &&new_projection) {
+            place.projection = id;
+            return place;
+        }
+
+        place.projection = self.projections.alloc(new_projection);
+        place
+    }
 }
 
 impl Body {
@@ -821,13 +833,16 @@ impl Instruction {
     pub fn places(&self) -> impl Iterator<Item = Place> + '_ {
         match self {
             Instruction::Assign(target, expr) => {
-                Either::Left(Either::Left([*target].into_iter().chain(expr.places())))
+                Left(Left([*target].into_iter().chain(Left(expr.places()))))
             }
-            Instruction::Assertion(_, expr) => Either::Left(Either::Right(expr.places())),
-            Instruction::PlaceMention(p) => Either::Right([*p].into_iter()),
+            Instruction::NewStruct(target, _, fields) => Left(Left(
+                [*target].into_iter().chain(Right(fields.iter().flat_map(|f| f.1.place()))),
+            )),
+            Instruction::Assertion(_, expr) => Left(Right(expr.places())),
+            Instruction::PlaceMention(p) => Right([*p].into_iter()),
             Instruction::Folding(folding) => match folding {
-                Folding::Fold { into } => Either::Right([*into].into_iter()),
-                Folding::Unfold { consume } => Either::Right([*consume].into_iter()),
+                Folding::Fold { into } => Right([*into].into_iter()),
+                Folding::Unfold { consume } => Right([*consume].into_iter()),
             },
         }
     }
@@ -837,13 +852,16 @@ impl Instruction {
             Instruction::Assign(_, expr) => {
                 // TODO: Perhaps the targets parent should be part of the
                 // referenced as well?
-                Either::Left(None.into_iter().chain(expr.places()))
+                Left(None.into_iter().chain(Left(expr.places())))
             }
-            Instruction::Assertion(_, expr) => Either::Left(None.into_iter().chain(expr.places())),
-            Instruction::PlaceMention(p) => Either::Right([*p]),
+            Instruction::NewStruct(_, _, fields) => {
+                Left(None.into_iter().chain(Right(fields.iter().flat_map(|f| f.1.place()))))
+            }
+            Instruction::Assertion(_, expr) => Left(None.into_iter().chain(Left(expr.places()))),
+            Instruction::PlaceMention(p) => Right([*p]),
             Instruction::Folding(folding) => match *folding {
-                Folding::Fold { into } => Either::Right([into]),
-                Folding::Unfold { consume } => Either::Right([consume]),
+                Folding::Fold { into } => Right([into]),
+                Folding::Unfold { consume } => Right([consume]),
             },
         }
         .into_iter()
@@ -851,10 +869,12 @@ impl Instruction {
 
     fn places_written_to(&self) -> impl Iterator<Item = Place> + '_ {
         match self {
-            Instruction::Assign(target, _) => Either::Left([*target]),
+            Instruction::Assign(target, _) | Instruction::NewStruct(target, _, _) => {
+                Left([*target])
+            }
             Instruction::Assertion(_, _)
             | Instruction::PlaceMention(_)
-            | Instruction::Folding(_) => Either::Right([]),
+            | Instruction::Folding(_) => Right([]),
         }
         .into_iter()
     }

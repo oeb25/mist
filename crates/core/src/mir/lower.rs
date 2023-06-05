@@ -218,10 +218,7 @@ impl MirLower<'_> {
             Placement::IntoOperand(ty, u) => match &expr {
                 MExpr::Use(op) => *u = Some(op.clone()),
                 // TODO: Maybe something different should happen for ref
-                MExpr::Ref(_, _)
-                | MExpr::Struct(_, _)
-                | MExpr::BinaryOp(_, _, _)
-                | MExpr::UnaryOp(_, _) => {
+                MExpr::Ref(_, _) | MExpr::BinaryOp(_, _, _) | MExpr::UnaryOp(_, _) => {
                     let tmp = self.alloc_tmp(ty);
                     self.alloc_instruction(source, bid, Instruction::Assign(tmp, expr));
                     *u = Some(Operand::Move(tmp));
@@ -238,10 +235,7 @@ impl MirLower<'_> {
                     }
                 }
                 // TODO: Maybe something different should happen for ref
-                MExpr::Ref(_, _)
-                | MExpr::Struct(_, _)
-                | MExpr::BinaryOp(_, _, _)
-                | MExpr::UnaryOp(_, _) => {
+                MExpr::Ref(_, _) | MExpr::BinaryOp(_, _, _) | MExpr::UnaryOp(_, _) => {
                     let tmp = self.alloc_tmp(ty);
                     self.alloc_instruction(source, bid, Instruction::Assign(tmp, expr));
                     *u = Some(tmp);
@@ -603,7 +597,27 @@ impl MirLower<'_> {
                     operands.push((f.decl, tmp));
                 }
 
-                self.put(bid, dest, Some(expr), MExpr::Struct(*struct_declaration, operands));
+                let dest = match dest {
+                    Placement::Ignore => self.alloc_tmp(self.cx.struct_ty(*struct_declaration)),
+                    Placement::Assign(p) => p,
+                    Placement::IntoOperand(ty, o) => {
+                        let tmp = self.alloc_tmp(ty);
+                        *o = Some(Operand::Move(tmp));
+                        tmp
+                    }
+                    Placement::IntoPlace(ty, o) => {
+                        let tmp = self.alloc_tmp(ty);
+                        *o = Some(tmp);
+                        tmp
+                    }
+                    Placement::Assertion(_) => {
+                        todo!("mir lowering of assertion where the expr is a struct")
+                    }
+                };
+
+                let inst = Instruction::NewStruct(dest, *struct_declaration, operands);
+                self.alloc_instruction(Some(expr), bid, inst);
+
                 bid
             }
             ExprData::Missing => bid,

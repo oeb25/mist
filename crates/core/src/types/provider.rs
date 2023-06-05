@@ -13,6 +13,9 @@ pub trait TypeProvider: Sized {
             Field::Undefined => builtin::error(),
         }
     }
+    fn struct_field_ty_ptr(&self, f: StructField) -> TypePtr<Self> {
+        self.struct_field_ty(f).wrap(self)
+    }
     fn field_ty_ptr(&self, f: Field) -> TypePtr<Self> {
         self.field_ty(f).wrap(self)
     }

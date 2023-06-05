@@ -181,11 +181,25 @@ impl Serializer<'_> {
 
     fn inst(&mut self, db: &dyn crate::Db, cx: Option<&ItemContext>, inst: InstructionId) {
         match &self.body.instructions[inst] {
-            Instruction::Assign(s, e) => {
-                self.place(Some(db), cx, *s);
+            Instruction::Assign(t, e) => {
+                self.place(Some(db), cx, *t);
                 w!(self, Default, " := ");
                 self.expr(db, cx, e);
                 wln!(self, Default, "");
+            }
+            Instruction::NewStruct(t, s, fields) => {
+                self.place(Some(db), cx, *t);
+                w!(self, Default, " := {} {{", s.name(db));
+                let mut first = true;
+                for (field, slot) in fields {
+                    if !first {
+                        w!(self, Default, ",");
+                    }
+                    first = false;
+                    w!(self, Default, " {}: ", field.name(db));
+                    self.operand(Some(db), cx, slot);
+                }
+                wln!(self, Default, " }}");
             }
             Instruction::Assertion(kind, expr) => {
                 w!(self, Default, "{kind} ");
@@ -271,19 +285,6 @@ impl Serializer<'_> {
                     BorrowKind::Mutable => w!(self, Default, "&mut "),
                 }
                 self.place(Some(db), cx, *p);
-            }
-            MExpr::Struct(s, fields) => {
-                w!(self, Default, "{} {{", s.name(db));
-                let mut first = true;
-                for (field, slot) in fields {
-                    if !first {
-                        w!(self, Default, ",");
-                    }
-                    first = false;
-                    w!(self, Default, " {}: ", field.name(db));
-                    self.operand(Some(db), cx, slot);
-                }
-                w!(self, Default, " }}");
             }
             // MExpr::Quantifier(_, q, args, body) => {
             //     w!(self, Default, "{q} (");

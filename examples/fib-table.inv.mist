@@ -8,6 +8,14 @@ invariant FibTable {
   } else { true }
 }
 
+fn make(n: int) -> FibTable
+  ens result.values.len > n
+{
+  let t = FibTable { values: [] };
+  compute_up_to(&mut t, n);
+  t
+}
+
 fn compute_up_to(t: &mut FibTable, n: int)
   ens t.values.len > n
 {
@@ -22,12 +30,11 @@ fn compute_up_to(t: &mut FibTable, n: int)
   }
 }
 
-fn fast_fib(t: &mut FibTable, n: int) -> int
+fn fast_fib(n: int) -> int
   req n >= 0
   ens result == fib(n)
 {
-  compute_up_to(t, n);
-  t.values[n]
+  make(n).values[n]
 }
 
 pure fn fib(n: int) -> int

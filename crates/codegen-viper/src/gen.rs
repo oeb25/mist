@@ -514,7 +514,8 @@ mod write_impl {
                             w!(w, ", ");
                         }
                         first = false;
-                        w!(w, f);
+                        let name = &f.name;
+                        w!(w, "{name}");
                     }
                     w!(w, ")");
                 }

@@ -58,8 +58,7 @@ impl<'a> Visitor for HoverFinder<'a> {
             match field {
                 Field::StructField(sf) => {
                     let s = sf.parent_struct(self.db);
-                    let struct_ty =
-                        pretty::ty(&*vcx.cx, self.db, false, vcx.cx[vcx.cx.struct_ty(s)].ty);
+                    let struct_ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx.struct_ty(s).id());
                     let ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx.field_ty_ptr(field).id());
                     break_code(
                         [format!("struct {struct_ty}"), format!("{}: {ty}", field.name(self.db))],

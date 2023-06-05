@@ -150,8 +150,11 @@ impl ItemContext {
             Field::List(_, _) | Field::Undefined => None,
         }
     }
-    pub fn struct_ty(&self, s: Struct) -> TypeSrcId {
+    pub fn struct_ty_src(&self, s: Struct) -> TypeSrcId {
         self.file_context.struct_types[&s]
+    }
+    pub fn struct_ty(&self, s: Struct) -> TypePtr<Self> {
+        self[self.struct_ty_src(s)].ty.wrap(self)
     }
 
     pub fn ty_table(&self) -> Arc<TypeTable> {
