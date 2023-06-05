@@ -501,19 +501,7 @@ impl BodyLower<'_> {
 
     fn expr(&mut self, inst: mir::InstructionId, e: &mir::MExpr) -> Result<VExprId> {
         let exp = match e {
-            mir::MExpr::Struct(s, fields) => {
-                Exp::FuncApp {
-                    funcname: format!("init_{}", s.name(self.db)),
-                    args: fields
-                        .iter()
-                        .map(|(_, s)| self.operand_to_ref(inst, s))
-                        .collect::<Result<_>>()?,
-                }
-
-                // return Err(ViperLowerError::NotYetImplemented(
-                //     "lower struct".to_string(),
-                // ));
-            }
+            mir::MExpr::Struct(s, fields) => structs::init_struct_call(self, inst, *s, fields)?,
             mir::MExpr::Use(s) => {
                 let item_id = self.body.def();
                 let id = self.operand_to_ref(inst, s)?;

@@ -3,7 +3,11 @@ struct Person {
     height: int,
 }
 
-fn get_age(p: &Person) -> int {
+invariant Person {
+    self.age > 0
+}
+
+fn get_age(p: &mut Person) -> int {
     let x = p.age;
     get_age(p);
     p.age + p.age
@@ -11,6 +15,7 @@ fn get_age(p: &Person) -> int {
 
 fn init() -> Person {
     let p = Person { age: 12, height: 13 };
+    assert p.age == 12;
     p.age = p.age + 1;
     p
 }
