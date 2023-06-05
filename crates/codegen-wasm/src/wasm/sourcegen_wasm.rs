@@ -31,7 +31,7 @@ fn sourcegen_wasm() -> Result<()> {
     let mut output = fs::File::create(output_path).into_diagnostic()?;
     writeln!(output, "{code}").into_diagnostic()?;
 
-    Err(miette!("work in progress"))
+    Ok(())
 }
 
 fn generate_adts(grammar: &Grammar) -> String {
@@ -44,12 +44,15 @@ fn generate_adt(grammar: &Grammar, node: Node) -> TokenStream {
         IRule::Internal(internal) => match internal {
             Internal::U32 => quote!(),
             Internal::Id => quote!(
+                #[derive(Debug, Clone, PartialEq, Eq, Hash)]
                 pub struct Id(pub String);
             ),
             Internal::Name => quote!(
+                #[derive(Debug, Clone, PartialEq, Eq, Hash)]
                 pub struct Name(pub String);
             ),
             Internal::ValType => quote!(
+                #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
                 #[non_exhaustive]
                 pub enum ValType {
                     I32,

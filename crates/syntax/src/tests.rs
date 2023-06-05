@@ -20,7 +20,8 @@ fn parse_hello() -> color_eyre::Result<()> {
         match item {
             Item::Const(_) => todo!(),
             Item::Fn(my_fn) => {
-                for stmt in my_fn.body().unwrap().statements() {
+                let Some(body) = my_fn.body() else { continue };
+                for stmt in body.statements() {
                     match stmt {
                         Stmt::LetStmt(l) => {
                             dbg!(l.name());

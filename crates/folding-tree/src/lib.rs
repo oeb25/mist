@@ -35,9 +35,10 @@ pub struct FoldingTree<E> {
 
 impl<E: fmt::Display> fmt::Display for FoldingTree<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut in_block = false;
         let mut prefix_space = false;
         for event in self.preorder() {
-            if prefix_space {
+            if in_block && prefix_space {
                 write!(f, " ")?;
             }
             match event {
@@ -50,7 +51,10 @@ impl<E: fmt::Display> fmt::Display for FoldingTree<E> {
                     match folding {
                         Folding::Uninitialized => write!(f, "@")?,
                         Folding::Folded => write!(f, "X")?,
-                        Folding::Unfolded => write!(f, "{{")?,
+                        Folding::Unfolded => {
+                            write!(f, "{{")?;
+                            in_block = true;
+                        }
                     }
                 }
                 WalkEvent::Leave((_, folding)) => {
@@ -727,7 +731,6 @@ mod tests {
         eprintln!("{a}");
         a.drop(&["a"]);
         eprintln!("{a}");
-        panic!();
     }
 
     #[test]

@@ -46,7 +46,7 @@ pub struct Instr {
     pub kind: InstrKind,
     pub args: Vec<()>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InstrKind {
     Unreachable,
     Nop,
@@ -649,7 +649,7 @@ pub struct Result {
     pub ty: ValType,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ValType {
     I32,
@@ -669,3 +669,4 @@ pub struct Limits {
     pub min: u32,
     pub max: Option<u32>,
 }
+
