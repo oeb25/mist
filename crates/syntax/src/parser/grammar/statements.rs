@@ -10,7 +10,6 @@ pub fn stmt(p: &mut Parser) -> StatementParsed {
         T![let] => let_stmt(p),
         T![assume] => assume_stmt(p),
         T![assert] => assert_stmt(p),
-        T![while] => while_stmt(p),
         t if is_start_of_expr(t) => return expr_stmt(p),
         EOF => p.unexpected_eof(),
         _ => {
@@ -73,47 +72,6 @@ pub fn assert_stmt(p: &mut Parser) {
 
         comma_expr(p, Location::NONE);
         p.semicolon();
-    });
-}
-
-pub fn while_stmt(p: &mut Parser) {
-    assert!(p.at(T![while]));
-
-    p.start_node(WHILE_STMT, |p| {
-        p.bump();
-
-        expr(p, Location::NO_STRUCT);
-
-        let mut seen_decreases = false;
-
-        loop {
-            match p.current() {
-                T![invariant] | T![inv] => {
-                    p.start_node(INVARIANT, |p| {
-                        p.bump();
-                        comma_expr(p, Location::NO_STRUCT);
-                    });
-                }
-                T![decreases] | T![dec] => {
-                    if seen_decreases {
-                        // TODO: Report repeated decreases
-                    }
-                    seen_decreases = true;
-
-                    p.start_node(DECREASES, |p| {
-                        p.bump();
-                        if p.at(T![_]) {
-                            p.bump();
-                        } else {
-                            expr(p, Location::NO_STRUCT);
-                        }
-                    });
-                }
-                _ => break,
-            }
-        }
-
-        block(p);
     });
 }
 

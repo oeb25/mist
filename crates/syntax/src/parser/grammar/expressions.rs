@@ -92,6 +92,10 @@ fn expr_bp(p: &mut Parser, loc: Location, min_bp: u8) -> Option<BlockLike> {
             if_expr(p);
             block_like = BlockLike::Block;
         }
+        T![while] => {
+            while_expr(p);
+            block_like = BlockLike::Block;
+        }
         T![for] => {
             for_expr(p);
             block_like = BlockLike::Block;
@@ -230,6 +234,47 @@ pub fn if_expr(p: &mut Parser) {
     });
 }
 
+pub fn while_expr(p: &mut Parser) {
+    assert!(p.at(T![while]));
+
+    p.start_node(WHILE_EXPR, |p| {
+        p.bump();
+
+        expr(p, Location::NO_STRUCT);
+
+        let mut seen_decreases = false;
+
+        loop {
+            match p.current() {
+                T![invariant] | T![inv] => {
+                    p.start_node(INVARIANT, |p| {
+                        p.bump();
+                        comma_expr(p, Location::NO_STRUCT);
+                    });
+                }
+                T![decreases] | T![dec] => {
+                    if seen_decreases {
+                        // TODO: Report repeated decreases
+                    }
+                    seen_decreases = true;
+
+                    p.start_node(DECREASES, |p| {
+                        p.bump();
+                        if p.at(T![_]) {
+                            p.bump();
+                        } else {
+                            expr(p, Location::NO_STRUCT);
+                        }
+                    });
+                }
+                _ => break,
+            }
+        }
+
+        block(p);
+    });
+}
+
 pub fn for_expr(p: &mut Parser) {
     assert!(p.at(T![for]));
     p.start_node(FOR_EXPR, |p| {
@@ -261,6 +306,7 @@ pub fn is_start_of_expr(token: SyntaxKind) -> bool {
             | T![false]
             | T![result]
             | T![if]
+            | T![while]
             | T![for]
             | T![return]
             | T![forall]

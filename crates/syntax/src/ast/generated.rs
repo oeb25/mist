@@ -1877,40 +1877,6 @@ impl AstNode for AssumeStmt {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct WhileStmt {
-    pub(crate) syntax: SyntaxNode,
-}
-impl crate::ast::HasExpr for WhileStmt {}
-impl WhileStmt {
-    pub fn while_token(&self) -> Option<SyntaxToken> {
-        support::token(&self.syntax, T![while])
-    }
-    pub fn invariants(&self) -> AstChildren<Invariant> {
-        support::children(&self.syntax)
-    }
-    pub fn decreases(&self) -> Option<Decreases> {
-        support::child(&self.syntax)
-    }
-    pub fn block_expr(&self) -> Option<BlockExpr> {
-        support::child(&self.syntax)
-    }
-}
-impl AstNode for WhileStmt {
-    fn can_cast(kind: SyntaxKind) -> bool {
-        kind == WHILE_STMT
-    }
-    fn cast(syntax: SyntaxNode) -> Option<Self> {
-        if Self::can_cast(syntax.kind()) {
-            Some(Self { syntax })
-        } else {
-            None
-        }
-    }
-    fn syntax(&self) -> &SyntaxNode {
-        &self.syntax
-    }
-}
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ReturnExpr {
     pub(crate) syntax: SyntaxNode,
 }
@@ -2016,11 +1982,18 @@ impl AstNode for IfExpr {
 pub struct WhileExpr {
     pub(crate) syntax: SyntaxNode,
 }
+impl crate::ast::HasExpr for WhileExpr {}
 impl WhileExpr {
     pub fn while_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![while])
     }
-    pub fn body(&self) -> Option<BlockExpr> {
+    pub fn invariants(&self) -> AstChildren<Invariant> {
+        support::children(&self.syntax)
+    }
+    pub fn decreases(&self) -> Option<Decreases> {
+        support::child(&self.syntax)
+    }
+    pub fn block_expr(&self) -> Option<BlockExpr> {
         support::child(&self.syntax)
     }
 }
@@ -2976,7 +2949,6 @@ pub enum Stmt {
     ExprStmt(ExprStmt),
     AssertStmt(AssertStmt),
     AssumeStmt(AssumeStmt),
-    WhileStmt(WhileStmt),
 }
 impl From<LetStmt> for Stmt {
     fn from(node: LetStmt) -> Stmt {
@@ -3001,11 +2973,6 @@ impl From<AssertStmt> for Stmt {
 impl From<AssumeStmt> for Stmt {
     fn from(node: AssumeStmt) -> Stmt {
         Stmt::AssumeStmt(node)
-    }
-}
-impl From<WhileStmt> for Stmt {
-    fn from(node: WhileStmt) -> Stmt {
-        Stmt::WhileStmt(node)
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -3257,11 +3224,6 @@ impl std::fmt::Display for AssertStmt {
     }
 }
 impl std::fmt::Display for AssumeStmt {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(self.syntax(), f)
-    }
-}
-impl std::fmt::Display for WhileStmt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }

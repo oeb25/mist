@@ -126,6 +126,7 @@ pub enum ExprData {
     Struct { struct_declaration: Struct, struct_span: SourceSpan, fields: Vec<StructExprField> },
     Missing,
     If(IfExpr),
+    While(WhileExpr),
     For(ForExpr),
     Call { expr: ExprIdx, args: Vec<ExprIdx> },
     Unary { op: UnaryOp, inner: ExprIdx },
@@ -215,11 +216,11 @@ pub struct ForExpr {
     pub body: ExprIdx,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct WhileStmt {
+pub struct WhileExpr {
     pub expr: ExprIdx,
     pub invariants: Vec<Vec<ExprIdx>>,
     pub decreases: Decreases,
-    pub body: Block,
+    pub body: ExprIdx,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -239,7 +240,6 @@ pub struct Statement {
 pub enum StatementData {
     Expr(ExprIdx),
     Let { variable: VariableRef, explicit_ty: Option<TypeSrcId>, initializer: ExprIdx },
-    While(WhileStmt),
     Assertion { kind: AssertionKind, exprs: Vec<ExprIdx> },
 }
 

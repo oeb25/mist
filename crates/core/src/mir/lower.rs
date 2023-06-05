@@ -331,7 +331,6 @@ impl MirLower<'_> {
                 let dest = self.alloc_local(variable.idx());
                 self.expr(*initializer, bid, target, Placement::Assign(dest.into()))
             }
-            StatementData::While(it) => self.while_stmt(it, bid),
             StatementData::Assertion { kind, exprs } => {
                 for &expr in exprs {
                     bid = self.expr(expr, bid, None, Placement::Assertion(*kind));
@@ -469,6 +468,7 @@ impl MirLower<'_> {
             ExprData::Missing => (bid, self.alloc_tmp(error())),
             ExprData::If(_) => todo!(),
             ExprData::For { .. } => todo!(),
+            ExprData::While { .. } => todo!(),
             ExprData::Call { .. } => todo!(),
             ExprData::Unary { .. } => todo!(),
             ExprData::Bin { .. } => todo!(),
@@ -608,6 +608,7 @@ impl MirLower<'_> {
             }
             ExprData::Missing => bid,
             ExprData::If(it) => self.if_expr(it, bid, target, dest, expr),
+            ExprData::While(it) => self.while_expr(it, bid),
             ExprData::For(it) => self.for_expr(it, bid, expr),
             ExprData::Call { expr: f_expr, args: input_args } => {
                 let (func, mut args) = self.expr_to_function(*f_expr);
@@ -848,7 +849,7 @@ impl MirLower<'_> {
         bid
     }
 
-    fn while_stmt(&mut self, it: &hir::WhileStmt, mut bid: BlockId) -> BlockId {
+    fn while_expr(&mut self, it: &hir::WhileExpr, mut bid: BlockId) -> BlockId {
         let cond_block = self.alloc_block(None);
         assert_ne!(bid, cond_block);
         self.body.blocks[bid].set_terminator(Terminator::Goto(cond_block));
@@ -899,7 +900,7 @@ impl MirLower<'_> {
             }
             hir::Decreases::Inferred => None,
         };
-        let mut body_bid_last = self.block(&it.body, next_bid, None, Placement::Ignore);
+        let mut body_bid_last = self.expr(it.body, next_bid, None, Placement::Ignore);
         if let (hir::Decreases::Expr(variant), Some(variant_slot)) = (it.decreases, variant_slot) {
             self.emit_decreases_assertion(variant_slot, variant, &mut body_bid_last);
         }

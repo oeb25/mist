@@ -111,7 +111,6 @@ Stmt =
 | ExprStmt
 | AssertStmt
 | AssumeStmt
-| WhileStmt
 
 LetStmt =
  'let' Name (':' Type)?
@@ -129,12 +128,6 @@ AssumeStmt =
 
 ReturnExpr =
  'return' Expr ';'
-
-WhileStmt =
- 'while' Expr
- Invariant*
- Decreases?
- BlockExpr
 
 Invariant =
  'invariant' CommaExpr*
@@ -170,7 +163,10 @@ IfExprElse =
   IfExpr | BlockExpr
 
 WhileExpr =
-  'while' condition:Expr body:BlockExpr
+  'while' Expr
+  Invariant*
+  Decreases?
+  BlockExpr
 
 ForExpr =
   'for' Name 'in' Expr

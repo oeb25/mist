@@ -99,6 +99,9 @@ pub fn expr(pp: &impl PrettyPrint, db: &dyn crate::Db, expr: ExprIdx) -> String 
         ExprData::NotNull(it) => format!("{}!", pp_expr(pp, db, *it)),
         ExprData::Missing => "<missing>".to_string(),
         ExprData::If(it) => format!("if {}", pp_expr(pp, db, it.condition)),
+        ExprData::While(it) => {
+            format!("while {}", pp_expr(pp, db, it.expr))
+        }
         ExprData::For(it) => {
             format!("for {} in {}", pp.resolve_var(it.variable.idx()), pp_expr(pp, db, it.in_expr))
         }

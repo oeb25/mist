@@ -15,7 +15,7 @@ use tracing::warn;
 use crate::{
     hir::{
         Expr, ExprData, ExprIdx, ForExpr, IfExpr, Literal, Name, Param, Quantifier, QuantifierOver,
-        SpanOrAstPtr, StructExprField, VariableRef,
+        SpanOrAstPtr, StructExprField, VariableRef, WhileExpr,
     },
     types::{
         builtin::{bool, error, ghost_bool, ghost_int, int, null, void},
@@ -103,7 +103,14 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             ast::LiteralKind::Bool(b) => ExprData::Literal(Literal::Bool(b)).typed(bool()),
         },
         ast::Expr::IfExpr(it) => return Left(check_if_expr(tc, it.clone())),
-        ast::Expr::WhileExpr(_) => todo!(),
+        ast::Expr::WhileExpr(it) => {
+            let expr = check_opt(tc, it, it.expr());
+            let invariants =
+                it.invariants().map(|inv| tc.check_boolean_exprs(inv.comma_exprs())).collect();
+            let decreases = tc.check_decreases(it.decreases());
+            let body = check_block(tc, it.span(), tc.is_ghost(expr), it.block_expr());
+            ExprData::While(WhileExpr { expr, invariants, decreases, body }).typed(void())
+        }
         ast::Expr::ForExpr(it) => {
             let variable = if let Some(name) = it.name() {
                 let ty = tc.unsourced_ty(int());
@@ -126,17 +133,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             let invariants =
                 it.invariants().map(|inv| tc.check_boolean_exprs(inv.comma_exprs())).collect();
 
-            let body = if let Some(b) = it.block_expr() {
-                let block = tc.check_block(&b, |flags| flags);
-                tc.alloc_expr(Expr::new_block(block), b.span())
-            } else {
-                return Left(tc.expr_error(
-                    expr.span().set_len(0),
-                    None,
-                    None,
-                    TypeCheckErrorKind::NotYetImplemented("for-loop without body".to_string()),
-                ));
-            };
+            let body = check_block(tc, it.span(), tc.is_ghost(in_expr), it.block_expr());
 
             ExprData::For(ForExpr {
                 is_ghost: tc.is_ghost(in_expr),
@@ -712,6 +709,20 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
     })
 }
 
+fn check_block(
+    tc: &mut TypeChecker,
+    span: impl Into<SpanOrAstPtr<ast::Expr>>,
+    is_ghost: bool,
+    b: Option<ast::BlockExpr>,
+) -> ExprIdx {
+    if let Some(b) = b {
+        let block = tc.check_block(&b, |f| if is_ghost { f | ScopeFlags::GHOST } else { f });
+        tc.alloc_expr(Expr::new_block(block), b.span())
+    } else {
+        expr_error(tc, span, TypeCheckErrorKind::NotYetImplemented("empty block".to_string()))
+    }
+}
+
 fn check_if_expr(tc: &mut TypeChecker, if_expr: ast::IfExpr) -> ExprIdx {
     let condition = tc.check(&if_expr, if_expr.condition());
 
@@ -723,18 +734,8 @@ fn check_if_expr(tc: &mut TypeChecker, if_expr: ast::IfExpr) -> ExprIdx {
         tc.expect_ty((if_expr.condition().as_ref(), if_expr.span()), bool(), condition_ty);
     }
 
-    let (then_branch, then_ty) = if let Some(then_branch) = if_expr.then_branch() {
-        let block =
-            tc.check_block(&then_branch, |f| if is_ghost { f | ScopeFlags::GHOST } else { f });
-        let ty = block.return_ty;
-        (tc.alloc_expr(Expr::new_block(block), then_branch.span()), ty)
-    } else {
-        return expr_error(
-            tc,
-            if_expr.span(),
-            TypeCheckErrorKind::NotYetImplemented("if without body".to_string()),
-        );
-    };
+    let then_branch = check_block(tc, if_expr.span(), is_ghost, if_expr.then_branch());
+    let then_ty = tc.expr_ty(then_branch);
     let (else_branch, else_tail_span) = if_expr
         .else_branch()
         .map(|else_branch| match else_branch {

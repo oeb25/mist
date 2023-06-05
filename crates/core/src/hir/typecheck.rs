@@ -31,12 +31,8 @@ pub(crate) use typing::{TypingMut, TypingMutExt};
 use super::{
     desugar,
     item_context::{FunctionContext, SpanOrAstPtr},
-    ItemContext, ItemSourceMap, TypeSrc, TypeSrcId, WhileStmt,
+    ItemContext, ItemSourceMap, TypeSrc, TypeSrcId,
 };
-
-fn id<T>(t: T) -> T {
-    t
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum VariableDeclarationKind {
@@ -514,22 +510,6 @@ impl<'a> TypeChecker<'a> {
                 ast::Stmt::AssumeStmt(it) => {
                     self.check_assertion(&it, AssertionKind::Assume, it.comma_exprs())
                 }
-                ast::Stmt::WhileStmt(it) => Statement::new(
-                    it.span(),
-                    StatementData::While(WhileStmt {
-                        expr: self.check(&it, it.expr()),
-                        invariants: it
-                            .invariants()
-                            .map(|inv| self.check_boolean_exprs(inv.comma_exprs()))
-                            .collect(),
-                        decreases: self.check_decreases(it.decreases()),
-                        body: if let Some(block) = it.block_expr() {
-                            self.check_block(&block, id)
-                        } else {
-                            Block { stmts: Vec::new(), tail_expr: None, return_ty: void() }
-                        },
-                    }),
-                ),
             })
             .collect();
         let (tail_expr, return_ty) = if let Some(tail_expr) = block.tail_expr() {

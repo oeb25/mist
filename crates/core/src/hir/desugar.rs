@@ -10,7 +10,7 @@ use crate::{
 
 use super::{
     Block, BuiltinExpr, Decreases, ExprData, ItemContext, Literal, QuantifierOver, Statement,
-    StatementData, WhileStmt,
+    StatementData, WhileExpr,
 };
 
 pub fn desugar(cx: &mut ItemContext) {
@@ -141,22 +141,27 @@ pub fn desugar(cx: &mut ItemContext) {
                     )
                 };
                 invariants.insert(0, vec![increasing_inv_expr, limited_inv_expr]);
-                let while_stmt = Statement::new(
-                    span,
-                    StatementData::While(WhileStmt {
+                let while_body = alloc_expr!(
+                    ExprData::Block(Block {
+                        stmts: vec![
+                            Statement::new(span, StatementData::Expr(it.body)),
+                            update_stmt,
+                        ],
+                        tail_expr: None,
+                        return_ty: void(),
+                    }),
+                    void()
+                );
+                let while_expr = alloc_expr!(
+                    ExprData::While(WhileExpr {
                         expr: cond_expr,
                         invariants,
                         decreases: Decreases::Unspecified,
-                        body: Block {
-                            stmts: vec![
-                                Statement::new(span, StatementData::Expr(it.body)),
-                                update_stmt,
-                            ],
-                            tail_expr: None,
-                            return_ty: void(),
-                        },
+                        body: while_body,
                     }),
+                    void()
                 );
+                let while_stmt = Statement::new(span, StatementData::Expr(while_expr));
 
                 alloc_expr!(
                     ExprData::Block(Block {

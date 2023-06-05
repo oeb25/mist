@@ -8,7 +8,7 @@ use crate::{
     hir::{
         self, Block, Decreases, ExprData, ExprIdx, ForExpr, IfExpr, ItemContext, ItemSourceMap,
         Param, SourceFile, Statement, StatementData, TypeSrcId, VariableIdx, VariableRef,
-        WhileStmt,
+        WhileExpr,
     },
     types::{Field, TDK},
 };
@@ -421,6 +421,14 @@ where
             ExprData::If(if_expr) => {
                 self.walk_if_expr(visitor, &if_expr)?;
             }
+            ExprData::While(WhileExpr { expr, invariants, decreases, body }) => {
+                self.walk_expr(visitor, expr)?;
+                for inv in &invariants {
+                    self.walk_exprs(visitor, inv)?;
+                }
+                self.walk_decreases(visitor, decreases)?;
+                self.walk_expr(visitor, body)?;
+            }
             ExprData::For(for_expr) => {
                 self.walk_for_expr(visitor, &for_expr)?;
             }
@@ -540,14 +548,6 @@ where
                         self.walk_ty(visitor, ty)?;
                     }
                     self.walk_expr(visitor, initializer)?;
-                }
-                StatementData::While(WhileStmt { expr, invariants, decreases, body }) => {
-                    self.walk_expr(visitor, *expr)?;
-                    for inv in invariants {
-                        self.walk_exprs(visitor, inv)?;
-                    }
-                    self.walk_decreases(visitor, *decreases)?;
-                    self.walk_block(visitor, body)?;
                 }
                 StatementData::Assertion { exprs, .. } => self.walk_exprs(visitor, exprs)?,
             }

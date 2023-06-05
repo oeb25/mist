@@ -40,9 +40,6 @@ fn parse_hello() -> color_eyre::Result<()> {
                         Stmt::Item(i) => {
                             dbg!(i);
                         }
-                        Stmt::WhileStmt(i) => {
-                            dbg!(i);
-                        }
                     }
                 }
             }

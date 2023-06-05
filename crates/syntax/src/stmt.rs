@@ -2,7 +2,6 @@ use crate::{
     ast::{
         AssertStmt, AssumeStmt, ExprStmt, Item, LetStmt, SourceFile, Stmt,
         SyntaxKind::{self, *},
-        WhileStmt,
     },
     support::AstNode,
     SyntaxNode,
@@ -22,7 +21,6 @@ impl AstNode for Stmt {
             EXPR_STMT => Stmt::ExprStmt(ExprStmt { syntax }),
             ASSERT_STMT => Stmt::AssertStmt(AssertStmt { syntax }),
             ASSUME_STMT => Stmt::AssumeStmt(AssumeStmt { syntax }),
-            WHILE_STMT => Stmt::WhileStmt(WhileStmt { syntax }),
             _ => {
                 let item = Item::cast(syntax)?;
                 Stmt::Item(item)
@@ -37,7 +35,6 @@ impl AstNode for Stmt {
             Stmt::Item(it) => it.syntax(),
             Stmt::AssertStmt(it) => &it.syntax,
             Stmt::AssumeStmt(it) => &it.syntax,
-            Stmt::WhileStmt(it) => &it.syntax,
         }
     }
 }
