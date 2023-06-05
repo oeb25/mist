@@ -704,6 +704,12 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                         tc.declare_variable(VariableDeclaration::new_let(name), ty, name_span);
                     let var_ref = VariableRef::new(var_decl, name_span);
                     let over_expr = check_opt(tc, it.span(), it.expr());
+                    let range_ty = tc.alloc_ty_data(TDK::Range(ty.ty(tc)).into());
+                    tc.expect_ty(
+                        it.expr().map_or(name_span, |e| e.span()),
+                        range_ty,
+                        tc.expr_ty(over_expr),
+                    );
                     QuantifierOver::In(var_ref, over_expr)
                 }
                 None => {
