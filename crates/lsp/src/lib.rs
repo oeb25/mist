@@ -16,6 +16,7 @@ pub struct Jar(
     crate::highlighting::inlay_hints,
     crate::hover::hover,
     crate::goto::goto_declaration,
+    crate::goto::find_references,
 );
 
 pub trait Db: mist_cli::Db + salsa::DbWithJar<Jar> {}

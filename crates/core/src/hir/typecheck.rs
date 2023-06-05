@@ -527,7 +527,8 @@ impl<'a> TypeChecker<'a> {
         let name = decl.name();
         let ast = decl.ast.clone();
         let var = self.cx.declarations.alloc(decl, Variable::new());
-        self.source_map.name_map.insert(ast, Named::Variable(var));
+        self.source_map.name_map.insert(ast.clone(), Named::Variable(var));
+        self.source_map.name_map_back.entry(Named::Variable(var)).or_default().push(ast);
         self.scope.insert(name, var);
         self.cx.var_types.insert(var, ty);
         let ty_src = ty_span.into();
@@ -541,7 +542,8 @@ impl<'a> TypeChecker<'a> {
     pub fn lookup_name(&mut self, name: &ast::NameRef) -> VariableIdx {
         if let Some(var) = self.scope.get(&name.clone().into()) {
             let ast = AstPtr::new(&name.clone().into());
-            self.source_map.name_map.insert(ast, Named::Variable(var));
+            self.source_map.name_map.insert(ast.clone(), Named::Variable(var));
+            self.source_map.name_map_back.entry(Named::Variable(var)).or_default().push(ast);
             var
         } else {
             let err_ty = self.ty_error(

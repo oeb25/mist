@@ -85,6 +85,10 @@ impl LanguageServer for Backend {
     ) -> Result<Option<GotoDefinitionResponse>> {
         self.goto_definition(params).await
     }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        self.references(params).await
+    }
 }
 
 impl Backend {
@@ -174,6 +178,7 @@ impl Backend {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 declaration_provider: Some(DeclarationCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                references_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             ..Default::default()
@@ -284,6 +289,9 @@ impl Backend {
         let db = &*self.db();
         let result = self.definition_span(db, params.text_document_position_params)?;
         Ok(result.map(|link| GotoDeclarationResponse::Link(vec![link])))
+    }
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        self.references_spans(&*self.db(), params.text_document_position)
     }
 }
 
@@ -427,6 +435,28 @@ impl Backend {
             target_range,
             target_selection_range: target_range,
         }))
+    }
+
+    fn references_spans(
+        &self,
+        db: &dyn crate::Db,
+        TextDocumentPositionParams { text_document, position }: TextDocumentPositionParams,
+    ) -> Result<Option<Vec<Location>>> {
+        let Some(source) = self.source_file(db, text_document.uri.clone()) else {
+            return Err(tower_lsp::jsonrpc::Error::invalid_request());
+        };
+        let src = source.text(db);
+        let pos = mist_core::util::Position::new(position.line, position.character);
+        let Some(byte_offset) = pos.to_byte_offset(src) else {
+            return Ok(None);
+        };
+        let result = crate::goto::find_references(db, source, byte_offset);
+        Ok(Some(
+            result
+                .into_iter()
+                .map(|span| Location::new(text_document.uri.clone(), span_to_range(src, span)))
+                .collect(),
+        ))
     }
 
     fn viperserver_jar(&self) -> PathBuf {

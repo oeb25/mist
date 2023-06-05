@@ -156,7 +156,7 @@ pub enum Named {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ItemSourceMap {
     pub(super) name_map: HashMap<AstPtr<ast::NameOrNameRef>, Named>,
-    pub(super) name_map_back: HashMap<Named, AstPtr<ast::NameOrNameRef>>,
+    pub(super) name_map_back: HashMap<Named, Vec<AstPtr<ast::NameOrNameRef>>>,
     pub(super) expr_map: HashMap<SpanOrAstPtr<ast::Expr>, ExprIdx>,
     pub(super) expr_map_back: IdxMap<ExprIdx, SpanOrAstPtr<ast::Expr>>,
     pub(super) ty_src_map: IdxMap<TypeSrcId, SpanOrAstPtr<ast::Type>>,
@@ -190,6 +190,15 @@ impl ItemSourceMap {
     }
     pub fn name_var(&self, name: &AstPtr<ast::NameOrNameRef>) -> Option<Named> {
         self.name_map.get(name).cloned()
+    }
+    pub fn named_references<'a>(
+        &'a self,
+        named: &Named,
+    ) -> impl Iterator<Item = &'a AstPtr<ast::NameOrNameRef>> {
+        self.name_map_back.get(named).into_iter().flatten()
+    }
+    pub fn names(&self) -> impl Iterator<Item = (&AstPtr<ast::NameOrNameRef>, &Named)> {
+        self.name_map.iter()
     }
 }
 

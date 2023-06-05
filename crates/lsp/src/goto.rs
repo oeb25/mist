@@ -1,11 +1,13 @@
 use std::ops::ControlFlow;
 
 use derive_new::new;
+use itertools::Either;
 use mist_core::{
     hir::{self, SourceFile, VariableIdx},
     salsa,
     types::{Field, TypeProvider, TDK},
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
+    VariableDeclarationKind,
 };
 use mist_syntax::{
     ast::{self, HasName, Spanned},
@@ -29,6 +31,46 @@ pub fn goto_declaration(
         ControlFlow::Break(result) => result,
         ControlFlow::Continue(()) => None,
     }
+}
+#[salsa::tracked]
+pub fn find_references(
+    db: &dyn crate::Db,
+    file: SourceFile,
+    byte_offset: usize,
+) -> Vec<SourceSpan> {
+    let root = hir::file::parse_file(db, file).tree();
+
+    let def_named = file.definitions(db).into_iter().find_map(|def| {
+        let hir = def.hir(db)?;
+        let source_map = hir.source_map(db);
+        source_map.names().find_map(|(ptr, named)| {
+            if let ast::NameOrNameRef::Name(name) = ptr.to_node(root.syntax()) {
+                if name.contains_pos(byte_offset) {
+                    return Some((def, named));
+                }
+            }
+            None
+        })
+    });
+
+    let Some((named_def, named)) = def_named else { return vec![] };
+
+    file.definitions(db)
+        .into_iter()
+        .flat_map(|def| Some((def, def.hir(db)?)))
+        .flat_map(|(def, hir)| {
+            let var = match named {
+                hir::Named::Variable(var) => hir.cx(db).decl(*var),
+            };
+            match var.kind() {
+                VariableDeclarationKind::Function => {}
+                VariableDeclarationKind::Let | VariableDeclarationKind::Parameter
+                    if def == named_def => {}
+                _ => return Either::Right([].into_iter()),
+            }
+            Either::Left(hir.source_map(db).named_references(named).map(|n| n.span()))
+        })
+        .collect()
 }
 
 #[derive(new)]
