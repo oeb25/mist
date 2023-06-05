@@ -32,7 +32,7 @@ pub(crate) use typing::{TypingMut, TypingMutExt};
 use super::{
     desugar,
     item_context::{FunctionContext, SpanOrAstPtr},
-    ItemContext, ItemSourceMap, TypeSrc, TypeSrcId,
+    ItemContext, ItemSourceMap, StatementId, TypeSrc, TypeSrcId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -283,7 +283,7 @@ impl<'a> TypeChecker<'a> {
                 function_var,
                 conditions,
                 decreases,
-                return_ty_src: Default::default(),
+                return_ty_src: checker.cx.return_ty,
             });
 
             if !f_ast.is_ghost() && f_ast.body().is_none() {
@@ -427,16 +427,20 @@ impl<'a> TypeChecker<'a> {
             })
             .collect()
     }
+    fn alloc_stmt(&mut self, src: AstPtr<ast::Stmt>, data: StatementData) -> StatementId {
+        let id = self.cx.stmt_arena.alloc(Statement::new(data));
+        self.source_map.stmt_map.insert(src.clone(), id);
+        self.source_map.stmt_map_back.insert(id, src);
+        id
+    }
     fn check_assertion(
         &mut self,
-        span: impl Spanned,
+        src: AstPtr<ast::Stmt>,
         kind: AssertionKind,
         exprs: impl Iterator<Item = ast::CommaExpr>,
-    ) -> Statement {
-        Statement::new(
-            span.span(),
-            StatementData::Assertion { kind, exprs: self.check_boolean_exprs(exprs) },
-        )
+    ) -> StatementId {
+        let exprs = self.check_boolean_exprs(exprs);
+        self.alloc_stmt(src, StatementData::Assertion { kind, exprs })
     }
     fn check_decreases(&mut self, decreases: Option<ast::Decreases>) -> Decreases {
         if let Some(d) = decreases {
@@ -449,66 +453,60 @@ impl<'a> TypeChecker<'a> {
             Decreases::Unspecified
         }
     }
+    fn check_stmt(&mut self, stmt: ast::Stmt) -> StatementId {
+        let ptr = AstPtr::new(&stmt);
+        let data = match stmt {
+            ast::Stmt::LetStmt(it) => {
+                let name = it.name().unwrap();
+                let explicit_ty = it.ty().map(|ty| self.lower_type(&ty));
+                let initializer = self.check(&it, it.initializer());
+
+                let ty = if let Some(ty) = explicit_ty {
+                    let ty = self.cx[ty].ty;
+                    let span = it.initializer().map(|i| i.span()).unwrap_or_else(|| it.span());
+                    self.expect_ty(span, ty, self.expr_ty(initializer));
+                    ty
+                } else {
+                    self.expr_ty(initializer)
+                }
+                .with_ghost(self, self.scope.is_ghost());
+
+                let var_span = name.span();
+                let var_ty = explicit_ty.unwrap_or_else(|| self.unsourced_ty(ty));
+                let variable = self.declare_variable(
+                    VariableDeclaration::new_let(name),
+                    var_ty,
+                    match it.ty() {
+                        Some(ty) => SpanOrAstPtr::from(&ty),
+                        None => SpanOrAstPtr::from(var_span),
+                    },
+                );
+
+                StatementData::Let { variable, explicit_ty, initializer }
+            }
+            ast::Stmt::Item(it) => StatementData::Expr(self.expr_error(
+                it.span(),
+                None,
+                None,
+                TypeCheckErrorKind::NotYetImplemented("items in statement position".to_string()),
+            )),
+            ast::Stmt::ExprStmt(it) => StatementData::Expr(self.check(&it, it.expr())),
+            ast::Stmt::AssertStmt(it) => {
+                return self.check_assertion(ptr, AssertionKind::Assert, it.comma_exprs())
+            }
+            ast::Stmt::AssumeStmt(it) => {
+                return self.check_assertion(ptr, AssertionKind::Assume, it.comma_exprs())
+            }
+        };
+        self.alloc_stmt(ptr, data)
+    }
     pub fn check_block(
         &mut self,
         block: &ast::BlockExpr,
         f: impl FnOnce(ScopeFlags) -> ScopeFlags,
     ) -> Block {
         self.push_scope(f);
-        let stmts = block
-            .statements()
-            .map(|stmt| match stmt {
-                ast::Stmt::LetStmt(it) => {
-                    let span = it.span();
-                    let name = it.name().unwrap();
-                    let explicit_ty = it.ty().map(|ty| self.lower_type(&ty));
-                    let initializer = self.check(&it, it.initializer());
-
-                    let ty = if let Some(ty) = explicit_ty {
-                        let ty = self.cx[ty].ty;
-                        let span = it.initializer().map(|i| i.span()).unwrap_or_else(|| it.span());
-                        self.expect_ty(span, ty, self.expr_ty(initializer));
-                        ty
-                    } else {
-                        self.expr_ty(initializer)
-                    }
-                    .with_ghost(self, self.scope.is_ghost());
-
-                    let var_span = name.span();
-                    let var_ty = explicit_ty.unwrap_or_else(|| self.unsourced_ty(ty));
-                    let variable = self.declare_variable(
-                        VariableDeclaration::new_let(name),
-                        var_ty,
-                        match it.ty() {
-                            Some(ty) => SpanOrAstPtr::from(&ty),
-                            None => SpanOrAstPtr::from(var_span),
-                        },
-                    );
-
-                    Statement::new(span, StatementData::Let { variable, explicit_ty, initializer })
-                }
-                ast::Stmt::Item(it) => Statement::new(
-                    it.span(),
-                    StatementData::Expr(self.expr_error(
-                        it.span(),
-                        None,
-                        None,
-                        TypeCheckErrorKind::NotYetImplemented(
-                            "items in statement position".to_string(),
-                        ),
-                    )),
-                ),
-                ast::Stmt::ExprStmt(it) => {
-                    Statement::new(it.span(), StatementData::Expr(self.check(&it, it.expr())))
-                }
-                ast::Stmt::AssertStmt(it) => {
-                    self.check_assertion(&it, AssertionKind::Assert, it.comma_exprs())
-                }
-                ast::Stmt::AssumeStmt(it) => {
-                    self.check_assertion(&it, AssertionKind::Assume, it.comma_exprs())
-                }
-            })
-            .collect();
+        let stmts = block.statements().map(|stmt| self.check_stmt(stmt)).collect();
         let (tail_expr, return_ty) = if let Some(tail_expr) = block.tail_expr() {
             let tail_expr = self.check(tail_expr.span(), Some(tail_expr));
             (Some(tail_expr), self.expr_ty(tail_expr).with_ghost(self, self.scope.is_ghost()))

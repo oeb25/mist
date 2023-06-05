@@ -35,7 +35,7 @@ pub(crate) fn initialize_file_context(
                 let s_ast = s.ast_node(db);
 
                 let s_ty = b.alloc_ty_data(TDK::Struct(s).into());
-                if let Some(old) = b.fc.named_types.insert(s.name(db), s_ty) {
+                if let Some(_old) = b.fc.named_types.insert(s.name(db), s_ty) {
                     b.ty_error(
                         s_ast.span(),
                         None,

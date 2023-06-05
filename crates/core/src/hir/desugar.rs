@@ -1,7 +1,4 @@
-use mist_syntax::{
-    ast::operators::{ArithOp, BinaryOp, LogicOp},
-    SourceSpan,
-};
+use mist_syntax::ast::operators::{ArithOp, BinaryOp, LogicOp};
 
 use crate::{
     hir::{IfExpr, Param},
@@ -40,9 +37,6 @@ pub fn desugar(cx: &mut ItemContext) {
 
         let new_eid = match cx.expr_arena[eid].data.clone() {
             ExprData::Quantifier { quantifier, over: QuantifierOver::In(var, in_expr), expr } => {
-                // TODO: this is a bad span
-                let span = SourceSpan::new_start_end(0, 0);
-
                 let params = vec![Param { is_ghost: false, name: var, ty: cx.var_ty_src(var) }];
 
                 let var_expr = alloc_expr!(ExprData::Ident(var), cx.var_ty(var).id());
@@ -51,7 +45,6 @@ pub fn desugar(cx: &mut ItemContext) {
                 let true_expr = alloc_expr!(ExprData::Literal(Literal::Bool(true)), bool());
                 let body_expr = alloc_expr!(
                     ExprData::If(IfExpr {
-                        if_span: span,
                         is_ghost: true,
                         return_ty: bool(),
                         condition,
@@ -71,21 +64,16 @@ pub fn desugar(cx: &mut ItemContext) {
                 )
             }
             ExprData::For(it) => {
-                // TODO: this is a bad span
-                let span = SourceSpan::new_start_end(0, 0);
                 // TODO: Alloc it.in_expr to a fresh local, in case it might not be pure
                 let var_min_expr =
                     alloc_expr!(ExprData::Builtin(BuiltinExpr::RangeMin(it.in_expr)), int());
                 let var_max_expr =
                     alloc_expr!(ExprData::Builtin(BuiltinExpr::RangeMax(it.in_expr)), int());
-                let let_var_stmt = Statement::new(
-                    span,
-                    StatementData::Let {
-                        variable: it.variable,
-                        explicit_ty: None,
-                        initializer: var_min_expr,
-                    },
-                );
+                let let_var_stmt = cx.stmt_arena.alloc(Statement::new(StatementData::Let {
+                    variable: it.variable,
+                    explicit_ty: None,
+                    initializer: var_min_expr,
+                }));
                 let var_expr =
                     alloc_expr!(ExprData::Ident(it.variable), cx.var_ty(it.variable).id());
                 let cond_expr = alloc_expr!(
@@ -111,7 +99,8 @@ pub fn desugar(cx: &mut ItemContext) {
                         void()
                     )
                 };
-                let update_stmt = Statement::new(span, StatementData::Expr(update_expr));
+                let update_stmt =
+                    cx.stmt_arena.alloc(Statement::new(StatementData::Expr(update_expr)));
                 let mut invariants = it.invariants.clone();
                 let increasing_inv_expr = alloc_expr!(
                     ExprData::Bin { lhs: var_expr, op: BinaryOp::ge(), rhs: var_min_expr },
@@ -143,7 +132,7 @@ pub fn desugar(cx: &mut ItemContext) {
                 let while_body = alloc_expr!(
                     ExprData::Block(Block {
                         stmts: vec![
-                            Statement::new(span, StatementData::Expr(it.body)),
+                            cx.stmt_arena.alloc(Statement::new(StatementData::Expr(it.body))),
                             update_stmt,
                         ],
                         tail_expr: None,
@@ -160,7 +149,8 @@ pub fn desugar(cx: &mut ItemContext) {
                     }),
                     void()
                 );
-                let while_stmt = Statement::new(span, StatementData::Expr(while_expr));
+                let while_stmt =
+                    cx.stmt_arena.alloc(Statement::new(StatementData::Expr(while_expr)));
 
                 alloc_expr!(
                     ExprData::Block(Block {

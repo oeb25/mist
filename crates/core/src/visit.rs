@@ -1,4 +1,4 @@
-use std::{ops::ControlFlow, sync::Arc};
+use std::{iter, ops::ControlFlow, sync::Arc};
 
 use derive_new::new;
 use mist_syntax::{
@@ -11,7 +11,7 @@ use crate::{
     def::{DefKind, Function, Struct, TypeInvariant},
     hir::{
         self, Block, Decreases, ExprData, ExprIdx, IfExpr, ItemContext, ItemSourceMap, Param,
-        SourceFile, Statement, StatementData, TypeSrcId, VariableIdx, WhileExpr,
+        SourceFile, StatementData, StatementId, TypeSrcId, VariableIdx, WhileExpr,
     },
     types::{Field, TDK},
 };
@@ -193,7 +193,7 @@ pub trait Visitor {
         ControlFlow::Continue(())
     }
     #[must_use]
-    fn visit_stmt(&mut self, vcx: &VisitContext, stmt: &Statement) -> ControlFlow<Self::Item> {
+    fn visit_stmt(&mut self, vcx: &VisitContext, stmt: StatementId) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
 }
@@ -406,15 +406,14 @@ where
             visitor.visit_expr(&self.vcx, expr)?;
         }
 
+        let expr_src = self.vcx.source_map.expr_src(&self.vcx.cx, expr);
+
         match self.vcx.cx.original_expr(expr).data.clone() {
             ExprData::Literal(_) | ExprData::Missing | ExprData::Result => {}
             ExprData::Ident(_) => {}
-            ExprData::Self_ => {
-                visitor.visit_self(&self.vcx, &self.vcx.source_map[expr])?;
-            }
+            ExprData::Self_ => visitor.visit_self(&self.vcx, &self.vcx.source_map[expr])?,
             ExprData::Field { expr: inner, field, .. } => {
                 self.walk_expr(visitor, inner)?;
-                let expr_src = self.vcx.source_map.expr_src(&self.vcx.cx, expr);
 
                 // TODO: This should be replaces with a try-block when stable
                 let res: Option<_> = (|| {
@@ -428,9 +427,21 @@ where
                 }
             }
             ExprData::Struct { fields, .. } => {
-                for f in fields {
-                    let field_ref = f.name.to_node(self.root.syntax()).into();
-                    self.walk_field(visitor, f.decl.into(), &field_ref)?;
+                let src_fields = expr_src
+                    .into_ptr()
+                    .and_then(|expr| match expr.to_node(self.root.syntax()) {
+                        ast::Expr::StructExpr(it) => {
+                            Some(it.fields().map(Some).chain(iter::repeat(None)))
+                        }
+                        _ => None,
+                    })
+                    .into_iter()
+                    .flatten();
+
+                for (f, f_ast) in iter::zip(fields, src_fields) {
+                    if let Some(name) = f_ast.and_then(|f_ast| f_ast.name_ref()) {
+                        self.walk_field(visitor, f.decl.into(), &name.into())?;
+                    }
                     self.walk_expr(visitor, f.value)?;
                 }
             }
@@ -539,20 +550,20 @@ where
 
     #[must_use]
     fn walk_block<V: Visitor>(&mut self, visitor: &mut V, block: &Block) -> ControlFlow<V::Item> {
-        for stmt in &block.stmts {
+        for &stmt in &block.stmts {
             if self.pre() {
                 visitor.visit_stmt(&self.vcx, stmt)?;
             }
 
-            match &stmt.data {
-                StatementData::Expr(expr) => self.walk_expr(visitor, *expr)?,
-                &StatementData::Let { variable: _, explicit_ty, initializer } => {
+            match self.vcx.cx[stmt].data.clone() {
+                StatementData::Expr(expr) => self.walk_expr(visitor, expr)?,
+                StatementData::Let { variable: _, explicit_ty, initializer } => {
                     if let Some(ty) = explicit_ty {
                         self.walk_ty(visitor, ty)?;
                     }
                     self.walk_expr(visitor, initializer)?;
                 }
-                StatementData::Assertion { exprs, .. } => self.walk_exprs(visitor, exprs)?,
+                StatementData::Assertion { exprs, .. } => self.walk_exprs(visitor, &exprs)?,
             }
 
             if self.post() {

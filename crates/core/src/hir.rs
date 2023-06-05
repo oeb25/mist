@@ -11,10 +11,7 @@ use mist_syntax::ast::{self, HasName, Spanned};
 
 use crate::{
     def::{Def, DefKind, Function, Struct, TypeInvariant},
-    hir::{
-        self,
-        typecheck::{Typed, TypingMutExt},
-    },
+    hir::typecheck::{Typed, TypingMutExt},
     types::builtin::*,
 };
 
@@ -71,13 +68,9 @@ pub(crate) fn lower_def(db: &dyn crate::Db, def: Def) -> Option<DefinitionHir> {
             if let Some(self_ty) = checker.cx.self_ty() {
                 let related_invs = file_definitions(db, def.file(db))
                     .into_iter()
-                    .filter_map(|def| {
-                        if let hir::DefKind::TypeInvariant(inv) = def.kind(db) {
-                            if checker.find_named_type(&inv.ast_node(db), inv.name(db)) == self_ty {
-                                return Some(inv);
-                            }
-                        }
-                        None
+                    .filter_map(|def| def.kind(db).to_type_invariant())
+                    .filter(|inv| {
+                        checker.find_named_type(&inv.ast_node(db), inv.name(db)) == self_ty
                     })
                     .collect_vec();
 

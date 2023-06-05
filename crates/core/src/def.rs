@@ -17,6 +17,40 @@ pub enum DefKind {
     TypeInvariant(TypeInvariant),
 }
 
+impl DefKind {
+    pub fn to_function(self) -> Option<Function> {
+        if let Self::Function(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub fn to_struct(self) -> Option<Struct> {
+        if let Self::Struct(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub fn to_struct_field(self) -> Option<StructField> {
+        if let Self::StructField(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub fn to_type_invariant(self) -> Option<TypeInvariant> {
+        if let Self::TypeInvariant(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+}
+
 #[salsa::interned]
 pub struct Function {
     id: AstId<ast::Fn>,

@@ -2,13 +2,10 @@ use itertools::{
     Either::{self, Left, Right},
     Itertools,
 };
-use mist_syntax::{
-    ast::{
-        self,
-        operators::{ArithOp, BinaryOp, CmpOp},
-        HasAttrs, HasExpr, HasName, Spanned,
-    },
-    ptr::AstPtr,
+use mist_syntax::ast::{
+    self,
+    operators::{ArithOp, BinaryOp, CmpOp},
+    HasAttrs, HasExpr, HasName, Spanned,
 };
 use tracing::warn;
 
@@ -560,17 +557,12 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             for f in it.fields() {
                 let mut matched = false;
                 for &sf in &fields {
-                    let name_ref_ast = f.name_ref().unwrap();
-                    let field_name = Name::from(&name_ref_ast);
+                    let field_name = Name::from(&f.name_ref().unwrap());
                     if field_name == sf.name(tc.db) {
                         let value = check_inner(tc, &f);
                         let expected = tc.expect_find_type(&sf.ast_node(tc.db).ty());
                         tc.expect_ty(tc.expr_span(value), expected, tc.expr_ty(value));
-                        present_fields.push(StructExprField::new(
-                            sf,
-                            AstPtr::new(&name_ref_ast),
-                            value,
-                        ));
+                        present_fields.push(StructExprField::new(sf, value));
                         matched = true;
                     }
                 }
@@ -590,11 +582,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
 
             Expr {
                 ty: struct_ty,
-                data: ExprData::Struct {
-                    struct_declaration: s,
-                    struct_span: name_ref.span(),
-                    fields: present_fields,
-                },
+                data: ExprData::Struct { struct_declaration: s, fields: present_fields },
             }
         }
         ast::Expr::ParenExpr(e) => return Left(check_inner(tc, e)),
@@ -734,25 +722,27 @@ fn check_if_expr(tc: &mut TypeChecker, if_expr: ast::IfExpr) -> ExprIdx {
 
     let then_branch = check_block(tc, if_expr.span(), is_ghost, if_expr.then_branch());
     let then_ty = tc.expr_ty(then_branch);
-    let (else_branch, else_tail_span) = if_expr
+    let (else_tail_span, else_branch) = if_expr
         .else_branch()
         .map(|else_branch| match else_branch {
-            ast::IfExprElse::IfExpr(e) => (check_if_expr(tc, e), None),
+            ast::IfExprElse::IfExpr(e) => (e.span(), check_if_expr(tc, e)),
             ast::IfExprElse::BlockExpr(b) => {
                 let block =
                     tc.check_block(&b, |f| if is_ghost { f | ScopeFlags::GHOST } else { f });
-                let tail_span = block
-                    .tail_expr
-                    .map(|e| tc.expr_span(e))
-                    .or_else(|| block.stmts.last().map(|s| s.span));
-                let expr = tc.alloc_expr(Expr::new_block(block), b.span());
-                (expr, tail_span)
+                let tail_span = Spanned::span((
+                    block.tail_expr.map(|e| tc.expr_span(e)),
+                    block
+                        .stmts
+                        .last()
+                        .and_then(|s| tc.source_map.stmt_map_back.get(*s).map(|it| it.span())),
+                    b.span(),
+                ));
+                (tail_span, tc.alloc_expr(Expr::new_block(block), b.span()))
             }
         })
         .unzip();
     // TODO: tail_span should perhaps be a general concept for exprs, to
     // provide better spans in more cases
-    let else_tail_span = else_tail_span.flatten();
 
     let ty = if let Some(b) = else_branch {
         let span = else_tail_span.unwrap_or_else(|| if_expr.span());
@@ -763,14 +753,7 @@ fn check_if_expr(tc: &mut TypeChecker, if_expr: ast::IfExpr) -> ExprIdx {
         tc.expect_ty(&if_expr, then_ty, else_ty)
     };
 
-    let result = IfExpr {
-        if_span: if_expr.if_token().unwrap().span(),
-        is_ghost,
-        return_ty: ty,
-        condition,
-        then_branch,
-        else_branch,
-    };
+    let result = IfExpr { is_ghost, return_ty: ty, condition, then_branch, else_branch };
     tc.alloc_expr(Expr::new_if(result), if_expr.span())
 }
 

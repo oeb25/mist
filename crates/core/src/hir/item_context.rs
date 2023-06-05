@@ -15,8 +15,8 @@ use crate::{
 };
 
 use super::{
-    file_context::FileContext, Condition, Decreases, Def, Expr, ExprIdx, Name, Param, TypeSrc,
-    TypeSrcId, Variable, VariableIdx,
+    file_context::FileContext, Condition, Decreases, Def, Expr, ExprIdx, Name, Param, Statement,
+    StatementId, TypeSrc, TypeSrcId, Variable, VariableIdx,
 };
 
 #[derive(new, Debug, Clone, PartialEq, Eq)]
@@ -30,6 +30,8 @@ pub struct ItemContext {
     pub(super) declarations: Trace<VariableIdx, VariableDeclaration>,
     #[new(default)]
     pub(super) var_types: IdxMap<VariableIdx, TypeSrcId>,
+    #[new(default)]
+    pub(super) stmt_arena: IdxArena<StatementId>,
     #[new(default)]
     pub(super) expr_arena: IdxArena<ExprIdx>,
 
@@ -58,6 +60,13 @@ impl std::ops::Index<ExprIdx> for ItemContext {
 
     fn index(&self, index: ExprIdx) -> &Self::Output {
         &self.expr_arena[index]
+    }
+}
+impl std::ops::Index<StatementId> for ItemContext {
+    type Output = Statement;
+
+    fn index(&self, index: StatementId) -> &Self::Output {
+        &self.stmt_arena[index]
     }
 }
 impl std::ops::Index<VariableIdx> for ItemContext {
@@ -157,6 +166,8 @@ pub enum Named {
 pub struct ItemSourceMap {
     pub(super) name_map: HashMap<AstPtr<ast::NameOrNameRef>, Named>,
     pub(super) name_map_back: HashMap<Named, Vec<AstPtr<ast::NameOrNameRef>>>,
+    pub(super) stmt_map: HashMap<AstPtr<ast::Stmt>, StatementId>,
+    pub(super) stmt_map_back: IdxMap<StatementId, AstPtr<ast::Stmt>>,
     pub(super) expr_map: HashMap<SpanOrAstPtr<ast::Expr>, ExprIdx>,
     pub(super) expr_map_back: IdxMap<ExprIdx, SpanOrAstPtr<ast::Expr>>,
     pub(super) ty_src_map: IdxMap<TypeSrcId, SpanOrAstPtr<ast::Type>>,

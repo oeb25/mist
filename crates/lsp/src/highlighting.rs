@@ -5,14 +5,17 @@ use std::{ops::ControlFlow, sync::Arc};
 use derive_new::new;
 use itertools::Itertools;
 use mist_core::{
-    hir::{self, ExprIdx, SourceFile, VariableIdx},
+    hir::{self, file, ExprIdx, SourceFile, VariableIdx},
     mir::{self, pass::Pass},
     salsa,
     types::{TypeProvider, TDK},
     util::Position,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
 };
-use mist_syntax::{ast::Spanned, SourceSpan};
+use mist_syntax::{
+    ast::{self, Spanned},
+    SourceSpan,
+};
 pub use tokens::{TokenModifier, TokenType};
 use tower_lsp::lsp_types::{self, SemanticToken};
 
@@ -22,7 +25,8 @@ use TokenType as TT;
 
 #[salsa::tracked]
 pub fn highlighting(db: &dyn crate::Db, file: SourceFile) -> Arc<HighlightResult> {
-    let mut hf = Highlighter::new(db, file.text(db));
+    let root = file::parse_file(db, file).tree();
+    let mut hf = Highlighter::new(db, file.text(db), &root);
     let _ = PostOrderWalk::walk_program(db, file, &mut hf);
     Arc::new(hf.finish())
 }
@@ -131,6 +135,7 @@ pub struct HighlightResult {
 struct Highlighter<'src> {
     db: &'src dyn crate::Db,
     src: &'src str,
+    root: &'src ast::SourceFile,
     #[new(default)]
     tokens: Vec<SemanticToken>,
     #[new(default)]
@@ -256,7 +261,7 @@ impl<'src> Visitor for Highlighter<'src> {
     }
 
     fn visit_expr(&mut self, vcx: &VisitContext, expr: ExprIdx) -> ControlFlow<()> {
-        let span = vcx.source_map.expr_span(&vcx.cx, expr);
+        let src = vcx.source_map.expr_src(&vcx.cx, expr);
         let e = vcx.cx.original_expr(expr);
         match &e.data {
             hir::ExprData::Literal(_) => {
@@ -267,18 +272,23 @@ impl<'src> Visitor for Highlighter<'src> {
                     _ => return ControlFlow::Continue(()),
                 };
 
-                self.push(span, tt, None);
+                self.push(&src, tt, None);
             }
             hir::ExprData::Result => {
-                self.push(span, TT::Keyword, None);
+                self.push(&src, TT::Keyword, None);
             }
-            hir::ExprData::Struct { struct_span, .. } => {
-                self.push(*struct_span, TT::Type, None);
+            hir::ExprData::Struct { .. } => {
+                let ast = src.into_ptr().map(|n| n.to_node(self.root.syntax()));
+                if let Some(ast::Expr::StructExpr(it)) = ast {
+                    if let Some(t) = it.name_ref() {
+                        self.push(t.span(), TT::Type, None);
+                    }
+                }
             }
             hir::ExprData::If(it) => {
                 if it.is_ghost {
                     self.inlay_hints.push(InlayHint {
-                        position: Position::from_byte_offset(self.src, it.if_span.offset()),
+                        position: Position::from_byte_offset(self.src, src.span().offset()),
                         label: "ghost".to_string(),
                         kind: None,
                         padding_left: None,
@@ -307,8 +317,8 @@ impl<'src> Visitor for Highlighter<'src> {
         ControlFlow::Continue(())
     }
 
-    fn visit_stmt(&mut self, vcx: &VisitContext, stmt: &hir::Statement) -> ControlFlow<()> {
-        if let hir::StatementData::Let { variable, explicit_ty, .. } = &stmt.data {
+    fn visit_stmt(&mut self, vcx: &VisitContext, stmt: hir::StatementId) -> ControlFlow<()> {
+        if let hir::StatementData::Let { variable, explicit_ty, .. } = &vcx.cx[stmt].data {
             if explicit_ty.is_none() {
                 let span = vcx.cx.var_span(*variable);
                 let ty = vcx.cx.var_ty(*variable);

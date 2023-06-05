@@ -5,8 +5,8 @@ use tracing::debug;
 use crate::{
     def::Def,
     hir::{
-        self, pretty, AssertionKind, ExprData, ExprIdx, IfExpr, ItemContext, Statement,
-        StatementData, VariableIdx,
+        self, pretty, AssertionKind, ExprData, ExprIdx, IfExpr, ItemContext, StatementData,
+        StatementId, VariableIdx,
     },
     mir::{MirError, MirErrors, Operand},
     types::{
@@ -315,7 +315,7 @@ impl MirLower<'_> {
         target: Option<BlockId>,
         dest: Placement,
     ) -> BlockId {
-        for stmt in &block.stmts {
+        for &stmt in &block.stmts {
             bid = self.stmt(bid, None, stmt);
         }
         if let Some(tail) = block.tail_expr {
@@ -324,8 +324,8 @@ impl MirLower<'_> {
             bid
         }
     }
-    fn stmt(&mut self, mut bid: BlockId, target: Option<BlockId>, stmt: &Statement) -> BlockId {
-        match &stmt.data {
+    fn stmt(&mut self, mut bid: BlockId, target: Option<BlockId>, stmt: StatementId) -> BlockId {
+        match &self.cx[stmt].data {
             StatementData::Expr(expr) => self.expr(*expr, bid, target, Placement::Ignore),
             StatementData::Let { variable, explicit_ty: _, initializer } => {
                 let dest = self.alloc_local(*variable);
@@ -595,7 +595,7 @@ impl MirLower<'_> {
                 // NOTE: It the MIR level `!` is a noop
                 self.expr(*it, bid, target, dest)
             }
-            ExprData::Struct { struct_declaration, struct_span: _, fields } => {
+            ExprData::Struct { struct_declaration, fields } => {
                 let mut operands = vec![];
 
                 for f in fields {

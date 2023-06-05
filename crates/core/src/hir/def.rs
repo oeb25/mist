@@ -2,14 +2,7 @@ mod name;
 
 use derive_more::Display;
 use derive_new::new;
-use mist_syntax::{
-    ast::{
-        self,
-        operators::{BinaryOp, UnaryOp},
-    },
-    ptr::AstPtr,
-    SourceSpan,
-};
+use mist_syntax::ast::operators::{BinaryOp, UnaryOp};
 
 use crate::{
     def::{Struct, StructField},
@@ -92,7 +85,7 @@ pub enum ExprData {
     Ident(VariableIdx),
     Block(Block),
     Field { expr: ExprIdx, field_name: Name, field: Field },
-    Struct { struct_declaration: Struct, struct_span: SourceSpan, fields: Vec<StructExprField> },
+    Struct { struct_declaration: Struct, fields: Vec<StructExprField> },
     Missing,
     If(IfExpr),
     While(WhileExpr),
@@ -136,23 +129,6 @@ pub enum Literal {
     Bool(bool),
 }
 
-impl Literal {
-    pub fn as_bool(&self) -> Option<&bool> {
-        if let Self::Bool(v) = self {
-            Some(v)
-        } else {
-            None
-        }
-    }
-
-    pub fn as_int(&self) -> Option<&i64> {
-        if let Self::Int(v) = self {
-            Some(v)
-        } else {
-            None
-        }
-    }
-}
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Quantifier {
     #[display(fmt = "forall")]
@@ -163,13 +139,10 @@ pub enum Quantifier {
 #[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StructExprField {
     pub decl: StructField,
-    // TODO: remove this as it could be computed using the source map
-    pub name: AstPtr<ast::NameRef>,
     pub value: ExprIdx,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IfExpr {
-    pub if_span: SourceSpan,
     pub is_ghost: bool,
     pub return_ty: TypeId,
     pub condition: ExprIdx,
@@ -194,15 +167,21 @@ pub struct WhileExpr {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Block {
-    pub stmts: Vec<Statement>,
+    pub stmts: Vec<StatementId>,
     pub tail_expr: Option<ExprIdx>,
     pub return_ty: TypeId,
 }
 
-#[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
+impl_idx!(StatementId, Statement, default_debug);
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Statement {
-    pub span: SourceSpan,
     pub data: StatementData,
+}
+
+impl Statement {
+    pub fn new(data: StatementData) -> Self {
+        Self { data }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
