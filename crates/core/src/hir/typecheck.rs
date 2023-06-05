@@ -265,7 +265,7 @@ impl<'a> TypeChecker<'a> {
                 .collect();
 
             checker.cx.return_ty = f_ast.ret().map(|ty| {
-                let ty = checker.find_type_src(&ty);
+                let ty = checker.lower_type(&ty);
                 checker.ghostify(ty, is_ghost)
             });
 
@@ -315,10 +315,6 @@ impl<'a> TypeChecker<'a> {
         };
 
         checker
-    }
-
-    pub fn ty_id(&mut self, td: TypeData) -> TypeId {
-        self.typer.ty_id(td)
     }
 
     pub fn set_body_expr_from_block(&mut self, block: Block, node: ast::BlockExpr) {
@@ -469,7 +465,7 @@ impl<'a> TypeChecker<'a> {
                 ast::Stmt::LetStmt(it) => {
                     let span = it.span();
                     let name = it.name().unwrap();
-                    let explicit_ty = it.ty().map(|ty| self.find_type_src(&ty));
+                    let explicit_ty = it.ty().map(|ty| self.lower_type(&ty));
                     let initializer = self.check(&it, it.initializer());
 
                     let ty = if let Some(ty) = explicit_ty {

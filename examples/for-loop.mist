@@ -17,6 +17,7 @@ fn fib_iter(n: int) -> int
 fn fib_list(n: int) -> [int]
   ens result.len >= n
   ens forall j in 0..n { result[j] == fib(j) }
+  // ens forall j in result { j > 0 }
 {
     let a = [1, 1];
     for i in 2..n

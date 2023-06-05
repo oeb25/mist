@@ -1,3 +1,16 @@
+domain Tuple[A, B] {
+    function create(a: A, b: B): Tuple[A, B];
+    function fst(b: Tuple[A, B]): A;
+    function snd(b: Tuple[A, B]): B;
+
+    axiom {
+        forall a: A, b: B :: fst(create(a, b)) == a
+    }
+    axiom {
+        forall a: A, b: B :: snd(create(a, b)) == b
+    }
+}
+
 // domain Ptr[T] {
 //     function create(v: T, p: Perm): Ptr[T];
 //     function value(p: Ptr[T]): T;
@@ -14,10 +27,10 @@
 //     }
 // }
 
-field a: Int
+field n: Int
 
 predicate T(x: Ref) {
-  acc(x.a, write)
+  acc(x.n, write)
 }
 
 method f(x: Ref, p: Perm)
@@ -39,8 +52,37 @@ method f(x: Ref, p: Perm)
   // inhale acc(T(y), p/2) && (acc(T(y), p/2) --* acc(T(x), p/2))
   unfold acc(T(y), p/2)
   unfold acc(T(x), p/2)
-  assert x.a == y.a;
+  assert x.n == y.n;
   fold acc(T(x), p/2)
   fold acc(T(y), p/2)
   // apply acc(T(y), p/2) --* acc(T(x), p/2)
+}
+
+define ptrAcc(T, x, p) acc(T(fst(x)), snd(x) * p)
+define ptrUnfold(T, x, p) { unfold acc(T(fst(x)), snd(x) * p) }
+define ptrFold(T, x, p) { fold acc(T(fst(x)), snd(x) * p) }
+
+method g(x: Tuple[Ref, Perm])
+  requires
+    none < snd(x) && snd(x) <= write &&
+    ptrAcc(T, x, write)
+  ensures
+    ptrAcc(T, x, write)
+{
+  var y: Tuple[Ref, Perm];
+  y := x;
+  // unfold acc(T(y), snd(x)/2)
+  var z: Ref;
+  z := fst(y);
+  // unfold acc(T(z), snd(x)/4)
+
+  package ptrAcc(T, y, 1/2) --* ptrAcc(T, x, 1/2)
+
+  // inhale acc(T(y), snd(x)/2) && (acc(T(y), snd(x)/2) --* acc(T(fst(x)), snd(x)/2))
+  ptrUnfold(T, y, 1/2)
+  ptrUnfold(T, x, 1/2)
+  assert fst(x).n == fst(y).n;
+  ptrFold(T, x, 1/2)
+  ptrFold(T, y, 1/2)
+  // apply acc(T(y), snd(x)/2) --* acc(T(fst(x)), snd(x)/2)
 }

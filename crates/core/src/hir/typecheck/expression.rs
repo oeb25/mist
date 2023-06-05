@@ -120,8 +120,8 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             };
 
             let in_expr = check_opt(tc, it.span(), it.expr());
-            let in_ty = tc.ty_id(TDK::Range(int()).into());
-            tc.expect_ty(it.expr().map_or(it.span(), |x| x.span()), in_ty, tc.expr_ty(in_expr));
+            let in_ty = tc.alloc_ty_data(TDK::Range(int()).into());
+            tc.expect_ty((it.expr().as_ref(), it.span()), in_ty, tc.expr_ty(in_expr));
 
             let invariants =
                 it.invariants().map(|inv| tc.check_boolean_exprs(inv.comma_exprs())).collect();
@@ -291,8 +291,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             let args: Vec<_> =
                 it.arg_list().unwrap().args().map(|arg| check_inner(tc, &arg)).collect();
 
-            let fn_ty = tc.expr_ty(fn_expr).strip_ghost(tc);
-            match tc.ty_kind(fn_ty) {
+            match tc.ty_kind(tc.expr_ty(fn_expr)) {
                 TDK::Function { attrs, name: _, params, return_ty } => {
                     let mut ghostify_pure = false;
 
@@ -344,22 +343,19 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 }
                 (None, Some(x)) | (Some(x), None) => {
                     let x_ty = tc.expr_ty(x);
-                    let actual = x_ty.strip_ghost(tc);
-                    tc.expect_ty(tc.expr_span(x), int(), actual);
+                    tc.expect_ty(tc.expr_span(x), ghost_int(), x_ty);
                     x_ty
                 }
                 (Some(lhs), Some(rhs)) => {
                     let lhs_ty = tc.expr_ty(lhs);
-                    let lhs_ty_no_ghost = lhs_ty.strip_ghost(tc);
                     let rhs_ty = tc.expr_ty(rhs);
-                    let rhs_ty_no_ghost = rhs_ty.strip_ghost(tc);
-                    tc.expect_ty(tc.expr_span(lhs), int(), lhs_ty_no_ghost);
-                    tc.expect_ty(tc.expr_span(rhs), int(), rhs_ty_no_ghost);
+                    tc.expect_ty(tc.expr_span(lhs), ghost_int(), lhs_ty);
+                    tc.expect_ty(tc.expr_span(rhs), ghost_int(), rhs_ty);
                     lhs_ty
                 }
             };
 
-            ExprData::Range { lhs, rhs }.typed(tc.ty_id(TDK::Range(ty).into()))
+            ExprData::Range { lhs, rhs }.typed(tc.alloc_ty_data(TDK::Range(ty).into()))
         }
         ast::Expr::IndexExpr(it) => {
             let base = check_opt(tc, it, it.base());
@@ -370,8 +366,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
 
             let is_ghost = base_ty.is_ghost(tc) || index_ty.is_ghost(tc);
 
-            let index_ty_no_ghost = index_ty.strip_ghost(tc);
-            let is_range = match tc.ty_kind(index_ty_no_ghost) {
+            let is_range = match tc.ty_kind(index_ty) {
                 TDK::Primitive(Primitive::Int) => false,
                 TDK::Range(idx) => {
                     tc.expect_ty(it, ghost_int(), idx);
@@ -383,8 +378,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 }
             };
 
-            let base_ty_no_ghost = base_ty.strip_ghost(tc);
-            match tc.ty_kind(base_ty_no_ghost) {
+            match tc.ty_kind(base_ty) {
                 TDK::List(elem_ty) => {
                     if is_range {
                         ExprData::Index { base, index }.typed(base_ty.with_ghost(tc, is_ghost))
@@ -423,11 +417,12 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 let inner_ty_no_ghost = ty.strip_ghost(tc);
 
                 ExprData::List { elems }.typed(
-                    tc.ty_id(TDK::List(inner_ty_no_ghost).into()).with_ghost(tc, ty.is_ghost(tc)),
+                    tc.alloc_ty_data(TDK::List(inner_ty_no_ghost).into())
+                        .with_ghost(tc, ty.is_ghost(tc)),
                 )
             } else {
                 let elem_ty = tc.new_free();
-                ExprData::List { elems }.typed(tc.ty_id(TDK::List(elem_ty).into()))
+                ExprData::List { elems }.typed(tc.alloc_ty_data(TDK::List(elem_ty).into()))
             }
         }
         ast::Expr::FieldExpr(it) => {
@@ -440,14 +435,11 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             };
 
             let expr_ty = tc.expr_ty(expr);
-            let expr_ty_no_ghost = expr_ty.strip_ghost(tc);
-            let (sf, field_ty): (Option<Field>, TypeId) = match tc.ty_kind(expr_ty_no_ghost) {
+            let (sf, field_ty): (Option<Field>, TypeId) = match tc.ty_kind(expr_ty) {
                 TDK::Error => (None, error()),
                 TDK::Ref { is_mut, inner } => match tc.ty_kind(inner) {
                     TDK::Struct(s) => {
-                        if let Some(field) =
-                            tc.struct_fields(s).find(|f| f.name(tc.db).as_str() == field.as_str())
-                        {
+                        if let Some(field) = tc.struct_fields(s).find(|f| f.name(tc.db) == field) {
                             (
                                 Some(field.into()),
                                 tc.expect_find_type(&field.ast_node(tc.db).ty())
@@ -530,9 +522,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
         ast::Expr::NotNullExpr(it) => {
             let inner = check_inner(tc, it);
 
-            let inner_ty = tc.expr_ty(inner).strip_ghost(tc);
-
-            let ty = match tc.ty_kind(inner_ty) {
+            let ty = match tc.ty_kind(tc.expr_ty(inner)) {
                 TDK::Optional(inner_ty) => inner_ty.with_ghost(tc, tc.expr_ty(inner).is_ghost(tc)),
                 _ => {
                     return Left(expr_error(
@@ -618,7 +608,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             let inner = tc.expr_ty(expr).strip_ghost(tc);
 
             let ty = tc
-                .ty_id(TDK::Ref { is_mut, inner }.into())
+                .alloc_ty_data(TDK::Ref { is_mut, inner }.into())
                 .with_ghost(tc, tc.expr_ty(expr).is_ghost(tc));
 
             ExprData::Ref { is_mut, expr }.typed(ty)
@@ -678,7 +668,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                         .map(|p| {
                             let name = if let Some(name) = p.name() { name } else { todo!() };
                             let ty = if let Some(ty) = p.ty() {
-                                tc.find_type_src(&ty)
+                                tc.lower_type(&ty)
                             } else {
                                 let t = tc.new_free();
                                 tc.unsourced_ty(t)

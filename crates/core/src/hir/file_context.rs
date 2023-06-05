@@ -77,7 +77,7 @@ pub(crate) fn initialize_file_context(
                 }
             })
             .collect();
-        let return_ty_src = f_ast.ret().map(|ty| b.find_type_src(&ty).with_ghost(&mut b, is_ghost));
+        let return_ty_src = f_ast.ret().map(|ty| b.lower_type(&ty).with_ghost(&mut b, is_ghost));
         let return_ty = return_ty_src
             .map(|ts| b.ty_src(ts).ty)
             .unwrap_or_else(void)

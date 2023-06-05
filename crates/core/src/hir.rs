@@ -122,7 +122,7 @@ pub(crate) fn lower_def(db: &dyn crate::Db, def: Def) -> Option<DefinitionHir> {
             });
             let is_ghost = function.attrs(db).is_ghost();
             let ret_ty = if let Some(ret_ast) = fn_ast.ret() {
-                let ret_ty = checker.find_type_src(&ret_ast);
+                let ret_ty = checker.lower_type(&ret_ast);
                 checker.set_return_ty(ret_ty);
                 Some((ret_ast, ret_ty))
             } else {
