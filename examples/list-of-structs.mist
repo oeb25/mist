@@ -1,0 +1,5 @@
+struct T { n: int }
+fn f() {
+    let ts: [T] = [T { n: 0 }];
+    ts[0].n = 15;
+}
