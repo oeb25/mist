@@ -1,3 +1,5 @@
+use folding_tree::RequireType;
+
 use crate::{mir, types::TDK, util::IdxSet};
 
 use super::{
@@ -29,21 +31,21 @@ impl MonotoneFramework for LivenessAnalysis {
         for p in body[inst].places_written_to() {
             prev.remove(p.slot);
         }
-        for p in body[inst].places_referenced() {
+        for p in body[inst].places_referenced(body) {
             prev.insert(p.slot);
         }
     }
 
     fn terminator_semantic(
         &self,
-        _body: &mir::Body,
+        body: &mir::Body,
         terminator: &mir::Terminator,
         prev: &mut Self::Domain,
     ) {
         for p in terminator.places_written_to() {
             prev.remove(p.slot);
         }
-        for p in terminator.places_referenced() {
+        for p in terminator.places_referenced(body) {
             prev.insert(p.slot);
         }
     }
@@ -92,9 +94,192 @@ impl MonotoneFramework for FoldingAnalysis {
         let mut t = FoldingTree::default();
         for &param in body.params() {
             if let TDK::Ref { .. } = body.slot_ty(param).kind() {
-                t.require(body, None, param.into());
+                t.require(body, None, RequireType::Folded, param.into());
             }
         }
         t
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use itertools::Itertools;
+    use salsa::ParallelDatabase;
+    use tracing::{info, Level};
+
+    use crate::{db::Database, hir, mir};
+
+    fn generate_annotated_mir(src: &str) -> String {
+        let db = Database::default();
+        let file = hir::SourceFile::new(&db, src.to_string());
+        file.definitions(&db)
+            .into_iter()
+            .filter_map(|def| {
+                info!("{}", def.display(&db));
+                let span = tracing::span!(Level::DEBUG, "dump", def = def.display(&db));
+                let _enter = span.enter();
+
+                let mir = def.mir(&db)?.body(&db);
+
+                let a = mir::analysis::liveness::FoldingAnalysisResults::compute(mir);
+                let db2 = db.snapshot();
+                let mir2 = mir.clone();
+                let serialized = mir.serialize_with_annotation(
+                    &db,
+                    None,
+                    mir::serialize::Color::No,
+                    Box::new(move |loc| {
+                        let mut x = a.try_entry(loc)?.clone();
+                        let incomming = x.debug_str(Some(&*db2), &mir2);
+                        match loc.inner {
+                            mir::BlockLocation::Instruction(inst) => {
+                                x.forwards_instruction_transition(&mir2, inst)
+                            }
+                            mir::BlockLocation::Terminator => x.forwards_terminator_transition(
+                                &mir2,
+                                mir2[loc.block].terminator.as_ref()?,
+                            ),
+                        }
+                        let outgoing = x.debug_str(Some(&*db2), &mir2);
+                        Some(format!("{incomming}\n> {outgoing}"))
+                    }),
+                );
+                if serialized.is_empty() {
+                    None
+                } else {
+                    Some(serialized)
+                }
+            })
+            .join("\n\n")
+            .trim()
+            .to_string()
+    }
+
+    #[test]
+    fn test_01() {
+        let src = "fn main() { let x = 12; }";
+        insta::assert_display_snapshot!(generate_annotated_mir(src), @r###"
+        :B0
+          {%0: @}
+        > {%0: @}
+          !goto :B1
+        :B1
+          {%0: @}
+        > {%0: X}
+          %0 := $12
+        "###)
+    }
+
+    #[test]
+    fn test_02() {
+        let src = r#"
+            struct T { n: int }
+            fn main() -> T {
+                let x = T { n: 12 };
+                assert x.n == 12;
+                x
+            }
+        "#;
+        insta::assert_display_snapshot!(generate_annotated_mir(src), @r###"
+        :B0
+          {%result: @, %1: @}
+        > {%result: @, %1: @}
+          !goto :B1
+        :B1
+          {%result: @, %1: @}
+        > {%result: @, %1: X}
+          %1 := T { n: $12 }
+          {%result: @, %1: { .n X }}
+        > {%result: @, %1: { .n X }}
+          assert (== %1.n $12)
+          {%result: @, %1: X}
+        > {%result: X, %1: X}
+          %result := %1
+        "###)
+    }
+
+    #[test]
+    fn test_03() {
+        let src = r#"
+            struct T { n: int }
+            fn init(p: T) {
+                p.n = p.n + 1;
+            }
+        "#;
+        insta::assert_display_snapshot!(generate_annotated_mir(src), @r###"
+        :B0
+          {%0: { .n X }, %1: @}
+        > {%0: { .n X }, %1: @}
+          !goto :B1
+        :B1
+          {%0: { .n X }, %1: @}
+        > {%0: { .n X }, %1: X}
+          %1 := (+ %0.n $1)
+          {%0: { .n X }, %1: X}
+        > {%0: { .n X }, %1: X}
+          %0.n := %1
+        "###)
+    }
+
+    #[test]
+    fn test_04() {
+        let src = r#"
+            struct T { n: int, t: T }
+            fn init(p: T) {
+                p.t = p;
+                p.n = p.n + 1;
+                p.t.n = p.n;
+            }
+        "#;
+        insta::assert_display_snapshot!(generate_annotated_mir(src), @r###"
+        :B0
+          {%0: X, %1: @}
+        > {%0: X, %1: @}
+          !goto :B1
+        :B1
+          {%0: X, %1: @}
+        > {%0: { .t X .n X }, %1: @}
+          %0.t := %0
+          {%0: { .t { .n X } .n X }, %1: @}
+        > {%0: { .t { .n X } .n X }, %1: X}
+          %1 := (+ %0.n $1)
+          {%0: { .t { .n X } .n @ }, %1: X}
+        > {%0: { .t { .n X } .n X }, %1: X}
+          %0.n := %1
+          {%0: { .t { .n X } .n X }}
+        > {%0: { .t { .n X } .n X }}
+          %0.t.n := %0.n
+        "###)
+    }
+
+    #[test]
+    fn test_05() {
+        let src = r#"
+            struct T { n: int }
+            fn f() {
+                let ts: [T] = [T { n: 0 }];
+                ts[0].n = 15;
+            }
+        "#;
+        insta::assert_display_snapshot!(generate_annotated_mir(src), @r###"
+        :B0
+          {%0: @, %1: @, %2: @}
+        > {%0: @, %1: @, %2: @}
+          !goto :B1
+        :B1
+          {%0: @, %1: @, %2: @}
+        > {%0: @, %1: X, %2: @}
+          %1 := T { n: $0 }
+          {%0: @, %1: X, %2: @}
+        > {%0: X, %1: X, %2: @}
+          !call %0 := (#list %1) -> :B2
+        :B2
+          {%0: { [%2] { .n X } }, %2: @}
+        > {%0: { [%2] { .n X } }, %2: X}
+          %2 := $0
+          {%0: { [%2] { .n X } }}
+        > {%0: { [%2] { .n X } }}
+          %0[%2].n := $15
+        "###)
     }
 }

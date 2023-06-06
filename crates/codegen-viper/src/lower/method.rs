@@ -230,11 +230,11 @@ impl BodyLower<'_> {
                         insts
                             .push(Stmt::LocalVarAssign { lhs: self.place_for_assignment(t)?, rhs });
                     }
-                    [mir::Projection::Field(f, ty)] => {
+                    [.., mir::Projection::Field(f, ty)] => {
                         match f {
                             Field::StructField(sf) => insts.push(Stmt::FieldAssign {
                                 lhs: FieldAccess::new(
-                                    self.place_to_ref(inst, t.slot.into())?,
+                                    self.place_to_ref(inst, t.parent(self.body).unwrap())?,
                                     VField::new(
                                         mangle::mangled_field(self.db, sf),
                                         // TODO: should we respect the extra constraints in such a scenario?
@@ -253,14 +253,16 @@ impl BodyLower<'_> {
                         let lhs = self.place_for_assignment(t.without_projection())?;
                         insts.push(Stmt::LocalVarAssign { lhs, rhs: new_rhs })
                     }
-                    [mir::Projection::Field(f, ty), mir::Projection::Index(index, _)] => {
+                    [.., mir::Projection::Field(f, ty), mir::Projection::Index(index, _)] => {
                         let idx = self.place_to_ref(inst, index.into())?;
-                        let seq = self.place_to_ref(inst, t.parent(self.body).unwrap())?;
+                        let parent = t.parent(self.body).unwrap();
+                        let grand_parent = parent.parent(self.body).unwrap();
+                        let seq = self.place_to_ref(inst, parent)?;
                         let new_rhs = self.alloc(inst, SeqExp::Update { s: seq, idx, elem: rhs });
                         match f {
                             Field::StructField(sf) => {
                                 let lhs = FieldAccess::new(
-                                    self.place_to_ref(inst, t.slot.into())?,
+                                    self.place_to_ref(inst, grand_parent)?,
                                     VField::new(
                                         mangle::mangled_field(self.db, sf),
                                         // TODO: should we respect the extra constraints in such a scenario?

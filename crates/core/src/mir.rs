@@ -142,7 +142,7 @@ impl Terminator {
         }
     }
 
-    fn places_referenced(&self) -> impl Iterator<Item = Place> + '_ {
+    fn places_referenced<'a>(&'a self, body: &'a Body) -> impl Iterator<Item = Place> + 'a {
         match self {
             Terminator::Return
             | Terminator::Goto(_)
@@ -151,6 +151,7 @@ impl Terminator {
             Terminator::Switch(op, _) => Left(op.place().into_iter()),
             Terminator::Call { args, .. } => Right(args.iter().filter_map(|arg| arg.place())),
         }
+        .flat_map(|p| [p].into_iter().chain(nested_places(p, body)))
     }
 
     fn places_written_to(&self) -> impl Iterator<Item = Place> + '_ {
@@ -847,7 +848,7 @@ impl Instruction {
         }
     }
 
-    fn places_referenced(&self) -> impl Iterator<Item = Place> + '_ {
+    fn places_referenced<'a>(&'a self, body: &'a Body) -> impl Iterator<Item = Place> + 'a {
         match self {
             Instruction::Assign(_, expr) => {
                 // TODO: Perhaps the targets parent should be part of the
@@ -865,6 +866,7 @@ impl Instruction {
             },
         }
         .into_iter()
+        .flat_map(|p| [p].into_iter().chain(nested_places(p, body)))
     }
 
     fn places_written_to(&self) -> impl Iterator<Item = Place> + '_ {
@@ -878,6 +880,13 @@ impl Instruction {
         }
         .into_iter()
     }
+}
+
+fn nested_places(p: Place, body: &Body) -> impl Iterator<Item = Place> + '_ {
+    body[p.projection].iter().filter_map(|&pj| match pj {
+        Projection::Field(_, _) => None,
+        Projection::Index(s, _) => Some(s.into()),
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Diagnostic)]

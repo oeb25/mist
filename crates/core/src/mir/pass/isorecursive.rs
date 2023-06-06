@@ -1,4 +1,5 @@
 use derive_new::new;
+use folding_tree::RequireType;
 
 use crate::{
     mir::{
@@ -30,13 +31,13 @@ impl Pass for IsorecursivePass {
         let mut tree_from_params = FoldingTree::default();
         let mut tree_from_returns = FoldingTree::default();
         for &s in body.params() {
-            tree_from_params.require(body, None, s.into());
+            tree_from_params.require(body, None, RequireType::Folded, s.into());
             if let TDK::Ref { .. } = body.slot_ty(s).kind() {
-                tree_from_returns.require(body, None, s.into());
+                tree_from_returns.require(body, None, RequireType::Folded, s.into());
             }
         }
         if let Some(s) = body.result_slot() {
-            tree_from_returns.require(body, None, s.into());
+            tree_from_returns.require(body, None, RequireType::Folded, s.into());
         }
         let tree_from_params = tree_from_params;
         let tree_from_returns = tree_from_returns;

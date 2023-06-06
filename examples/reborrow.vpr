@@ -62,6 +62,8 @@ define ptrAcc(T, x, p) acc(T(fst(x)), snd(x) * p)
 define ptrUnfold(T, x, p) { unfold acc(T(fst(x)), snd(x) * p) }
 define ptrFold(T, x, p) { fold acc(T(fst(x)), snd(x) * p) }
 
+define ptrReborrow(T, x, p) ( create(fst(x), snd(x) * p) )
+
 method g(x: Tuple[Ref, Perm])
   requires
     none < snd(x) && snd(x) <= write &&
@@ -85,4 +87,23 @@ method g(x: Tuple[Ref, Perm])
   ptrFold(T, x, 1/2)
   ptrFold(T, y, 1/2)
   // apply acc(T(y), snd(x)/2) --* acc(T(fst(x)), snd(x)/2)
+
+  if (snd(x) == write) {
+    ptrUnfold(T, x, write)
+    fst(x).n := 15
+    ptrFold(T, x, write)
+
+    h(ptrReborrow(T, x, 1/2))
+
+    ptrUnfold(T, x, write)
+    assert fst(x).n == 15
+    ptrFold(T, x, write)
+  }
 }
+
+method h(y: Tuple[Ref, Perm])
+  requires
+    none < snd(y) &&
+    ptrAcc(T, y, write)
+  ensures ptrAcc(T, y, write)
+{}

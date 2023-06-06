@@ -1,3 +1,4 @@
+use folding_tree::RequireType;
 use itertools::Itertools;
 
 use crate::{hir, mir, util::IdxMap};
@@ -65,6 +66,7 @@ impl FoldingTree {
         &mut self,
         body: &mir::Body,
         loc: Option<mir::BlockLocation>,
+        req_ty: RequireType,
         place: mir::Place,
     ) -> Vec<mir::Folding> {
         // TODO: Potentially use the `loc` to determine locations where we
@@ -74,7 +76,7 @@ impl FoldingTree {
         let mut foldings = vec![];
 
         let ft = self.inner.entry(place.slot).or_default();
-        ft.require(
+        ft.soft_require(
             |kind, path| {
                 let p = if let Some(pl) = path.last() {
                     place.replace_projection(*pl)
@@ -86,6 +88,7 @@ impl FoldingTree {
                     folding_tree::EventKind::Fold => mir::Folding::Fold { into: p },
                 })
             },
+            req_ty,
             body.projection_path_iter(place.projection).skip(1),
         );
 
@@ -136,12 +139,12 @@ impl FoldingTree {
                 }
             },
             _ => {
-                for p in body[inst].places_referenced() {
-                    let _ = self.require(body, None, p);
+                for p in body[inst].places_referenced(body) {
+                    let _ = self.require(body, None, RequireType::Folded, p);
                 }
                 for p in body[inst].places_written_to() {
                     self.drop(body, p);
-                    let _ = self.require(body, None, p);
+                    let _ = self.require(body, None, RequireType::Folded, p);
                 }
             }
         }
@@ -154,12 +157,12 @@ impl FoldingTree {
         terminator: &mir::Terminator,
     ) {
         // debug!(?terminator, "Starting with: {}", self.debug_str(None, body));
-        for p in terminator.places_referenced() {
-            let _ = self.require(body, None, p);
+        for p in terminator.places_referenced(body) {
+            let _ = self.require(body, None, RequireType::Folded, p);
         }
         for p in terminator.places_written_to() {
             self.drop(body, p);
-            let _ = self.require(body, None, p);
+            let _ = self.require(body, None, RequireType::Folded, p);
         }
         // debug!("Ending with:   {}", self.debug_str(None, body));
     }
@@ -178,9 +181,10 @@ impl FoldingTree {
             _ => {
                 for p in body[inst].places_written_to() {
                     self.drop(body, p);
+                    self.require(body, None, RequireType::Accessible, p);
                 }
-                for p in body[inst].places_referenced() {
-                    let _ = self.require(body, None, p);
+                for p in body[inst].places_referenced(body) {
+                    let _ = self.require(body, None, RequireType::Folded, p);
                 }
             }
         }
@@ -195,9 +199,10 @@ impl FoldingTree {
         // debug!(?terminator, "Starting with: {}", self.debug_str(None, body));
         for p in terminator.places_written_to() {
             self.drop(body, p);
+            self.require(body, None, RequireType::Accessible, p);
         }
-        for p in terminator.places_referenced() {
-            let _ = self.require(body, None, p);
+        for p in terminator.places_referenced(body) {
+            let _ = self.require(body, None, RequireType::Folded, p);
         }
         // debug!("Ending with:   {}", self.debug_str(None, body));
     }
@@ -366,7 +371,7 @@ mod test {
         {
             let mut tree = FoldingTree::default();
             for p in places {
-                let _ = tree.require(&ctx.body, None, p);
+                let _ = tree.require(&ctx.body, None, RequireType::Folded, p);
             }
             tree
         }

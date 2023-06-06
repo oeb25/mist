@@ -167,6 +167,12 @@ pub enum EventKind {
     Fold,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RequireType {
+    Folded,
+    Accessible,
+}
+
 impl<E> FoldingTree<E> {
     pub fn folded() -> FoldingTree<E> {
         FoldingTree { nodes: vec![Folding::Folded], children: vec![IndexMap::default()] }
@@ -174,7 +180,18 @@ impl<E> FoldingTree<E> {
 
     pub fn require(
         &mut self,
+        events: impl for<'a> FnMut(EventKind, &'a [E]),
+        path: impl IntoIterator<Item = E>,
+    ) where
+        E: PartialEq + Eq + Hash + Clone,
+    {
+        self.soft_require(events, RequireType::Folded, path)
+    }
+
+    pub fn soft_require(
+        &mut self,
         mut events: impl for<'a> FnMut(EventKind, &'a [E]),
+        ty: RequireType,
         path: impl IntoIterator<Item = E>,
     ) where
         E: PartialEq + Eq + Hash + Clone,
@@ -210,6 +227,11 @@ impl<E> FoldingTree<E> {
             current_node = next_node;
 
             current_path.push(edge);
+        }
+
+        match ty {
+            RequireType::Accessible => return,
+            RequireType::Folded => {}
         }
 
         if self.nodes[current_node].is_folded() {
