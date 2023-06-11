@@ -1,7 +1,5 @@
 #![feature(trait_upcasting)]
 
-use mist_core::salsa;
-
 pub mod backend;
 mod db;
 mod goto;
@@ -17,6 +15,9 @@ pub struct Jar(
     crate::hover::hover,
     crate::goto::goto_declaration,
     crate::goto::find_references,
+    crate::viper::VerificationInput,
+    crate::viper::VerificationErrors,
+    crate::viper::verify_viper_src,
 );
 
 pub trait Db: mist_cli::Db + salsa::DbWithJar<Jar> {}

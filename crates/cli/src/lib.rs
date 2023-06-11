@@ -195,69 +195,71 @@ impl VerificationContext<'_> {
         }
     }
 
-    fn details_to_miette<'a>(
+    pub fn details_to_miette<'a>(
         &'a self,
         db: &'a dyn crate::Db,
         details: &'a Details,
     ) -> impl Iterator<Item = miette::Error> + 'a {
         details.result.iter().flat_map(|result| {
-            result.errors.iter().flat_map(|err| {
-                let text = err
-                    .text
-                    .split_once(self.viper_path.file_name().unwrap().to_str().unwrap())
-                    .unwrap()
-                    .0
-                    .trim_end_matches(" (");
-                if let Some(pos) = err.position.inner() {
-                    let viper_span = viper_position_to_internal(&self.viper_output.buf, pos)
-                        .unwrap_or_else(|| SourceSpan::new_start_end(0, 0));
-                    let source_span = self.trace_span(db, viper_span);
-
-                    #[derive(Debug, thiserror::Error, miette::Diagnostic)]
-                    #[error("{error}")]
-                    struct AdHoc {
-                        error: String,
-                        #[label("here")]
-                        span: SourceSpan,
-                        #[label("and here")]
-                        span2: Option<SourceSpan>,
-                    }
-
-                    if let Some(source_span) = source_span {
-                        Some(
-                            miette::Error::new(AdHoc {
-                                error: text.to_string(),
-                                span: source_span,
-                                span2: None,
-                            })
-                            .with_source_code(
-                                miette::NamedSource::new(
-                                    self.mist_src_path.display().to_string(),
-                                    self.mist_src.to_string(),
-                                ),
-                            ),
-                        )
-                    } else {
-                        Some(
-                            miette::Error::new(AdHoc {
-                                error: text.to_string(),
-                                span: viper_span,
-                                span2: None,
-                            })
-                            .with_source_code(
-                                miette::NamedSource::new(
-                                    self.viper_path.display().to_string(),
-                                    self.viper_output.buf.to_string(),
-                                ),
-                            ),
-                        )
-                    }
-                } else {
-                    eprintln!("{err:?}");
-                    None
-                }
-            })
+            result.errors.iter().flat_map(|err| self.details_err_to_miette(db, err))
         })
+    }
+
+    pub fn details_err_to_miette(
+        &self,
+        db: &dyn Db,
+        err: &viperserver::verification::DetailsError,
+    ) -> Option<miette::ErrReport> {
+        let text = err
+            .text
+            .split_once(self.viper_path.file_name().unwrap().to_str().unwrap())
+            .unwrap()
+            .0
+            .trim_end_matches(" (");
+        if let Some(pos) = err.position.inner() {
+            let viper_span = viper_position_to_internal(&self.viper_output.buf, pos)
+                .unwrap_or_else(|| SourceSpan::new_start_end(0, 0));
+            let source_span = self.trace_span(db, viper_span);
+
+            #[derive(Debug, thiserror::Error, miette::Diagnostic)]
+            #[error("{error}")]
+            struct AdHoc {
+                error: String,
+                #[label("here")]
+                span: SourceSpan,
+                #[label("and here")]
+                span2: Option<SourceSpan>,
+            }
+
+            if let Some(source_span) = source_span {
+                Some(
+                    miette::Error::new(AdHoc {
+                        error: text.to_string(),
+                        span: source_span,
+                        span2: None,
+                    })
+                    .with_source_code(miette::NamedSource::new(
+                        self.mist_src_path.display().to_string(),
+                        self.mist_src.to_string(),
+                    )),
+                )
+            } else {
+                Some(
+                    miette::Error::new(AdHoc {
+                        error: text.to_string(),
+                        span: viper_span,
+                        span2: None,
+                    })
+                    .with_source_code(miette::NamedSource::new(
+                        self.viper_path.display().to_string(),
+                        self.viper_output.buf.to_string(),
+                    )),
+                )
+            }
+        } else {
+            eprintln!("{err:?}");
+            None
+        }
     }
 }
 

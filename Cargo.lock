@@ -1553,6 +1553,7 @@ dependencies = [
  "mist-codegen-viper",
  "mist-core",
  "mist-syntax",
+ "salsa-2022",
  "tempfile",
  "thiserror",
  "tokio",

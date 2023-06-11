@@ -32,7 +32,7 @@ pub struct ParseError {
 
 #[derive(Debug, Diagnostic, Clone, Eq, PartialEq, Error)]
 pub enum ParseErrorKind {
-    #[error("expected '{0}'")]
+    #[error("parse error: expected '{0}'")]
     Context(String),
     #[error("parse error: {0}")]
     Adhoc(String),

@@ -4,6 +4,8 @@ pub mod gen;
 pub mod lower;
 pub mod mangle;
 
+pub use silvers;
+
 #[salsa::jar(db=Db)]
 pub struct Jar(
     crate::gen::viper_file,
