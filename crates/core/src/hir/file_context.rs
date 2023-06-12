@@ -29,82 +29,81 @@ pub(crate) fn initialize_file_context(
     };
 
     for def in hir::file_definitions(db, file) {
-        let f = match def.kind(db) {
-            hir::DefKind::Function(f) => f,
-            hir::DefKind::Struct(s) => {
-                let s_ast = s.ast_node(db);
+        if let hir::DefKind::Struct(s) = def.kind(db) {
+            let s_ast = s.ast_node(db);
 
-                let s_ty = b.alloc_ty_data(TDK::Struct(s).into());
-                if let Some(_old) = b.fc.named_types.insert(s.name(db), s_ty) {
-                    b.ty_error(
-                        s_ast.span(),
-                        None,
-                        None,
-                        TypeCheckErrorKind::NotYetImplemented(
-                            "a struct with this name already declared".to_string(),
-                        ),
-                    );
-                }
-                if let Some(name) = s_ast.name() {
-                    let ts = b.alloc_ty_src(
-                        TypeSrc { data: Some(TDK::Struct(s).into()), ty: s_ty },
-                        Some(name.span().into()),
-                    );
-                    b.fc.struct_types.insert(s, ts);
-                }
-
-                for f in s.fields(db) {
-                    let data = f.ast_node(db).ty();
-                    let ty = b.expect_find_type_src(&data);
-                    b.fc.struct_field_types.insert(f, ty);
-                }
-
-                continue;
-            }
-            _ => continue,
-        };
-        let is_ghost = f.attrs(db).is_ghost();
-        let f_ast = f.ast_node(db);
-
-        let params = f
-            .param_list(db)
-            .map(|param| {
-                let ty = b.expect_find_type_src(&param.ty);
-                Param {
-                    is_ghost: param.is_ghost,
-                    name: param.name.into(),
-                    ty: ty.with_ghost(&mut b, is_ghost),
-                }
-            })
-            .collect();
-        let return_ty_src = f_ast.ret().map(|ty| b.lower_type(&ty).with_ghost(&mut b, is_ghost));
-        let return_ty = return_ty_src
-            .map(|ts| b.ty_src(ts).ty)
-            .unwrap_or_else(void)
-            .with_ghost(&mut b, is_ghost);
-
-        if let Some(name) = f_ast.name() {
-            let ty = b.alloc_ty_data(
-                TDK::Function {
-                    attrs: f.attrs(db),
-                    name: Some(f.name(db).clone()),
-                    params,
-                    return_ty,
-                }
-                .into(),
-            );
-            if let Some(old) = b.fc.function_types.insert(f.name(db), (f, ty)) {
+            let s_ty = b.alloc_ty_data(TDK::Struct(s).into());
+            if let Some(_old) = b.fc.named_types.insert(s.name(db), s_ty) {
                 b.ty_error(
-                    name.span(),
+                    s_ast.span(),
                     None,
                     None,
-                    TypeCheckErrorKind::NotYetImplemented(format!(
-                        "redeclared function: '{}'",
-                        old.0.name(db)
-                    )),
+                    TypeCheckErrorKind::NotYetImplemented(
+                        "a struct with this name already declared".to_string(),
+                    ),
                 );
             }
+            if let Some(name) = s_ast.name() {
+                let ts = b.alloc_ty_src(
+                    TypeSrc { data: Some(TDK::Struct(s).into()), ty: s_ty },
+                    Some(name.span().into()),
+                );
+                b.fc.struct_types.insert(s, ts);
+            }
         }
+    }
+    for def in hir::file_definitions(db, file) {
+        match def.kind(db) {
+            hir::DefKind::Function(f) => {
+                let is_ghost = f.attrs(db).is_ghost();
+                let f_ast = f.ast_node(db);
+
+                let params = f
+                    .param_list(db)
+                    .map(|param| Param {
+                        is_ghost: param.is_ghost,
+                        name: param.name.into(),
+                        ty: b.expect_find_type_src(&param.ty).with_ghost(&mut b, is_ghost),
+                    })
+                    .collect();
+                let return_ty_src =
+                    f_ast.ret().map(|ty| b.lower_type(&ty).with_ghost(&mut b, is_ghost));
+                let return_ty = return_ty_src
+                    .map(|ts| b.ty_src(ts).ty)
+                    .unwrap_or_else(void)
+                    .with_ghost(&mut b, is_ghost);
+
+                if let Some(name) = f_ast.name() {
+                    let ty = b.alloc_ty_data(
+                        TDK::Function {
+                            attrs: f.attrs(db),
+                            name: Some(f.name(db).clone()),
+                            params,
+                            return_ty,
+                        }
+                        .into(),
+                    );
+                    if let Some(old) = b.fc.function_types.insert(f.name(db), (f, ty)) {
+                        b.ty_error(
+                            name.span(),
+                            None,
+                            None,
+                            TypeCheckErrorKind::NotYetImplemented(format!(
+                                "redeclared function: '{}'",
+                                old.0.name(db)
+                            )),
+                        );
+                    }
+                }
+            }
+            hir::DefKind::Struct(s) => {
+                for f in s.fields(db) {
+                    let ty = b.expect_find_type_src(&f.ast_node(db).ty());
+                    b.fc.struct_field_types.insert(f, ty);
+                }
+            }
+            _ => {}
+        };
     }
 
     (b.fc, b.source_map)
