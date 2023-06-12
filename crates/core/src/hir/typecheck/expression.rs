@@ -123,8 +123,9 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             };
 
             let in_expr = check_opt(tc, it.span(), it.expr());
+            let in_expr_ty = tc.expr_ty(in_expr).strip_ghost(tc);
             let in_ty = tc.alloc_ty_data(TDK::Range(int()).into());
-            tc.expect_ty((it.expr().as_ref(), it.span()), in_ty, tc.expr_ty(in_expr));
+            tc.expect_ty((it.expr().as_ref(), it.span()), in_ty, in_expr_ty);
 
             let invariants =
                 it.invariants().map(|inv| tc.check_boolean_exprs(inv.comma_exprs())).collect();
@@ -677,7 +678,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                     let var_decl =
                         tc.declare_variable(VariableDeclaration::new_let(name), ty, name_span);
                     let over_expr = check_opt(tc, it.span(), it.expr());
-                    let range_ty = tc.alloc_ty_data(TDK::Range(ty.ty(tc)).into());
+                    let range_ty = tc.alloc_ty_data(TDK::Range(ty.ty(tc)).ghost());
                     tc.expect_ty((it.expr().as_ref(), name_span), range_ty, tc.expr_ty(over_expr));
                     QuantifierOver::In(var_decl, over_expr)
                 }
