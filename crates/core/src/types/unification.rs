@@ -139,8 +139,9 @@ impl Typer {
 
         if !t1.is_ghost && t2.is_ghost {
             // NOTE: Ghost in place where non-ghost is expected
-            // TODO: Perhaps free should be allowed to be unified either way?
-            return None;
+            if t1.kind != TDK::Free {
+                return None;
+            }
         }
 
         let res = match (t1.kind, t2.kind) {
