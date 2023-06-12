@@ -129,6 +129,9 @@ impl FileContext {
                 FileContextBuilderEvent::AllocTy(td) => {
                     typer.ty_id(td.clone());
                 }
+                FileContextBuilderEvent::NewFree => {
+                    typer.new_free();
+                }
             }
         }
         typer
@@ -145,6 +148,7 @@ struct FileContextBuilder<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum FileContextBuilderEvent {
     AllocTy(TypeData),
+    NewFree,
 }
 
 impl<'a> TypeProvider for FileContextBuilder<'a> {
@@ -171,6 +175,7 @@ impl<'a> TypingMut for FileContextBuilder<'a> {
     }
 
     fn new_free(&mut self) -> TypeId {
+        self.fc.events.push(FileContextBuilderEvent::NewFree);
         self.typer.new_free()
     }
 
