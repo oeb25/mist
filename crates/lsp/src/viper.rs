@@ -64,7 +64,7 @@ impl VerifyFile<'_> {
 
 #[derive(Debug, thiserror::Error, miette::Diagnostic)]
 pub enum VerificationError {
-    #[error("viper server error")]
+    #[error("viper server error: {0}")]
     ViperServerError(#[from] ViperServerError),
 }
 
