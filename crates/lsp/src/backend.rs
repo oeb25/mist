@@ -28,7 +28,7 @@ use crate::hover::HoverElement;
 pub struct Backend {
     client: Client,
     db: Arc<Mutex<crate::db::Database>>,
-    files: DashMap<Url, Arc<String>>,
+    files: DashMap<Url, SourceFile>,
     working_dir: PathBuf,
     viper_server: Arc<Mutex<Option<viperserver::ViperServer>>>,
 
@@ -209,20 +209,20 @@ impl Backend {
         &self,
         params: SemanticTokensParams,
     ) -> Result<Option<SemanticTokensResult>> {
-        let db = &*self.db();
-        let Some(source) = self.source_file(db, params.text_document.uri) else {
+        let Some(source) = self.source_file(params.text_document.uri) else {
             return Err(tower_lsp::jsonrpc::Error::invalid_request());
         };
+        let db = &*self.db();
         let tokens = crate::highlighting::semantic_tokens(db, source);
         Ok(Some(SemanticTokensResult::Partial(SemanticTokensPartialResult {
             data: tokens.to_vec(),
         })))
     }
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
-        let db = &*self.db();
-        let Some(file) = self.source_file(db, params.text_document.uri) else {
+        let Some(file) = self.source_file(params.text_document.uri) else {
             return Err(tower_lsp::jsonrpc::Error::invalid_request());
         };
+        let db = &*self.db();
         let inlay_hints = crate::highlighting::inlay_hints(db, file);
 
         let hints = mist_codegen_viper::gen::viper_file::accumulated::<ViperHints>(db, file);
@@ -246,12 +246,12 @@ impl Backend {
         ))
     }
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let db = &*self.db();
         let TextDocumentPositionParams { text_document, position } =
             params.text_document_position_params;
-        let Some(source) = self.source_file(db, text_document.uri) else {
+        let Some(source) = self.source_file(text_document.uri) else {
             return Err(tower_lsp::jsonrpc::Error::invalid_request());
         };
+        let db = &*self.db();
         let src = source.text(db);
         let pos = mist_core::util::Position::new(position.line, position.character);
         let Some(byte_offset) = pos.to_byte_offset(src) else {
@@ -300,16 +300,26 @@ impl Backend {
         self.db.lock().unwrap().snapshot()
     }
 
-    fn source_file(&self, db: &dyn crate::Db, uri: Url) -> Option<SourceFile> {
-        let text = self.files.get(&uri)?;
-        Some(SourceFile::new(db, text.to_string()))
+    fn source_file(&self, uri: Url) -> Option<SourceFile> {
+        self.files.get(&uri).map(|x| *x)
+    }
+    fn get_or_create_source_file(&self, uri: Url, source: String) -> SourceFile {
+        match self.files.entry(uri) {
+            dashmap::mapref::entry::Entry::Occupied(e) => {
+                let f = *e.get();
+                f.set_text(&mut *self.db.lock().unwrap()).to(source);
+                f
+            }
+            dashmap::mapref::entry::Entry::Vacant(v) => {
+                *v.insert(SourceFile::new(&*self.db.lock().unwrap(), source))
+            }
+        }
     }
 
     async fn update_text(&self, uri: Url, source: String, version: i32) -> Result<()> {
         let start = std::time::Instant::now();
 
-        let text = Arc::new(source);
-        self.files.insert(uri.clone(), Arc::clone(&text));
+        let file = self.get_or_create_source_file(uri.clone(), source.clone());
 
         let working_dir = self.working_dir.clone();
         let client = self.client.clone();
@@ -322,14 +332,9 @@ impl Backend {
             let db = db_arc.lock().unwrap().snapshot();
             let uri = task_uri;
 
-            let file = mist_core::hir::SourceFile::new(&*db, text.to_string());
-            // let parse = program.parse(&*db).clone();
-
             let errors = mist_cli::accumulated_errors(&*db, file)
-                .flat_map(|e| miette_to_diagnostic(&text, e.inner_diagnostic().unwrap()))
+                .flat_map(|e| miette_to_diagnostic(&source, e.inner_diagnostic().unwrap()))
                 .collect_vec();
-
-            // drop(db);
 
             if errors.is_empty() {
                 client.publish_diagnostics(uri.clone(), vec![], Some(version)).await;
@@ -354,7 +359,7 @@ impl Backend {
                     viperserver: &viperserver,
                     working_dir: &working_dir,
                     mist_src_path: uri.as_str().into(),
-                    mist_src: &text,
+                    mist_src: &source,
                 };
                 let errors = match verify_file.run(&db_arc).await {
                     Ok(errors) => errors,
@@ -368,7 +373,7 @@ impl Backend {
                     .flat_map(|e| {
                         error!("verification error: {e:?}");
 
-                        miette_to_diagnostic(&text, e)
+                        miette_to_diagnostic(&source, e)
                     })
                     .collect_vec();
 
@@ -389,7 +394,7 @@ impl Backend {
                         .iter()
                         .map(|def| {
                             let span = def.syntax(&*db).span();
-                            let range = span_to_range(&text, span.set_len(0));
+                            let range = span_to_range(&source, span.set_len(0));
                             Diagnostic {
                                 severity: Some(DiagnosticSeverity::HINT),
                                 message: "Successfully verified".to_string(),
@@ -419,7 +424,7 @@ impl Backend {
         db: &dyn crate::Db,
         TextDocumentPositionParams { text_document, position }: TextDocumentPositionParams,
     ) -> Result<Option<LocationLink>> {
-        let Some(source) = self.source_file(db, text_document.uri.clone()) else {
+        let Some(source) = self.source_file(text_document.uri.clone()) else {
             return Err(tower_lsp::jsonrpc::Error::invalid_request());
         };
         let src = source.text(db);
@@ -442,7 +447,7 @@ impl Backend {
         db: &dyn crate::Db,
         TextDocumentPositionParams { text_document, position }: TextDocumentPositionParams,
     ) -> Result<Option<Vec<Location>>> {
-        let Some(source) = self.source_file(db, text_document.uri.clone()) else {
+        let Some(source) = self.source_file(text_document.uri.clone()) else {
             return Err(tower_lsp::jsonrpc::Error::invalid_request());
         };
         let src = source.text(db);
