@@ -3,6 +3,9 @@ use mist_syntax::ast;
 use crate::hir::file::AstId;
 
 mod ext;
+mod name;
+
+pub use name::Name;
 
 #[salsa::interned]
 pub struct Def {

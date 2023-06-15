@@ -8,14 +8,14 @@ use mist_syntax::{
 };
 
 use crate::{
-    def::{Struct, StructField},
+    def::{Name, Struct, StructField},
     types::{Field, TypeData, TypeId, TypeProvider, TypePtr, TypeTable},
     util::{IdxArena, IdxMap, IdxWrap},
     VariableDeclaration,
 };
 
 use super::{
-    file_context::FileContext, Condition, Decreases, Def, Expr, ExprIdx, Name, Param, Statement,
+    file_context::FileContext, Condition, Decreases, Def, Expr, ExprIdx, Param, Statement,
     StatementId, TypeSrc, TypeSrcId, Variable, VariableIdx,
 };
 

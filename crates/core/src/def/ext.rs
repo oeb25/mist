@@ -4,11 +4,11 @@ use mist_syntax::{
 };
 
 use crate::{
-    hir::{self, Name, Param, SourceFile},
+    hir::{self, Param, SourceFile},
     mir,
 };
 
-use super::{Def, DefKind, Function, Struct, StructField, TypeInvariant};
+use super::{Def, DefKind, Function, Name, Struct, StructField, TypeInvariant};
 
 impl Def {
     pub fn file(&self, db: &dyn crate::Db) -> SourceFile {

@@ -1,7 +1,8 @@
 use mist_syntax::ast::{self, HasName, Spanned};
 
 use crate::{
-    hir::{typecheck::TypeCheckErrorKind, Name, SpanOrAstPtr, TypeSrc, TypeSrcId},
+    def::Name,
+    hir::{typecheck::TypeCheckErrorKind, SpanOrAstPtr, TypeSrc, TypeSrcId},
     types::{
         builtin::{bool, error, int},
         Primitive, TypeData, TypeId, TypeProvider, TDK,

@@ -16,9 +16,9 @@ use thiserror::Error;
 use tracing::error;
 
 use crate::{
-    def::StructField,
+    def::{Name, StructField},
     hir::{
-        self, AssertionKind, Block, Condition, Decreases, Expr, ExprData, ExprIdx, Name, Param,
+        self, AssertionKind, Block, Condition, Decreases, Expr, ExprData, ExprIdx, Param,
         Statement, StatementData, Variable, VariableIdx,
     },
     types::{

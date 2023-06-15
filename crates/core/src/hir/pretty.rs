@@ -1,13 +1,12 @@
 use itertools::Itertools;
 
 use crate::{
+    def::Name,
     hir::QuantifierOver,
     types::{TypeData, TypeId, TDK},
 };
 
-use super::{
-    pretty, BuiltinExpr, Expr, ExprData, ExprIdx, Literal, Name, Param, TypeSrcId, VariableIdx,
-};
+use super::{pretty, BuiltinExpr, Expr, ExprData, ExprIdx, Literal, Param, TypeSrcId, VariableIdx};
 
 pub trait PrettyPrint {
     fn resolve_var(&self, idx: VariableIdx) -> Name;

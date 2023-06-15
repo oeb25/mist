@@ -1,8 +1,8 @@
 use std::fmt;
 
 use crate::{
-    def::{Struct, StructField},
-    hir::{Name, Param},
+    def::{Name, Struct, StructField},
+    hir::Param,
     util::impl_idx,
 };
 use derive_more::From;

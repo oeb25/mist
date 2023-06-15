@@ -10,8 +10,9 @@ use mist_syntax::ast::{
 use tracing::warn;
 
 use crate::{
+    def::Name,
     hir::{
-        Expr, ExprData, ExprIdx, ForExpr, IfExpr, Literal, Name, Param, Quantifier, QuantifierOver,
+        Expr, ExprData, ExprIdx, ForExpr, IfExpr, Literal, Param, Quantifier, QuantifierOver,
         SpanOrAstPtr, StructExprField, WhileExpr,
     },
     types::{

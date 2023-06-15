@@ -1,16 +1,12 @@
-mod name;
-
 use derive_more::Display;
 use derive_new::new;
 use mist_syntax::ast::operators::{BinaryOp, UnaryOp};
 
 use crate::{
-    def::{Struct, StructField},
+    def::{Name, Struct, StructField},
     types::{Field, TypeData, TypeId},
     util::impl_idx,
 };
-
-pub use name::Name;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Variable {}

@@ -3,11 +3,11 @@ use std::collections::HashMap;
 use mist_syntax::ast::{self, HasName, Spanned};
 
 use crate::{
-    def::{Function, Struct, StructField},
+    def::{Function, Name, Struct, StructField},
     hir::{
         self,
         typecheck::{TypeCheckErrorKind, Typed, TypingMutExt},
-        ItemSourceMap, Name, Param, SpanOrAstPtr, TypeSrc, TypeSrcId,
+        ItemSourceMap, Param, SpanOrAstPtr, TypeSrc, TypeSrcId,
     },
     types::{builtin::void, TypeData, TypeId, TypeProvider, Typer, TDK},
     util::IdxArena,
