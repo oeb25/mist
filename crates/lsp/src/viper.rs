@@ -1,6 +1,6 @@
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
 use futures_util::StreamExt;
@@ -21,12 +21,9 @@ pub struct VerifyFile<'a> {
 }
 
 impl VerifyFile<'_> {
-    pub(crate) async fn run(
-        &self,
-        db: &Mutex<crate::db::Database>,
-    ) -> miette::Result<Vec<miette::Report>> {
+    pub(crate) fn run(&self, db: &dyn crate::Db) -> miette::Result<Vec<miette::Report>> {
         let (viper_program, viper_body, viper_source_map) =
-            mist_codegen_viper::gen::viper_file(&*db.lock().unwrap(), self.file)?;
+            mist_codegen_viper::gen::viper_file(db, self.file)?;
         let viper_output = ViperOutput::generate(&viper_body, &viper_program);
         let viper_src = &viper_output.buf;
 
@@ -46,17 +43,16 @@ impl VerifyFile<'_> {
         };
 
         let input = VerificationInput::new(
-            &*db.lock().unwrap(),
+            db,
             viper_file.clone(),
             viper_src.into(),
             self.viperserver_jar.into(),
         );
-        let errors = verify_viper_src(&*db.lock().unwrap(), input);
-        let other_errors =
-            verify_viper_src::accumulated::<VerificationErrors>(&*db.lock().unwrap(), input);
+        let errors = verify_viper_src(db, input);
+        let other_errors = verify_viper_src::accumulated::<VerificationErrors>(db, input);
         Ok(errors
             .into_iter()
-            .flat_map(|status| ctx.details_err_to_miette(&*db.lock().unwrap(), &status))
+            .flat_map(|status| ctx.details_err_to_miette(db, &status))
             .chain(other_errors.into_iter().map(|err| miette::miette!("{}", err)))
             .collect())
     }
