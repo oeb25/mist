@@ -39,7 +39,7 @@ pub struct ItemContext {
     pub(super) ty_table: Option<Arc<TypeTable>>,
 
     #[new(default)]
-    pub(super) params: Vec<Param<VariableIdx>>,
+    pub(super) params: Vec<Param<VariableIdx, TypeSrcId>>,
     #[new(default)]
     pub(super) body_expr: Option<ExprIdx>,
     #[new(default)]
@@ -97,7 +97,7 @@ impl ItemContext {
     pub fn conditions(&self) -> impl Iterator<Item = &Condition> {
         self.function_context.iter().flat_map(|cx| &cx.conditions)
     }
-    pub fn params(&self) -> &[Param<VariableIdx>] {
+    pub fn params(&self) -> &[Param<VariableIdx, TypeSrcId>] {
         &self.params
     }
     pub fn return_ty(&self) -> Option<TypeId> {

@@ -104,7 +104,7 @@ impl<'a> Visitor for HoverFinder<'a> {
     fn visit_param(
         &mut self,
         vcx: &VisitContext,
-        param: &Param<VariableIdx>,
+        param: &Param<VariableIdx, TypeSrcId>,
     ) -> ControlFlow<Option<HoverResult>> {
         let name_span = vcx.cx.var_span(param.name);
         let name = vcx.cx.var_name(param.name);

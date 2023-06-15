@@ -24,7 +24,7 @@ pub fn params(
     pp: &impl PrettyPrint,
     db: &dyn crate::Db,
     strip_ghost: bool,
-    params: impl IntoIterator<Item = Param<Name>>,
+    params: impl IntoIterator<Item = Param<Name, TypeSrcId>>,
 ) -> String {
     let params = params
         .into_iter()

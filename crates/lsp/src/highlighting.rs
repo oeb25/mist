@@ -5,7 +5,7 @@ use std::{ops::ControlFlow, sync::Arc};
 use derive_new::new;
 use itertools::Itertools;
 use mist_core::{
-    hir::{self, file, ExprIdx, SourceFile, VariableIdx},
+    hir::{self, file, ExprIdx, SourceFile, TypeSrcId, VariableIdx},
     mir::{self, pass::Pass},
     salsa,
     types::{TypeProvider, TDK},
@@ -241,7 +241,7 @@ impl<'src> Visitor for Highlighter<'src> {
     fn visit_param(
         &mut self,
         vcx: &VisitContext,
-        param: &hir::Param<VariableIdx>,
+        param: &hir::Param<VariableIdx, TypeSrcId>,
     ) -> ControlFlow<()> {
         self.push(vcx.cx.var_span(param.name), TT::Parameter, None);
 

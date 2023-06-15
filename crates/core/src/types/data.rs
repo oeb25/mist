@@ -2,7 +2,7 @@ use std::fmt;
 
 use crate::{
     def::{Name, Struct, StructField},
-    hir::Param,
+    hir::{Param, TypeSrcId},
     util::impl_idx,
 };
 use derive_more::From;
@@ -20,13 +20,21 @@ pub struct TypeData<T = TypeId> {
 pub enum TypeDataKind<T> {
     Error,
     Void,
-    Ref { is_mut: bool, inner: T },
+    Ref {
+        is_mut: bool,
+        inner: T,
+    },
     List(T),
     Optional(T),
     Primitive(Primitive),
     Struct(Struct),
     Null,
-    Function { attrs: AttrFlags, name: Option<Name>, params: Vec<Param<Name>>, return_ty: T },
+    Function {
+        attrs: AttrFlags,
+        name: Option<Name>,
+        params: Vec<Param<Name, TypeSrcId>>,
+        return_ty: T,
+    },
     Range(T),
     Free,
 }

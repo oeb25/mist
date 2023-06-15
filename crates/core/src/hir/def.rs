@@ -1,10 +1,13 @@
 use derive_more::Display;
 use derive_new::new;
-use mist_syntax::ast::operators::{BinaryOp, UnaryOp};
+use mist_syntax::ast::{
+    operators::{BinaryOp, UnaryOp},
+    AttrFlags,
+};
 
 use crate::{
     def::{Name, Struct, StructField},
-    types::{Field, TypeData, TypeId},
+    types::{Field, Primitive, TypeData, TypeId},
     util::impl_idx,
 };
 
@@ -22,7 +25,7 @@ impl Default for Variable {
 }
 impl_idx!(VariableIdx, Variable, default_debug);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Param<I, T = TypeSrcId> {
+pub struct Param<I, T> {
     pub is_ghost: bool,
     pub name: I,
     pub ty: T,
@@ -106,7 +109,7 @@ impl ExprData {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum QuantifierOver {
-    Params(Vec<Param<VariableIdx>>),
+    Params(Vec<Param<VariableIdx, TypeSrcId>>),
     In(VariableIdx, ExprIdx),
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

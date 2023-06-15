@@ -116,7 +116,7 @@ pub trait Walker<'db>: Sized {
     fn walk_param_list<V: Visitor>(
         &mut self,
         visitor: &mut V,
-        param_list: &[Param<VariableIdx>],
+        param_list: &[Param<VariableIdx, TypeSrcId>],
     ) -> ControlFlow<V::Item>;
 }
 
@@ -582,7 +582,7 @@ where
     fn walk_param_list<V: Visitor>(
         &mut self,
         visitor: &mut V,
-        param_list: &[Param<VariableIdx>],
+        param_list: &[Param<VariableIdx, TypeSrcId>],
     ) -> ControlFlow<V::Item> {
         for param in param_list {
             if self.pre() {
