@@ -112,7 +112,7 @@ fn struct_def(p: &mut Parser, attr_checkpoint: Checkpoint) {
         p.bump();
 
         name(p);
-        generic_arg_list_opt(p);
+        generic_param_list_opt(p);
 
         p.expect(T!['{']);
 
@@ -154,6 +154,7 @@ fn type_invariant(p: &mut Parser, attr_checkpoint: Checkpoint) {
     assert!(p.at(T![invariant]));
     p.start_node_at(attr_checkpoint, TYPE_INVARIANT, |p| {
         p.bump();
+        generic_param_list_opt(p);
         name_ref(p);
         generic_arg_list_opt(p);
         block(p);

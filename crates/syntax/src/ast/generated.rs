@@ -1091,7 +1091,7 @@ impl Struct {
     pub fn struct_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![struct])
     }
-    pub fn generic_arg_list(&self) -> Option<GenericArgList> {
+    pub fn generic_param_list(&self) -> Option<GenericParamList> {
         support::child(&self.syntax)
     }
     pub fn l_curly_token(&self) -> Option<SyntaxToken> {
@@ -1126,6 +1126,9 @@ pub struct TypeInvariant {
 impl TypeInvariant {
     pub fn invariant_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![invariant])
+    }
+    pub fn generic_param_list(&self) -> Option<GenericParamList> {
+        support::child(&self.syntax)
     }
     pub fn name_ref(&self) -> Option<NameRef> {
         support::child(&self.syntax)
@@ -1497,23 +1500,23 @@ impl AstNode for CommaExpr {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct GenericArgList {
+pub struct GenericParamList {
     pub(crate) syntax: SyntaxNode,
 }
-impl GenericArgList {
-    pub fn l_angle_token(&self) -> Option<SyntaxToken> {
-        support::token(&self.syntax, T ! [<])
+impl GenericParamList {
+    pub fn l_brack_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T!['['])
     }
-    pub fn generic_args(&self) -> AstChildren<GenericArg> {
+    pub fn generic_params(&self) -> AstChildren<GenericParam> {
         support::children(&self.syntax)
     }
-    pub fn r_angle_token(&self) -> Option<SyntaxToken> {
-        support::token(&self.syntax, T ! [>])
+    pub fn r_brack_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![']'])
     }
 }
-impl AstNode for GenericArgList {
+impl AstNode for GenericParamList {
     fn can_cast(kind: SyntaxKind) -> bool {
-        kind == GENERIC_ARG_LIST
+        kind == GENERIC_PARAM_LIST
     }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
@@ -1546,6 +1549,61 @@ impl StructField {
 impl AstNode for StructField {
     fn can_cast(kind: SyntaxKind) -> bool {
         kind == STRUCT_FIELD
+    }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GenericArgList {
+    pub(crate) syntax: SyntaxNode,
+}
+impl GenericArgList {
+    pub fn l_brack_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T!['['])
+    }
+    pub fn generic_args(&self) -> AstChildren<GenericArg> {
+        support::children(&self.syntax)
+    }
+    pub fn r_brack_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![']'])
+    }
+}
+impl AstNode for GenericArgList {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == GENERIC_ARG_LIST
+    }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GenericParam {
+    pub(crate) syntax: SyntaxNode,
+}
+impl crate::ast::HasName for GenericParam {}
+impl GenericParam {
+    pub fn comma_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T ! [,])
+    }
+}
+impl AstNode for GenericParam {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == GENERIC_PARAM
     }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
@@ -3163,12 +3221,22 @@ impl std::fmt::Display for CommaExpr {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
-impl std::fmt::Display for GenericArgList {
+impl std::fmt::Display for GenericParamList {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
 impl std::fmt::Display for StructField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for GenericArgList {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for GenericParam {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }

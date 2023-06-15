@@ -136,15 +136,36 @@ fn ty(p: &mut Parser) {
     }
 }
 
+fn generic_param_list_opt(p: &mut Parser) {
+    if p.at(T!['[']) {
+        p.start_node(GENERIC_PARAM_LIST, |p| {
+            p.bump();
+            comma_sep(
+                p,
+                |t| t == T![']'],
+                |p| {
+                    if p.at(T![']']) {
+                        ControlFlow::Break(())
+                    } else {
+                        p.start_node(GENERIC_PARAM, name);
+                        ControlFlow::Continue(())
+                    }
+                },
+            );
+            p.expect(T![']']);
+        });
+    }
+}
+
 fn generic_arg_list_opt(p: &mut Parser) {
-    if p.at(T![<]) {
+    if p.at(T!['[']) {
         p.start_node(GENERIC_ARG_LIST, |p| {
             p.bump();
             comma_sep(
                 p,
-                |t| t == T![>],
+                |t| t == T![']'],
                 |p| {
-                    if p.at(T![>]) {
+                    if p.at(T![']']) {
                         ControlFlow::Break(())
                     } else {
                         p.start_node(GENERIC_ARG, ty);
@@ -152,7 +173,7 @@ fn generic_arg_list_opt(p: &mut Parser) {
                     }
                 },
             );
-            p.expect(T![>]);
+            p.expect(T![']']);
         });
     }
 }
