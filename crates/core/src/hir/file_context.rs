@@ -7,10 +7,9 @@ use crate::{
     hir::{
         self,
         typecheck::{TypeCheckErrorKind, Typed, TypingMutExt},
-        ItemSourceMap, Param, SpanOrAstPtr, TypeSrc, TypeSrcId,
+        ItemSourceMap, Param, SpanOrAstPtr, TypeSrc,
     },
     types::{builtin::void, TypeData, TypeId, TypeProvider, Typer, TDK},
-    util::IdxArena,
     TypeCheckError, TypeCheckErrors,
 };
 
@@ -45,7 +44,7 @@ pub(crate) fn initialize_file_context(
             }
             if let Some(name) = s_ast.name() {
                 let ts = b.alloc_ty_src(
-                    TypeSrc { data: Some(TDK::Struct(s).into()), ty: s_ty },
+                    TypeSrc::new(db, Some(TDK::Struct(s).into()), s_ty),
                     Some(name.span().into()),
                 );
                 b.fc.struct_types.insert(s, ts);
@@ -69,7 +68,7 @@ pub(crate) fn initialize_file_context(
                 let return_ty_src =
                     f_ast.ret().map(|ty| b.lower_type(&ty).with_ghost(&mut b, is_ghost));
                 let return_ty = return_ty_src
-                    .map(|ts| b.ty_src(ts).ty)
+                    .map(|ts| ts.ty(db))
                     .unwrap_or_else(void)
                     .with_ghost(&mut b, is_ghost);
 
@@ -111,11 +110,10 @@ pub(crate) fn initialize_file_context(
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct FileContext {
-    pub(super) ty_src_arena: IdxArena<TypeSrcId>,
     pub(super) function_types: HashMap<Name, (Function, TypeId)>,
     pub(super) named_types: HashMap<Name, TypeId>,
-    pub(super) struct_types: HashMap<Struct, TypeSrcId>,
-    pub(super) struct_field_types: HashMap<StructField, TypeSrcId>,
+    pub(super) struct_types: HashMap<Struct, TypeSrc>,
+    pub(super) struct_field_types: HashMap<StructField, TypeSrc>,
 
     events: Vec<FileContextBuilderEvent>,
 }
@@ -156,17 +154,17 @@ impl<'a> TypeProvider for FileContextBuilder<'a> {
     }
 
     fn struct_field_ty(&self, sf: StructField) -> TypeId {
-        self.fc.struct_field_types[&sf].ty(self)
+        self.fc.struct_field_types[&sf].ty(self.db)
     }
 }
 
 impl<'a> TypingMut for FileContextBuilder<'a> {
-    fn push_error(&self, err: TypeCheckError) {
-        TypeCheckErrors::push(self.db, err);
+    fn db(&self) -> &dyn crate::Db {
+        self.db
     }
 
-    fn ty_src(&self, ty_src_id: TypeSrcId) -> &TypeSrc {
-        &self.fc.ty_src_arena[ty_src_id]
+    fn push_error(&self, err: TypeCheckError) {
+        TypeCheckErrors::push(self.db, err);
     }
 
     fn lookup_named_ty(&self, name: Name) -> Option<TypeId> {
@@ -183,12 +181,10 @@ impl<'a> TypingMut for FileContextBuilder<'a> {
         self.typer.ty_id(data)
     }
 
-    fn alloc_ty_src(&mut self, ts: TypeSrc, ty_src: Option<SpanOrAstPtr<ast::Type>>) -> TypeSrcId {
-        let id = self.fc.ty_src_arena.alloc(ts);
+    fn alloc_ty_src(&mut self, ts: TypeSrc, ty_src: Option<SpanOrAstPtr<ast::Type>>) -> TypeSrc {
         if let Some(src) = ty_src {
-            self.source_map.ty_src_map.insert(id, src.clone());
-            self.source_map.ty_src_map_back.insert(src, id);
+            self.source_map.register_ty_src(ts, src).unwrap();
         }
-        id
+        ts
     }
 }

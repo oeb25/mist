@@ -32,7 +32,7 @@ pub(crate) use typing::{TypingMut, TypingMutExt};
 use super::{
     desugar,
     item_context::{FunctionContext, SpanOrAstPtr},
-    ItemContext, ItemSourceMap, StatementId, TypeSrc, TypeSrcId,
+    ItemContext, ItemSourceMap, StatementId, TypeSrc,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -167,11 +167,11 @@ pub(crate) struct TypeChecker<'w> {
     source_map: ItemSourceMap,
     pub(super) cx: ItemContext,
     typer: Typer,
-    field_tys: HashMap<Field, TypeSrcId>,
+    field_tys: HashMap<Field, TypeSrc>,
 }
 
-impl From<TypeChecker<'_>> for hir::DefinitionHir {
-    fn from(mut tc: TypeChecker<'_>) -> Self {
+impl hir::DefinitionHir {
+    pub(crate) fn from_tc(db: &dyn crate::Db, mut tc: TypeChecker<'_>) -> Self {
         tc.cx.ty_table = Some(Arc::new(TypeTable::new(
             tc.typer.canonicalized().collect_vec(),
             tc.cx
@@ -182,9 +182,9 @@ impl From<TypeChecker<'_>> for hir::DefinitionHir {
                 .chain(tc.field_tys.iter().map(|(&f, &ty)| (f, ty)))
                 .collect_vec()
                 .into_iter()
-                .map(|(f, ty)| (f, ty.ty(&tc))),
+                .map(|(f, ty)| (f, ty.ty(tc.db))),
         )));
-        desugar::desugar(&mut tc.cx);
+        desugar::desugar(db, &mut tc.cx);
 
         hir::DefinitionHir::new(tc.db, tc.cx.def(), tc.cx, tc.source_map)
     }
@@ -317,7 +317,7 @@ impl<'a> TypeChecker<'a> {
         let idx = self.alloc_expr(Expr::new_block(block), &ast::Expr::from(node));
         self.cx.body_expr = Some(idx);
     }
-    pub fn set_return_ty(&mut self, ty: TypeSrcId) {
+    pub fn set_return_ty(&mut self, ty: TypeSrc) {
         self.cx.return_ty = Some(ty);
     }
 
@@ -343,7 +343,7 @@ impl<'a> TypeChecker<'a> {
         self.cx.expr_ty(expr).id()
     }
     pub fn expr_span(&self, expr: ExprIdx) -> SourceSpan {
-        self.source_map.expr_map_back[expr].span()
+        self.source_map.expr_span(&self.cx, expr)
     }
     pub fn check(&mut self, fallback_span: impl Spanned, expr: Option<ast::Expr>) -> ExprIdx {
         expression::check_opt(self, fallback_span, expr)
@@ -351,14 +351,7 @@ impl<'a> TypeChecker<'a> {
     pub(crate) fn pretty_ty(&self, ty: TypeId) -> String {
         hir::pretty::ty(self, self.db, false, ty)
     }
-    pub fn expect_ty(
-        &mut self,
-        span: impl Spanned,
-        expected: impl Typed,
-        actual: impl Typed,
-    ) -> TypeId {
-        let expected = expected.ty(self);
-        let actual = actual.ty(self);
+    pub fn expect_ty(&mut self, span: impl Spanned, expected: TypeId, actual: TypeId) -> TypeId {
         match self.unify_inner(expected, actual) {
             Some(x) => x,
             None => self.ty_error(
@@ -372,9 +365,7 @@ impl<'a> TypeChecker<'a> {
             ),
         }
     }
-    fn unify(&mut self, span: impl Spanned, t1: impl Typed, t2: impl Typed) -> TypeId {
-        let t1 = t1.ty(self);
-        let t2 = t2.ty(self);
+    fn unify(&mut self, span: impl Spanned, t1: TypeId, t2: TypeId) -> TypeId {
         match self.unify_inner(t1, t2) {
             Some(x) => x,
             None => self.ty_error(
@@ -385,10 +376,7 @@ impl<'a> TypeChecker<'a> {
             ),
         }
     }
-    fn unify_inner(&mut self, expected: impl Typed, actual: impl Typed) -> Option<TypeId> {
-        let expected = expected.ty(self);
-        let actual = actual.ty(self);
-
+    fn unify_inner(&mut self, expected: TypeId, actual: TypeId) -> Option<TypeId> {
         self.typer.unify(expected, actual)
     }
     fn expr_error(
@@ -411,8 +399,7 @@ impl<'a> TypeChecker<'a> {
     ) -> ExprIdx {
         let ptr = ptr.into();
         let idx = self.cx.expr_arena.alloc(expr);
-        self.source_map.expr_map_back.insert(idx, ptr.clone());
-        self.source_map.expr_map.insert(ptr, idx);
+        self.source_map.register_expr(ptr, idx).unwrap();
         idx
     }
     pub fn check_boolean_exprs(
@@ -429,8 +416,7 @@ impl<'a> TypeChecker<'a> {
     }
     fn alloc_stmt(&mut self, src: AstPtr<ast::Stmt>, data: StatementData) -> StatementId {
         let id = self.cx.stmt_arena.alloc(Statement::new(data));
-        self.source_map.stmt_map.insert(src.clone(), id);
-        self.source_map.stmt_map_back.insert(id, src);
+        self.source_map.register_stmt(src, id).unwrap();
         id
     }
     fn check_assertion(
@@ -462,7 +448,7 @@ impl<'a> TypeChecker<'a> {
                 let initializer = self.check(&it, it.initializer());
 
                 let ty = if let Some(ty) = explicit_ty {
-                    let ty = self.cx[ty].ty;
+                    let ty = ty.ty(self.db);
                     let span = it.initializer().map(|i| i.span()).unwrap_or_else(|| it.span());
                     self.expect_ty(span, ty, self.expr_ty(initializer));
                     ty
@@ -519,29 +505,26 @@ impl<'a> TypeChecker<'a> {
     pub fn declare_variable(
         &mut self,
         decl: VariableDeclaration,
-        ty: TypeSrcId,
+        ty: TypeSrc,
         ty_span: impl Into<SpanOrAstPtr<ast::Type>>,
     ) -> VariableIdx {
         let name = decl.name();
         let ast = decl.ast.clone();
         let var = self.cx.declarations.alloc(decl, Variable::new());
-        self.source_map.name_map.insert(ast.clone(), Named::Variable(var));
-        self.source_map.name_map_back.entry(Named::Variable(var)).or_default().push(ast);
+        self.source_map.register_name(ast, Named::Variable(var)).unwrap();
         self.scope.insert(name, var);
         self.cx.var_types.insert(var, ty);
         let ty_src = ty_span.into();
-        self.source_map.ty_src_map.insert(ty, ty_src.clone());
-        self.source_map.ty_src_map_back.insert(ty_src, ty);
+        self.source_map.register_ty_src(ty, ty_src).unwrap();
         var
     }
     pub fn var_ty(&self, var: VariableIdx) -> TypeId {
-        self.cx[*self.cx.var_types.get(var).expect("VariableIdx was not in types map")].ty
+        self.cx.var_types.get(var).expect("VariableIdx was not in types map").ty(self)
     }
     pub fn lookup_name(&mut self, name: &ast::NameRef) -> VariableIdx {
         if let Some(var) = self.scope.get(&name.clone().into()) {
             let ast = AstPtr::new(&name.clone().into());
-            self.source_map.name_map.insert(ast.clone(), Named::Variable(var));
-            self.source_map.name_map_back.entry(Named::Variable(var)).or_default().push(ast);
+            self.source_map.register_name(ast, Named::Variable(var)).unwrap();
             var
         } else {
             let err_ty = self.ty_error(
@@ -563,16 +546,16 @@ impl<'a> TypeChecker<'a> {
         self.expr_ty(e).is_ghost(self)
     }
 
-    pub(super) fn ghostify(&mut self, ts: TypeSrcId, is_ghost: bool) -> TypeSrcId {
+    pub(super) fn ghostify(&mut self, ts: TypeSrc, is_ghost: bool) -> TypeSrc {
         ts.with_ghost(self, is_ghost)
     }
 
     fn return_ty(&self) -> TypeId {
-        self.cx.return_ty.map(|ty| self.cx[ty].ty).unwrap_or_else(void)
+        self.cx.return_ty.map(|ty| ty.ty(self.db)).unwrap_or_else(void)
     }
 
     fn self_ty(&self) -> Option<TypeId> {
-        self.cx.self_ty.map(|ty| self.cx[ty].ty)
+        self.cx.self_ty.map(|ty| ty.ty(self.db))
     }
 }
 
@@ -582,17 +565,17 @@ impl<'a> TypeProvider for TypeChecker<'a> {
     }
 
     fn struct_field_ty(&self, f: StructField) -> TypeId {
-        self.field_tys[&f.into()].ty(self)
+        self.field_tys[&f.into()].ty(self.db)
     }
 }
 
 impl<'a> TypingMut for TypeChecker<'a> {
-    fn push_error(&self, err: TypeCheckError) {
-        TypeCheckErrors::push(self.db, err);
+    fn db(&self) -> &dyn crate::Db {
+        self.db
     }
 
-    fn ty_src(&self, ty_src_id: TypeSrcId) -> &TypeSrc {
-        &self.cx.file_context.ty_src_arena[ty_src_id]
+    fn push_error(&self, err: TypeCheckError) {
+        TypeCheckErrors::push(self.db, err);
     }
 
     fn lookup_named_ty(&self, name: Name) -> Option<TypeId> {
@@ -607,13 +590,11 @@ impl<'a> TypingMut for TypeChecker<'a> {
         self.typer.ty_id(data)
     }
 
-    fn alloc_ty_src(&mut self, ts: TypeSrc, ty_src: Option<SpanOrAstPtr<ast::Type>>) -> TypeSrcId {
-        let id = self.cx.file_context.ty_src_arena.alloc(ts);
+    fn alloc_ty_src(&mut self, ts: TypeSrc, ty_src: Option<SpanOrAstPtr<ast::Type>>) -> TypeSrc {
         if let Some(src) = ty_src {
-            self.source_map.ty_src_map.insert(id, src.clone());
-            self.source_map.ty_src_map_back.insert(src, id);
+            self.source_map.register_ty_src(ts, src).unwrap();
         }
-        id
+        ts
     }
 }
 
@@ -644,17 +625,16 @@ impl Typed for TypeId {
         *self
     }
 }
-impl Typed for TypeSrcId {
+impl Typed for TypeSrc {
     fn with_ghost(self, typing: &mut impl TypingMut, ghost: bool) -> Self
     where
         Self: Sized,
     {
         if ghost {
-            let ty_src = typing.ty_src(self);
-            if typing.ty_data(ty_src.ty).is_ghost {
+            if typing.ty_data(self.ty(typing.db())).is_ghost {
                 self
             } else {
-                let ty = ty_src.ty.with_ghost(typing, ghost);
+                let ty = self.ty(typing.db()).with_ghost(typing, ghost);
                 typing.unsourced_ty(ty)
             }
         } else {
@@ -662,7 +642,7 @@ impl Typed for TypeSrcId {
         }
     }
     fn ty(&self, tc: &impl TypingMut) -> TypeId {
-        tc.ty_src(*self).ty
+        TypeSrc::ty(*self, tc.db())
     }
 }
 
@@ -671,8 +651,8 @@ impl hir::pretty::PrettyPrint for ItemContext {
         self.declarations.map[idx].name.clone()
     }
 
-    fn resolve_var_ty(&self, idx: VariableIdx) -> TypeId {
-        self.var_ty(idx).id()
+    fn resolve_var_ty(&self, db: &dyn crate::Db, idx: VariableIdx) -> TypeId {
+        self.var_ty(db, idx).id()
     }
 
     fn resolve_expr(&self, idx: ExprIdx) -> &Expr {
@@ -683,8 +663,8 @@ impl hir::pretty::PrettyPrint for ItemContext {
         self.ty_data(ty)
     }
 
-    fn resolve_src_ty(&self, ts: TypeSrcId) -> TypeId {
-        self.file_context.ty_src_arena[ts].ty
+    fn resolve_src_ty(&self, db: &dyn crate::Db, ts: TypeSrc) -> TypeId {
+        ts.ty(db)
     }
 }
 
@@ -693,7 +673,7 @@ impl hir::pretty::PrettyPrint for TypeChecker<'_> {
         self.cx.declarations.map[idx].name.clone()
     }
 
-    fn resolve_var_ty(&self, idx: VariableIdx) -> TypeId {
+    fn resolve_var_ty(&self, _db: &dyn crate::Db, idx: VariableIdx) -> TypeId {
         self.var_ty(idx)
     }
 
@@ -705,8 +685,8 @@ impl hir::pretty::PrettyPrint for TypeChecker<'_> {
         self.typer.probe_type(ty)
     }
 
-    fn resolve_src_ty(&self, ts: TypeSrcId) -> TypeId {
-        self.cx.file_context.ty_src_arena[ts].ty
+    fn resolve_src_ty(&self, db: &dyn crate::Db, ts: TypeSrc) -> TypeId {
+        ts.ty(db)
     }
 }
 

@@ -1,0 +1,7 @@
+struct Box[T] {
+    inner: T,
+}
+
+// invariant[T] Box[T] {
+//     true
+// }

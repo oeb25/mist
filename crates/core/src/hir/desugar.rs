@@ -10,7 +10,7 @@ use super::{
     StatementData, WhileExpr,
 };
 
-pub fn desugar(cx: &mut ItemContext) {
+pub fn desugar(db: &dyn crate::Db, cx: &mut ItemContext) {
     let mut desugar_queue = Vec::new();
 
     for (eid, expr) in cx.expr_arena.iter() {
@@ -39,7 +39,7 @@ pub fn desugar(cx: &mut ItemContext) {
             ExprData::Quantifier { quantifier, over: QuantifierOver::In(var, in_expr), expr } => {
                 let params = vec![Param { is_ghost: false, name: var, ty: cx.var_ty_src(var) }];
 
-                let var_expr = alloc_expr!(ExprData::Ident(var), cx.var_ty(var).id());
+                let var_expr = alloc_expr!(ExprData::Ident(var), cx.var_ty(db, var).id());
                 let condition =
                     alloc_expr!(ExprData::Builtin(BuiltinExpr::InRange(var_expr, in_expr)), bool());
                 let true_expr = alloc_expr!(ExprData::Literal(Literal::Bool(true)), bool());
@@ -75,7 +75,7 @@ pub fn desugar(cx: &mut ItemContext) {
                     initializer: var_min_expr,
                 }));
                 let var_expr =
-                    alloc_expr!(ExprData::Ident(it.variable), cx.var_ty(it.variable).id());
+                    alloc_expr!(ExprData::Ident(it.variable), cx.var_ty(db, it.variable).id());
                 let cond_expr = alloc_expr!(
                     ExprData::Builtin(BuiltinExpr::InRange(var_expr, it.in_expr)),
                     bool()

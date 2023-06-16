@@ -23,6 +23,7 @@ pub struct Jar(
     crate::hir::file::parse_file,
     crate::hir::file::ast_map,
     crate::hir::file_context::initialize_file_context,
+    crate::hir::def::TypeSrc,
     crate::hir::SourceFile,
     crate::hir::file_definitions,
     crate::hir::DefinitionHir,

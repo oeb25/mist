@@ -65,7 +65,7 @@ pub(crate) fn lower_def(db: &dyn crate::Db, def: Def) -> Option<DefinitionHir> {
         DefKind::Struct(_) => {
             let mut checker = TypeChecker::init(db, def);
 
-            if let Some(self_ty) = checker.cx.self_ty() {
+            if let Some(self_ty) = checker.cx.self_ty(db) {
                 let related_invs = file_definitions(db, def.file(db))
                     .into_iter()
                     .filter_map(|def| def.kind(db).to_type_invariant())
@@ -90,7 +90,7 @@ pub(crate) fn lower_def(db: &dyn crate::Db, def: Def) -> Option<DefinitionHir> {
                 }
             }
 
-            Some(checker.into())
+            Some(DefinitionHir::from_tc(db, checker))
         }
         DefKind::StructField(_) => None,
         DefKind::TypeInvariant(ty_inv) => {
@@ -104,7 +104,7 @@ pub(crate) fn lower_def(db: &dyn crate::Db, def: Def) -> Option<DefinitionHir> {
                 checker.set_return_ty(ret_ty);
                 checker.set_body_expr_from_block(body, ast_body);
             }
-            Some(checker.into())
+            Some(DefinitionHir::from_tc(db, checker))
         }
         DefKind::Function(function) => {
             let mut checker = TypeChecker::init(db, def);
@@ -128,13 +128,13 @@ pub(crate) fn lower_def(db: &dyn crate::Db, def: Def) -> Option<DefinitionHir> {
                     .unwrap_or_else(|| fn_ast.fn_token().unwrap().span());
                 if let Some((ret_ast, ret_ty)) = ret_ty {
                     let ret_ty = ret_ty.with_ghost(&mut checker, is_ghost);
-                    checker.expect_ty(ret_ast.span(), checker.cx[ret_ty].ty, body.return_ty);
+                    checker.expect_ty(ret_ast.span(), ret_ty.ty(db), body.return_ty);
                 } else {
                     checker.expect_ty(name_span, void(), body.return_ty);
                 }
                 checker.set_body_expr_from_block(body, ast_body);
             }
-            Some(checker.into())
+            Some(DefinitionHir::from_tc(db, checker))
         }
     }
 }

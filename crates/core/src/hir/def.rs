@@ -1,13 +1,10 @@
 use derive_more::Display;
 use derive_new::new;
-use mist_syntax::ast::{
-    operators::{BinaryOp, UnaryOp},
-    AttrFlags,
-};
+use mist_syntax::ast::operators::{BinaryOp, UnaryOp};
 
 use crate::{
     def::{Name, Struct, StructField},
-    types::{Field, Primitive, TypeData, TypeId},
+    types::{Field, TypeData, TypeId},
     util::impl_idx,
 };
 
@@ -109,7 +106,7 @@ impl ExprData {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum QuantifierOver {
-    Params(Vec<Param<VariableIdx, TypeSrcId>>),
+    Params(Vec<Param<VariableIdx, TypeSrc>>),
     In(VariableIdx, ExprIdx),
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -186,7 +183,7 @@ impl Statement {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StatementData {
     Expr(ExprIdx),
-    Let { variable: VariableIdx, explicit_ty: Option<TypeSrcId>, initializer: ExprIdx },
+    Let { variable: VariableIdx, explicit_ty: Option<TypeSrc>, initializer: ExprIdx },
     Assertion { kind: AssertionKind, exprs: Vec<ExprIdx> },
 }
 
@@ -202,9 +199,8 @@ pub enum AssertionKind {
     Exhale,
 }
 
-impl_idx!(TypeSrcId, TypeSrc, default_debug);
-#[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
+#[salsa::tracked]
 pub struct TypeSrc {
-    pub data: Option<TypeData<TypeSrcId>>,
+    pub data: Option<TypeData<TypeSrc>>,
     pub ty: TypeId,
 }

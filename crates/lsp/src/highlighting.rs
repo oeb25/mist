@@ -5,7 +5,7 @@ use std::{ops::ControlFlow, sync::Arc};
 use derive_new::new;
 use itertools::Itertools;
 use mist_core::{
-    hir::{self, file, ExprIdx, SourceFile, TypeSrcId, VariableIdx},
+    hir::{self, file, ExprIdx, SourceFile, TypeSrc, VariableIdx},
     mir::{self, pass::Pass},
     salsa,
     types::{TypeProvider, TDK},
@@ -241,13 +241,13 @@ impl<'src> Visitor for Highlighter<'src> {
     fn visit_param(
         &mut self,
         vcx: &VisitContext,
-        param: &hir::Param<VariableIdx, TypeSrcId>,
+        param: &hir::Param<VariableIdx, TypeSrc>,
     ) -> ControlFlow<()> {
         self.push(vcx.cx.var_span(param.name), TT::Parameter, None);
 
-        if vcx.cx[param.ty].data.is_none() {
+        if param.ty.data(self.db).is_none() {
             let span = vcx.cx.var_span(param.name);
-            let ty = vcx.cx.var_ty(param.name);
+            let ty = vcx.cx.var_ty(self.db, param.name);
             self.inlay_hints.push(InlayHint {
                 position: Position::from_byte_offset(self.src, span.end()),
                 label: format!(": {}", vcx.cx.pretty_ty(self.db, ty.id())),
@@ -302,14 +302,13 @@ impl<'src> Visitor for Highlighter<'src> {
         ControlFlow::Continue(())
     }
 
-    fn visit_ty(&mut self, vcx: &VisitContext, ty: hir::TypeSrcId) -> ControlFlow<()> {
-        let ts = &vcx.cx[ty];
-        match vcx.cx.ty_kind(ts.ty) {
+    fn visit_ty(&mut self, vcx: &VisitContext, ts: hir::TypeSrc) -> ControlFlow<()> {
+        match vcx.cx.ty_kind(ts.ty(self.db)) {
             TDK::Primitive(_) => {
-                self.push_opt(Some(vcx.source_map[ty].span()), TT::Type, Some(TM::DefaultLibrary));
+                self.push_opt(Some(vcx.source_map[ts].span()), TT::Type, Some(TM::DefaultLibrary));
             }
             TDK::Struct(_) => {
-                self.push_opt(Some(vcx.source_map[ty].span()), TT::Type, None);
+                self.push_opt(Some(vcx.source_map[ts].span()), TT::Type, None);
             }
             _ => {}
         }
@@ -321,7 +320,7 @@ impl<'src> Visitor for Highlighter<'src> {
         if let hir::StatementData::Let { variable, explicit_ty, .. } = &vcx.cx[stmt].data {
             if explicit_ty.is_none() {
                 let span = vcx.cx.var_span(*variable);
-                let ty = vcx.cx.var_ty(*variable);
+                let ty = vcx.cx.var_ty(self.db, *variable);
                 self.inlay_hints.push(InlayHint {
                     position: Position::from_byte_offset(self.src, span.end()),
                     label: format!(": {}", vcx.cx.pretty_ty(self.db, ty.id())),

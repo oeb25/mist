@@ -11,7 +11,7 @@ use crate::{
     def::{DefKind, Function, Struct, TypeInvariant},
     hir::{
         self, Block, Decreases, ExprData, ExprIdx, IfExpr, ItemContext, ItemSourceMap, Param,
-        SourceFile, StatementData, StatementId, TypeSrcId, VariableIdx, WhileExpr,
+        SourceFile, StatementData, StatementId, TypeSrc, VariableIdx, WhileExpr,
     },
     types::{Field, TDK},
 };
@@ -89,7 +89,7 @@ pub trait Walker<'db>: Sized {
         function: Function,
     ) -> ControlFlow<V::Item>;
     #[must_use]
-    fn walk_ty<V: Visitor>(&mut self, visitor: &mut V, ty: TypeSrcId) -> ControlFlow<V::Item>;
+    fn walk_ty<V: Visitor>(&mut self, visitor: &mut V, ty: TypeSrc) -> ControlFlow<V::Item>;
     #[must_use]
     fn walk_decreases<V: Visitor>(
         &mut self,
@@ -116,7 +116,7 @@ pub trait Walker<'db>: Sized {
     fn walk_param_list<V: Visitor>(
         &mut self,
         visitor: &mut V,
-        param_list: &[Param<VariableIdx, TypeSrcId>],
+        param_list: &[Param<VariableIdx, TypeSrc>],
     ) -> ControlFlow<V::Item>;
 }
 
@@ -172,7 +172,7 @@ pub trait Visitor {
     fn visit_param(
         &mut self,
         vcx: &VisitContext,
-        param: &Param<VariableIdx, TypeSrcId>,
+        param: &Param<VariableIdx, TypeSrc>,
     ) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
@@ -189,7 +189,7 @@ pub trait Visitor {
         ControlFlow::Continue(())
     }
     #[must_use]
-    fn visit_ty(&mut self, vcx: &VisitContext, ty: TypeSrcId) -> ControlFlow<Self::Item> {
+    fn visit_ty(&mut self, vcx: &VisitContext, ty: TypeSrc) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
     #[must_use]
@@ -337,13 +337,13 @@ where
     }
 
     #[must_use]
-    fn walk_ty<V: Visitor>(&mut self, visitor: &mut V, ty: TypeSrcId) -> ControlFlow<V::Item> {
+    fn walk_ty<V: Visitor>(&mut self, visitor: &mut V, ty: TypeSrc) -> ControlFlow<V::Item> {
         if self.pre() {
             visitor.visit_ty(&self.vcx, ty)?;
         }
 
-        let td = if let Some(td) = &self.vcx.cx[ty].data {
-            td.clone()
+        let td = if let Some(td) = ty.data(self.db) {
+            td
         } else {
             return ControlFlow::Continue(());
         };
@@ -582,7 +582,7 @@ where
     fn walk_param_list<V: Visitor>(
         &mut self,
         visitor: &mut V,
-        param_list: &[Param<VariableIdx, TypeSrcId>],
+        param_list: &[Param<VariableIdx, TypeSrc>],
     ) -> ControlFlow<V::Item> {
         for param in param_list {
             if self.pre() {

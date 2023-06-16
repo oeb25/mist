@@ -34,12 +34,12 @@ pub fn lower_item(db: &dyn crate::Db, def: Def) -> Option<DefinitionMir> {
     lower.body.params = cx
         .params()
         .iter()
-        .map(|param| lower.alloc_slot(Slot::Param(param.name), cx[param.ty].ty))
+        .map(|param| lower.alloc_slot(Slot::Param(param.name), param.ty.ty(db)))
         .collect();
 
-    lower.body.result_slot = cx.return_ty().map(|ret_ty| lower.alloc_slot(Slot::Result, ret_ty));
+    lower.body.result_slot = cx.return_ty(db).map(|ret_ty| lower.alloc_slot(Slot::Result, ret_ty));
 
-    lower.body.self_slot = cx.self_ty().map(|self_ty| lower.alloc_slot(Slot::Self_, self_ty));
+    lower.body.self_slot = cx.self_ty(db).map(|self_ty| lower.alloc_slot(Slot::Self_, self_ty));
 
     for cond in cx.conditions() {
         match cond {
@@ -105,10 +105,10 @@ impl<'a> MirLower<'a> {
         self.alloc_slot(slot, ty).into()
     }
     fn alloc_quantified(&mut self, var: VariableIdx) -> SlotId {
-        self.alloc_slot(Slot::Quantified(var), self.cx.var_ty(var))
+        self.alloc_slot(Slot::Quantified(var), self.cx.var_ty(self.db, var))
     }
     fn alloc_local(&mut self, var: VariableIdx) -> SlotId {
-        self.alloc_slot(Slot::Local(var), self.cx.var_ty(var))
+        self.alloc_slot(Slot::Local(var), self.cx.var_ty(self.db, var))
     }
     fn alloc_slot(&mut self, slot: Slot, ty: impl Into<TypeId>) -> SlotId {
         let id = match &slot {
@@ -176,7 +176,7 @@ impl<'a> MirLower<'a> {
                 self.db,
                 MirError::SlotUseBeforeAlloc { def: self.cx.def(), var, span: None },
             );
-            self.alloc_tmp(self.cx.var_ty(var))
+            self.alloc_tmp(self.cx.var_ty(self.db, var))
         }
     }
     fn finish(self) -> DefinitionMir {
@@ -598,7 +598,9 @@ impl MirLower<'_> {
                 }
 
                 let dest = match dest {
-                    Placement::Ignore => self.alloc_tmp(self.cx.struct_ty(*struct_declaration)),
+                    Placement::Ignore => {
+                        self.alloc_tmp(self.cx.struct_ty(self.db, *struct_declaration))
+                    }
                     Placement::Assign(p) => p,
                     Placement::IntoOperand(ty, o) => {
                         let tmp = self.alloc_tmp(ty);

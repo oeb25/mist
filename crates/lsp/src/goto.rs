@@ -106,11 +106,11 @@ impl Visitor for DeclarationFinder<'_> {
     fn visit_ty(
         &mut self,
         vcx: &VisitContext,
-        ty: hir::TypeSrcId,
+        ty: hir::TypeSrc,
     ) -> ControlFlow<Option<DeclarationSpans>> {
         let original_span = vcx.source_map[ty].span();
         if original_span.contains(self.byte_offset) {
-            match vcx.cx.ty_kind(vcx.cx[ty].ty) {
+            match vcx.cx.ty_kind(ty.ty(self.db)) {
                 TDK::Struct(s) => {
                     let target_span = s.ast_node(self.db).name().unwrap().span();
                     ControlFlow::Break(Some(DeclarationSpans { original_span, target_span }))

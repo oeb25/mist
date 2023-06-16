@@ -6,13 +6,13 @@ use crate::{
     types::{TypeData, TypeId, TDK},
 };
 
-use super::{pretty, BuiltinExpr, Expr, ExprData, ExprIdx, Literal, Param, TypeSrcId, VariableIdx};
+use super::{pretty, BuiltinExpr, Expr, ExprData, ExprIdx, Literal, Param, TypeSrc, VariableIdx};
 
 pub trait PrettyPrint {
     fn resolve_var(&self, idx: VariableIdx) -> Name;
-    fn resolve_var_ty(&self, idx: VariableIdx) -> TypeId;
+    fn resolve_var_ty(&self, db: &dyn crate::Db, idx: VariableIdx) -> TypeId;
     fn resolve_ty(&self, ty: TypeId) -> TypeData;
-    fn resolve_src_ty(&self, ts: TypeSrcId) -> TypeId;
+    fn resolve_src_ty(&self, db: &dyn crate::Db, ts: TypeSrc) -> TypeId;
     fn resolve_expr(&self, idx: ExprIdx) -> &Expr;
 }
 
@@ -24,12 +24,16 @@ pub fn params(
     pp: &impl PrettyPrint,
     db: &dyn crate::Db,
     strip_ghost: bool,
-    params: impl IntoIterator<Item = Param<Name, TypeSrcId>>,
+    params: impl IntoIterator<Item = Param<Name, TypeSrc>>,
 ) -> String {
     let params = params
         .into_iter()
         .map(|param| {
-            format!("{}: {}", param.name, pp_ty(pp, db, strip_ghost, pp.resolve_src_ty(param.ty)))
+            format!(
+                "{}: {}",
+                param.name,
+                pp_ty(pp, db, strip_ghost, pp.resolve_src_ty(db, param.ty))
+            )
         })
         .format(", ");
     format!("({params})")

@@ -2,7 +2,7 @@ use std::fmt;
 
 use crate::{
     def::{Name, Struct, StructField},
-    hir::{Param, TypeSrcId},
+    hir::{Param, TypeSrc},
     util::impl_idx,
 };
 use derive_more::From;
@@ -32,7 +32,7 @@ pub enum TypeDataKind<T> {
     Function {
         attrs: AttrFlags,
         name: Option<Name>,
-        params: Vec<Param<Name, TypeSrcId>>,
+        params: Vec<Param<Name, TypeSrc>>,
         return_ty: T,
     },
     Range(T),

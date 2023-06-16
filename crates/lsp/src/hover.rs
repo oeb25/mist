@@ -2,7 +2,7 @@ use std::ops::ControlFlow;
 
 use derive_new::new;
 use mist_core::{
-    hir::{pretty, ExprData, ExprIdx, Param, SourceFile, TypeSrcId, VariableIdx},
+    hir::{pretty, ExprData, ExprIdx, Param, SourceFile, TypeSrc, VariableIdx},
     salsa,
     types::{Field, ListField, TypeProvider, TDK},
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
@@ -58,7 +58,8 @@ impl<'a> Visitor for HoverFinder<'a> {
             match field {
                 Field::StructField(sf) => {
                     let s = sf.parent_struct(self.db);
-                    let struct_ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx.struct_ty(s).id());
+                    let struct_ty =
+                        pretty::ty(&*vcx.cx, self.db, false, vcx.cx.struct_ty(self.db, s).id());
                     let ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx.field_ty_ptr(field).id());
                     break_code(
                         [format!("struct {struct_ty}"), format!("{}: {ty}", field.name(self.db))],
@@ -85,7 +86,7 @@ impl<'a> Visitor for HoverFinder<'a> {
     ) -> ControlFlow<Option<HoverResult>> {
         if span.contains_pos(self.byte_offset) {
             let name = vcx.cx.var_name(var);
-            let ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx.var_ty(var).id());
+            let ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx.var_ty(self.db, var).id());
 
             break_code(
                 [match vcx.cx.decl(var).kind() {
@@ -104,12 +105,12 @@ impl<'a> Visitor for HoverFinder<'a> {
     fn visit_param(
         &mut self,
         vcx: &VisitContext,
-        param: &Param<VariableIdx, TypeSrcId>,
+        param: &Param<VariableIdx, TypeSrc>,
     ) -> ControlFlow<Option<HoverResult>> {
         let name_span = vcx.cx.var_span(param.name);
         let name = vcx.cx.var_name(param.name);
         if name_span.contains_pos(self.byte_offset) {
-            let ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx[param.ty].ty);
+            let ty = pretty::ty(&*vcx.cx, self.db, false, param.ty.ty(self.db));
             break_code([format!("{name}: {ty}")], None)
         } else {
             ControlFlow::Continue(())
@@ -135,15 +136,15 @@ impl<'a> Visitor for HoverFinder<'a> {
         ControlFlow::Continue(())
     }
 
-    fn visit_ty(&mut self, vcx: &VisitContext, ty: TypeSrcId) -> ControlFlow<Option<HoverResult>> {
+    fn visit_ty(&mut self, vcx: &VisitContext, ty: TypeSrc) -> ControlFlow<Option<HoverResult>> {
         let span = match &vcx.source_map[ty] {
             src if src.span().contains(self.byte_offset) => src.span(),
             _ => return ControlFlow::Continue(()),
         };
 
-        let pretty_ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx[ty].ty);
+        let pretty_ty = pretty::ty(&*vcx.cx, self.db, false, ty.ty(self.db));
 
-        let s = match &vcx.cx[ty].data.as_ref().map(|d| &d.kind) {
+        let s = match ty.data(self.db).map(|d| d.kind) {
             Some(TDK::Struct(_)) => format!("struct {pretty_ty}"),
             _ => pretty_ty,
         };

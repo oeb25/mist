@@ -313,7 +313,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                         .iter()
                         .zip(params.iter().map(|p| p.ty.with_ghost(tc, p.is_ghost)).collect_vec())
                     {
-                        let expected = b.with_ghost(tc, ghostify_pure);
+                        let expected = b.with_ghost(tc, ghostify_pure).ty(tc.db);
                         tc.expect_ty(tc.expr_span(*a), expected, tc.expr_ty(*a));
                     }
 
@@ -679,7 +679,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                     let var_decl =
                         tc.declare_variable(VariableDeclaration::new_let(name), ty, name_span);
                     let over_expr = check_opt(tc, it.span(), it.expr());
-                    let range_ty = tc.alloc_ty_data(TDK::Range(ty.ty(tc)).ghost());
+                    let range_ty = tc.alloc_ty_data(TDK::Range(ty.ty(tc.db)).ghost());
                     tc.expect_ty((it.expr().as_ref(), name_span), range_ty, tc.expr_ty(over_expr));
                     QuantifierOver::In(var_decl, over_expr)
                 }
@@ -733,10 +733,7 @@ fn check_if_expr(tc: &mut TypeChecker, if_expr: ast::IfExpr) -> ExprIdx {
                     tc.check_block(&b, |f| if is_ghost { f | ScopeFlags::GHOST } else { f });
                 let tail_span = Spanned::span((
                     block.tail_expr.map(|e| tc.expr_span(e)),
-                    block
-                        .stmts
-                        .last()
-                        .and_then(|s| tc.source_map.stmt_map_back.get(*s).map(|it| it.span())),
+                    block.stmts.last().and_then(|s| tc.source_map.stmt_ast(*s).map(|it| it.span())),
                     b.span(),
                 ));
                 (tail_span, tc.alloc_expr(Expr::new_block(block), b.span()))
