@@ -508,8 +508,9 @@ where
             }
             ExprData::Quantifier { over, expr, .. } => {
                 match over {
-                    hir::QuantifierOver::Params(params) => {
-                        self.walk_param_list(visitor, &params)?
+                    hir::QuantifierOver::Vars(_) => {
+                        // NOTE: don't walk anything here, since it will be
+                        // covered by walking the vars some other place
                     }
                     hir::QuantifierOver::In(_, expr) => self.walk_expr(visitor, expr)?,
                 }

@@ -694,15 +694,15 @@ impl MirLower<'_> {
                 self.put_call(expr, func, elems, dest, bid, target)
             }
             ExprData::Quantifier { quantifier, over, expr: q_expr } => {
-                let params = match over {
-                    hir::QuantifierOver::Params(params) => params,
+                let vars = match over {
+                    hir::QuantifierOver::Vars(vars) => vars,
                     hir::QuantifierOver::In(_, _) => {
                         unreachable!("we should desugar quantifier-in in hir")
                     }
                 };
 
                 let q_body = self.alloc_block(None);
-                let params = params.iter().map(|param| self.alloc_quantified(param.name)).collect();
+                let vars = vars.iter().map(|var| self.alloc_quantified(*var)).collect();
 
                 let mut q_end = q_body;
                 let q_dest = self.expr_into_operand(*q_expr, &mut q_end, None);
@@ -711,7 +711,7 @@ impl MirLower<'_> {
 
                 self.body.blocks[bid].set_terminator(Terminator::Quantify(
                     *quantifier,
-                    params,
+                    vars,
                     q_body,
                 ));
                 self.body.blocks[q_end].set_terminator(Terminator::QuantifyEnd(next_bid));

@@ -12,7 +12,7 @@ use tracing::warn;
 use crate::{
     def::Name,
     hir::{
-        Expr, ExprData, ExprIdx, ForExpr, IfExpr, Literal, Param, Quantifier, QuantifierOver,
+        Expr, ExprData, ExprIdx, ForExpr, IfExpr, Literal, Quantifier, QuantifierOver,
         SpanOrAstPtr, StructExprField, WhileExpr,
     },
     types::{
@@ -648,7 +648,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             tc.push_scope(|f| f);
 
             let over = match it.quantifier_over() {
-                Some(ast::QuantifierOver::ParamList(param_list)) => QuantifierOver::Params(
+                Some(ast::QuantifierOver::ParamList(param_list)) => QuantifierOver::Vars(
                     param_list
                         .params()
                         .map(|p| {
@@ -662,12 +662,9 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                             .with_ghost(tc, p.is_ghost());
 
                             let var_decl = VariableDeclaration::new_param(name.clone());
-                            let name = if let Some(ty_ast) = p.ty() {
-                                tc.declare_variable(var_decl, ty, &ty_ast)
-                            } else {
-                                tc.declare_variable(var_decl, ty, name.span())
-                            };
-                            Param { is_ghost: true, name, ty }
+                            let ty_src: SpanOrAstPtr<_> =
+                                p.ty().as_ref().map(|t| t.into()).unwrap_or(name.span().into());
+                            tc.declare_variable(var_decl, ty, ty_src)
                         })
                         .collect(),
                 ),
@@ -685,7 +682,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 }
                 None => {
                     warn!("quantifier does not quantify over anything");
-                    QuantifierOver::Params(vec![])
+                    QuantifierOver::Vars(vec![])
                 }
             };
 

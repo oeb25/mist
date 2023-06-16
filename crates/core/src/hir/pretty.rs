@@ -24,17 +24,11 @@ pub fn params(
     pp: &impl PrettyPrint,
     db: &dyn crate::Db,
     strip_ghost: bool,
-    params: impl IntoIterator<Item = Param<Name, TypeSrc>>,
+    params: impl IntoIterator<Item = Param<Name, TypeId>>,
 ) -> String {
     let params = params
         .into_iter()
-        .map(|param| {
-            format!(
-                "{}: {}",
-                param.name,
-                pp_ty(pp, db, strip_ghost, pp.resolve_src_ty(db, param.ty))
-            )
-        })
+        .map(|param| format!("{}: {}", param.name, pp_ty(pp, db, strip_ghost, param.ty)))
         .format(", ");
     format!("({params})")
 }
@@ -62,7 +56,12 @@ pub fn ty(pp: &impl PrettyPrint, db: &dyn crate::Db, strip_ghost: bool, ty: Type
                 attrs.push(' ');
             }
             let name = name.as_ref().map(|name| format!(" {name}")).unwrap_or_default();
-            let params = pp_params(pp, db, is_ghost, params);
+            let params = pp_params(
+                pp,
+                db,
+                is_ghost,
+                params.iter().map(|p| p.map_ty(|ty| pp.resolve_src_ty(db, *ty))),
+            );
             let ret = if let TDK::Void = pp.resolve_ty(return_ty).kind {
                 String::new()
             } else {
@@ -140,11 +139,15 @@ pub fn expr(pp: &impl PrettyPrint, db: &dyn crate::Db, expr: ExprIdx) -> String 
         }
         ExprData::Quantifier { quantifier, over, expr } => {
             let over = match over {
-                QuantifierOver::Params(params) => pp_params(
+                QuantifierOver::Vars(vars) => pp_params(
                     pp,
                     db,
                     true,
-                    params.iter().map(|param| param.map_var(|var| pp.resolve_var(*var))),
+                    vars.iter().map(|&var| Param {
+                        is_ghost: false,
+                        name: pp.resolve_var(var),
+                        ty: pp.resolve_var_ty(db, var),
+                    }),
                 ),
                 QuantifierOver::In(var, over) => {
                     format!(" {} in {}", pp.resolve_var(*var), pp_expr(pp, db, *over))

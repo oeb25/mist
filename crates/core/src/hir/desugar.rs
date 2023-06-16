@@ -1,7 +1,7 @@
 use mist_syntax::ast::operators::{ArithOp, BinaryOp, LogicOp};
 
 use crate::{
-    hir::{IfExpr, Param},
+    hir::IfExpr,
     types::builtin::{bool, int, void},
 };
 
@@ -37,7 +37,7 @@ pub fn desugar(db: &dyn crate::Db, cx: &mut ItemContext) {
 
         let new_eid = match cx.expr_arena[eid].data.clone() {
             ExprData::Quantifier { quantifier, over: QuantifierOver::In(var, in_expr), expr } => {
-                let params = vec![Param { is_ghost: false, name: var, ty: cx.var(var).ty_src(db) }];
+                let vars = vec![var];
 
                 let var_expr = alloc_expr!(ExprData::Ident(var), cx.var_ty(db, var).id());
                 let condition =
@@ -57,7 +57,7 @@ pub fn desugar(db: &dyn crate::Db, cx: &mut ItemContext) {
                 alloc_expr!(
                     ExprData::Quantifier {
                         quantifier,
-                        over: QuantifierOver::Params(params),
+                        over: QuantifierOver::Vars(vars),
                         expr: body_expr
                     },
                     bool()

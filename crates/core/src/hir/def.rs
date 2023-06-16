@@ -27,11 +27,17 @@ pub struct Param<I, T> {
 }
 
 impl<I, T> Param<I, T> {
-    pub fn map_var<J>(&self, f: impl FnOnce(&I) -> J) -> Param<J, T>
+    pub fn map_name<J>(&self, f: impl FnOnce(&I) -> J) -> Param<J, T>
     where
         T: Clone,
     {
         Param { is_ghost: self.is_ghost, name: f(&self.name), ty: self.ty.clone() }
+    }
+    pub fn map_ty<S>(&self, f: impl FnOnce(&T) -> S) -> Param<I, S>
+    where
+        I: Clone,
+    {
+        Param { is_ghost: self.is_ghost, name: self.name.clone(), ty: f(&self.ty) }
     }
 }
 
@@ -104,7 +110,7 @@ impl ExprData {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum QuantifierOver {
-    Params(Vec<Param<VariableIdx, TypeSrc>>),
+    Vars(Vec<VariableIdx>),
     In(VariableIdx, ExprIdx),
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
