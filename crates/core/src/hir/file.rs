@@ -52,7 +52,7 @@ impl<N> Copy for FileAstId<N> {}
 pub type AstId<N> = InFile<FileAstId<N>>;
 
 impl SourceFile {
-    fn root(&self, db: &dyn crate::Db) -> ast::SourceFile {
+    pub fn root(&self, db: &dyn crate::Db) -> ast::SourceFile {
         parse_file(db, *self).tree()
     }
     pub fn ast_map(&self, db: &dyn crate::Db) -> AstIdMap {

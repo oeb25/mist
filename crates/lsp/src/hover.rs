@@ -18,8 +18,8 @@ use mist_syntax::{
 pub fn hover(db: &dyn crate::Db, file: SourceFile, byte_offset: usize) -> Option<HoverResult> {
     let mut visitor = HoverFinder::new(db, byte_offset);
 
-    let root = mist_core::hir::file::parse_file(db, file).syntax();
-    let token = root.token_at_offset(byte_offset.try_into().unwrap()).left_biased()?;
+    let root = file.root(db);
+    let token = root.syntax().token_at_offset(byte_offset.try_into().unwrap()).left_biased()?;
     let item = token.parent_ancestors().find_map(ast::Item::cast)?;
     let ast_map = file.ast_map(db);
     let ast_id = ast_map.ast_id(file, &item);

@@ -5,7 +5,7 @@ use std::{ops::ControlFlow, sync::Arc};
 use derive_new::new;
 use itertools::Itertools;
 use mist_core::{
-    hir::{self, file, ExprIdx, SourceFile, TypeRefKind, VariableIdx},
+    hir::{self, ExprIdx, SourceFile, TypeRefKind, VariableIdx},
     mir::{self, pass::Pass},
     salsa,
     types::TDK,
@@ -25,7 +25,7 @@ use TokenType as TT;
 
 #[salsa::tracked]
 pub fn highlighting(db: &dyn crate::Db, file: SourceFile) -> Arc<HighlightResult> {
-    let root = file::parse_file(db, file).tree();
+    let root = file.root(db);
     let mut hf = Highlighter::new(db, file.text(db), &root);
     let _ = PostOrderWalk::walk_program(db, file, &mut hf);
     Arc::new(hf.finish())

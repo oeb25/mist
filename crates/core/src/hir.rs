@@ -28,8 +28,7 @@ pub struct SourceFile {
 #[salsa::tracked]
 pub fn file_definitions(db: &dyn crate::Db, file: SourceFile) -> Vec<Def> {
     let ast_map = file.ast_map(db);
-    file::parse_file(db, file)
-        .tree()
+    file.root(db)
         .items()
         .filter_map(|item| Some(Def::new(db, DefKind::new(db, ast_map.ast_id(file, &item))?)))
         .collect()

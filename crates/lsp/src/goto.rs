@@ -38,8 +38,7 @@ pub fn find_references(
     file: SourceFile,
     byte_offset: usize,
 ) -> Vec<SourceSpan> {
-    let root = hir::file::parse_file(db, file).tree();
-
+    let root = file.root(db);
     let def_named = file.definitions(db).into_iter().find_map(|def| {
         let hir = def.hir(db)?;
         let source_map = hir.source_map(db);

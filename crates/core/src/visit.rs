@@ -250,7 +250,7 @@ where
     O: Order + Default,
 {
     fn init(db: &'db dyn crate::Db, vcx: VisitContext) -> Self {
-        let root = hir::file::parse_file(db, vcx.cx.def().file(db)).tree();
+        let root = vcx.cx.def().file(db).root(db);
         Self { db, root, vcx, order: O::default() }
     }
 
