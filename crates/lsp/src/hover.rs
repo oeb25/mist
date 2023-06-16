@@ -128,6 +128,8 @@ impl<'a> Visitor for HoverFinder<'a> {
             let ty = pretty::ty(&*vcx.cx, self.db, false, expr.ty);
             if let ExprData::Result = &expr.data {
                 return break_code([format!("result: {ty}")], None);
+            } else if let ExprData::Self_ = &expr.data {
+                return break_code([format!("self: {ty}")], None);
             } else {
                 return break_code([ty], Some(span));
             }
