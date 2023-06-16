@@ -127,7 +127,7 @@ impl ItemContext {
     pub fn decl(&self, var: VariableIdx) -> &VariableDeclaration {
         &self.declarations.map[var]
     }
-    pub fn var_span(&self, var: VariableIdx) -> SourceSpan {
+    pub fn var_decl_span(&self, var: VariableIdx) -> SourceSpan {
         self.declarations.map[var].span()
     }
     pub fn var_name(&self, var: VariableIdx) -> Name {

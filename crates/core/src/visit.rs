@@ -8,10 +8,10 @@ use mist_syntax::{
 };
 
 use crate::{
-    def::{DefKind, Function, Struct, TypeInvariant},
+    def::{Def, DefKind, Function, Struct, TypeInvariant},
     hir::{
-        self, Block, Decreases, ExprData, ExprIdx, IfExpr, ItemContext, ItemSourceMap, Param,
-        SourceFile, StatementData, StatementId, TypeSrc, VariableIdx, WhileExpr,
+        self, Block, Decreases, ExprData, ExprIdx, IfExpr, ItemContext, ItemSourceMap, SourceFile,
+        StatementData, StatementId, TypeSrc, VariableIdx, WhileExpr,
     },
     types::Field,
 };
@@ -27,41 +27,53 @@ pub trait Walker<'db>: Sized {
         visitor: &'v mut V,
     ) -> ControlFlow<V::Item> {
         for def in hir::file_definitions(db, file) {
-            let Some(hir) = def.hir(db) else { continue };
-            let cx = Arc::new(hir.cx(db).clone());
-            let source_map = Arc::new(hir.source_map(db).clone());
-            let vcx = VisitContext { cx, source_map: source_map.clone() };
-            let mut walker = Self::init(db, vcx.clone());
-            match def.kind(db) {
-                DefKind::Struct(st) => {
-                    walker.walk_struct(visitor, st)?;
-                }
-                DefKind::StructField(_) => {
-                    // TODO: Should we walk it here?
-                    // walker.walk_struct(visitor, st)?;
-                }
-                DefKind::TypeInvariant(ty_inv) => {
-                    walker.walk_ty_inv(visitor, file, ty_inv)?;
-                }
-                DefKind::Function(f) => {
-                    walker.walk_function(visitor, f)?;
-                }
-            }
-            for event in def.syntax(db).preorder() {
-                match event {
-                    WalkEvent::Enter(node) => {
-                        if let Some(n) = ast::NameOrNameRef::cast(node) {
-                            if let Some(named) = source_map.name_var(&AstPtr::new(&n)) {
-                                match named {
-                                    hir::Named::Variable(var) => {
-                                        visitor.visit_var(&vcx, var, n.span())?
-                                    }
+            Self::walk_def(db, file, visitor, def)?;
+        }
+        ControlFlow::Continue(())
+    }
+    #[must_use]
+    fn walk_def<'v, V: Visitor>(
+        db: &'db dyn crate::Db,
+        file: SourceFile,
+        visitor: &'v mut V,
+        def: Def,
+    ) -> ControlFlow<V::Item> {
+        let Some(hir) = def.hir(db) else { return ControlFlow::Continue(()) };
+        let cx = Arc::new(hir.cx(db).clone());
+        let source_map = Arc::new(hir.source_map(db).clone());
+        let vcx = VisitContext { cx, source_map: source_map.clone() };
+
+        for event in def.syntax(db).preorder() {
+            match event {
+                WalkEvent::Enter(node) => {
+                    if let Some(n) = ast::NameOrNameRef::cast(node) {
+                        if let Some(named) = source_map.name_var(&AstPtr::new(&n)) {
+                            match named {
+                                hir::Named::Variable(var) => {
+                                    visitor.visit_var(&vcx, var, n.span())?
                                 }
                             }
                         }
                     }
-                    WalkEvent::Leave(_) => {}
                 }
+                WalkEvent::Leave(_) => {}
+            }
+        }
+
+        let mut walker = Self::init(db, vcx.clone());
+        match def.kind(db) {
+            DefKind::Struct(st) => {
+                walker.walk_struct(visitor, st)?;
+            }
+            DefKind::StructField(_) => {
+                // TODO: Should we walk it here?
+                // walker.walk_struct(visitor, st)?;
+            }
+            DefKind::TypeInvariant(ty_inv) => {
+                walker.walk_ty_inv(visitor, file, ty_inv)?;
+            }
+            DefKind::Function(f) => {
+                walker.walk_function(visitor, f)?;
             }
         }
         ControlFlow::Continue(())
@@ -112,12 +124,6 @@ pub trait Walker<'db>: Sized {
     ) -> ControlFlow<V::Item>;
     #[must_use]
     fn walk_block<V: Visitor>(&mut self, visitor: &mut V, block: &Block) -> ControlFlow<V::Item>;
-    #[must_use]
-    fn walk_param_list<V: Visitor>(
-        &mut self,
-        visitor: &mut V,
-        param_list: &[Param<VariableIdx, TypeSrc>],
-    ) -> ControlFlow<V::Item>;
 }
 
 #[derive(Clone)]
@@ -165,14 +171,6 @@ pub trait Visitor {
         &mut self,
         vcx: &VisitContext,
         src: &hir::SpanOrAstPtr<ast::Expr>,
-    ) -> ControlFlow<Self::Item> {
-        ControlFlow::Continue(())
-    }
-    #[must_use]
-    fn visit_param(
-        &mut self,
-        vcx: &VisitContext,
-        param: &Param<VariableIdx, TypeSrc>,
     ) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
@@ -315,9 +313,6 @@ where
         _function: Function,
     ) -> ControlFlow<V::Item> {
         let Some(fx) = self.vcx.cx.function_context().cloned() else { return ControlFlow::Continue(()) };
-
-        let params = self.vcx.cx.params().to_vec();
-        self.walk_param_list(visitor, &params)?;
 
         for it in fx.conditions() {
             self.walk_exprs(visitor, it.exprs())?;
@@ -568,25 +563,6 @@ where
 
         if let Some(expr) = block.tail_expr {
             self.walk_expr(visitor, expr)?;
-        }
-
-        ControlFlow::Continue(())
-    }
-
-    #[must_use]
-    fn walk_param_list<V: Visitor>(
-        &mut self,
-        visitor: &mut V,
-        param_list: &[Param<VariableIdx, TypeSrc>],
-    ) -> ControlFlow<V::Item> {
-        for param in param_list {
-            if self.pre() {
-                visitor.visit_param(&self.vcx, param)?;
-            }
-            self.walk_ty(visitor, param.ty)?;
-            if self.post() {
-                visitor.visit_param(&self.vcx, param)?;
-            }
         }
 
         ControlFlow::Continue(())

@@ -1,6 +1,6 @@
 use mist_syntax::ast;
 
-use crate::hir::file::AstId;
+use crate::hir::file::{parse_file, AstId};
 
 mod ext;
 mod name;
@@ -21,6 +21,22 @@ pub enum DefKind {
 }
 
 impl DefKind {
+    pub fn new(db: &dyn crate::Db, id: AstId<ast::Item>) -> Option<DefKind> {
+        let root = parse_file(db, id.file).syntax();
+        let ast_map = id.file.ast_map(db);
+
+        Some(match ast_map.get(id.value).to_node(&root) {
+            ast::Item::Fn(node) => DefKind::from(Function::new(db, ast_map.ast_id(id.file, &node))),
+            ast::Item::Struct(node) => {
+                DefKind::from(Struct::new(db, ast_map.ast_id(id.file, &node)))
+            }
+            ast::Item::TypeInvariant(node) => {
+                DefKind::from(TypeInvariant::new(db, ast_map.ast_id(id.file, &node)))
+            }
+            ast::Item::Const(_) | ast::Item::Macro(_) => return None,
+        })
+    }
+
     pub fn to_function(self) -> Option<Function> {
         if let Self::Function(v) = self {
             Some(v)

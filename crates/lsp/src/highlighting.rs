@@ -5,7 +5,7 @@ use std::{ops::ControlFlow, sync::Arc};
 use derive_new::new;
 use itertools::Itertools;
 use mist_core::{
-    hir::{self, file, ExprIdx, SourceFile, TypeRefKind, TypeSrc, VariableIdx},
+    hir::{self, file, ExprIdx, SourceFile, TypeRefKind, VariableIdx},
     mir::{self, pass::Pass},
     salsa,
     types::TDK,
@@ -14,7 +14,7 @@ use mist_core::{
 };
 use mist_syntax::{
     ast::{self, Spanned},
-    SourceSpan,
+    AstNode, SourceSpan,
 };
 pub use tokens::{TokenModifier, TokenType};
 use tower_lsp::lsp_types::{self, SemanticToken};
@@ -220,41 +220,31 @@ impl<'src> Visitor for Highlighter<'src> {
     ) -> ControlFlow<()> {
         use mist_core::VariableDeclarationKind::*;
 
-        let tt = match vcx.cx.decl(var).kind() {
+        let decl = vcx.cx.decl(var);
+        let tt = match decl.kind() {
             Let => TT::Variable,
             Parameter => TT::Parameter,
             Function => TT::Function,
             Undefined => return ControlFlow::Continue(()),
         };
         self.push(span, tt, None);
-        ControlFlow::Continue(())
-    }
-    fn visit_self(
-        &mut self,
-        _vcx: &VisitContext,
-        src: &hir::SpanOrAstPtr<mist_syntax::ast::Expr>,
-    ) -> ControlFlow<Self::Item> {
-        self.push(src, TT::Keyword, None);
-        ControlFlow::Continue(())
-    }
 
-    fn visit_param(
-        &mut self,
-        vcx: &VisitContext,
-        param: &hir::Param<VariableIdx, TypeSrc>,
-    ) -> ControlFlow<()> {
-        self.push(vcx.cx.var_span(param.name), TT::Parameter, None);
-
-        if param.ty.type_ref(self.db).is_none() {
-            let span = vcx.cx.var_span(param.name);
-            let ty = vcx.cx.var_ty(self.db, param.name);
-            self.inlay_hints.push(InlayHint {
-                position: Position::from_byte_offset(self.src, span.end()),
-                label: format!(": {}", vcx.cx.pretty_ty(self.db, ty.id())),
-                kind: None,
-                padding_left: None,
-                padding_right: None,
-            });
+        if let Some(None) =
+            decl.ast_name_or_name_ref(self.root).syntax().ancestors().find_map(|ast| {
+                None.or_else(|| ast::Param::cast(ast.clone()).map(|p| p.ty()))
+                    .or_else(|| ast::LetStmt::cast(ast).map(|l| l.ty()))
+            })
+        {
+            if let ast::NameOrNameRef::Name(_) = decl.ast_name_or_name_ref(self.root) {
+                let ty = vcx.cx.var_ty(self.db, var);
+                self.inlay_hints.push(InlayHint {
+                    position: Position::from_byte_offset(self.src, span.end()),
+                    label: format!(": {}", vcx.cx.pretty_ty(self.db, ty.id())),
+                    kind: None,
+                    padding_left: None,
+                    padding_right: None,
+                });
+            }
         }
 
         ControlFlow::Continue(())
@@ -311,28 +301,6 @@ impl<'src> Visitor for Highlighter<'src> {
                 self.push_opt(Some(vcx.source_map[ts].span()), TT::Type, None);
             }
             _ => {}
-        }
-
-        ControlFlow::Continue(())
-    }
-
-    fn visit_stmt(&mut self, vcx: &VisitContext, stmt: hir::StatementId) -> ControlFlow<()> {
-        if let hir::StatementData::Let(let_stmt) = &vcx.cx[stmt].data {
-            let explicit_ty = vcx.source_map.stmt_ast(stmt).and_then(|ast| {
-                let_stmt.explicit_ty(&ast.cast()?.to_node(self.root.syntax()), &vcx.source_map)
-            });
-
-            if explicit_ty.is_none() {
-                let span = vcx.cx.var_span(let_stmt.variable);
-                let ty = vcx.cx.var_ty(self.db, let_stmt.variable);
-                self.inlay_hints.push(InlayHint {
-                    position: Position::from_byte_offset(self.src, span.end()),
-                    label: format!(": {}", vcx.cx.pretty_ty(self.db, ty.id())),
-                    kind: None,
-                    padding_left: None,
-                    padding_right: None,
-                });
-            }
         }
 
         ControlFlow::Continue(())

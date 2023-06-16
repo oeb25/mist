@@ -129,7 +129,7 @@ impl Visitor for DeclarationFinder<'_> {
     ) -> ControlFlow<Option<DeclarationSpans>> {
         if span.contains_pos(self.byte_offset) {
             let original_span = span;
-            let target_span = vcx.cx.var_span(var);
+            let target_span = vcx.cx.var_decl_span(var);
             ControlFlow::Break(Some(DeclarationSpans { original_span, target_span }))
         } else {
             ControlFlow::Continue(())

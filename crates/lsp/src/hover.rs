@@ -2,7 +2,8 @@ use std::ops::ControlFlow;
 
 use derive_new::new;
 use mist_core::{
-    hir::{pretty, ExprData, ExprIdx, Param, SourceFile, TypeRefKind, TypeSrc, VariableIdx},
+    def::{Def, DefKind},
+    hir::{pretty, ExprData, ExprIdx, SourceFile, TypeRefKind, TypeSrc, VariableIdx},
     salsa,
     types::{Field, ListField, TypeProvider},
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
@@ -10,13 +11,21 @@ use mist_core::{
 };
 use mist_syntax::{
     ast::{self, Spanned},
-    SourceSpan,
+    AstNode, SourceSpan,
 };
 
 #[salsa::tracked]
 pub fn hover(db: &dyn crate::Db, file: SourceFile, byte_offset: usize) -> Option<HoverResult> {
     let mut visitor = HoverFinder::new(db, byte_offset);
-    match PostOrderWalk::walk_program(db, file, &mut visitor) {
+
+    let root = mist_core::hir::file::parse_file(db, file).syntax();
+    let token = root.token_at_offset(byte_offset.try_into().unwrap()).left_biased()?;
+    let item = token.parent_ancestors().find_map(ast::Item::cast)?;
+    let ast_map = file.ast_map(db);
+    let ast_id = ast_map.ast_id(file, &item);
+    let def = Def::new(db, DefKind::new(db, ast_id)?);
+
+    match PostOrderWalk::walk_def(db, file, &mut visitor, def) {
         ControlFlow::Break(result) => result,
         ControlFlow::Continue(()) => None,
     }
@@ -97,21 +106,6 @@ impl<'a> Visitor for HoverFinder<'a> {
                 }],
                 None,
             )
-        } else {
-            ControlFlow::Continue(())
-        }
-    }
-
-    fn visit_param(
-        &mut self,
-        vcx: &VisitContext,
-        param: &Param<VariableIdx, TypeSrc>,
-    ) -> ControlFlow<Option<HoverResult>> {
-        let name_span = vcx.cx.var_span(param.name);
-        let name = vcx.cx.var_name(param.name);
-        if name_span.contains_pos(self.byte_offset) {
-            let ty = pretty::ty(&*vcx.cx, self.db, false, param.ty.ty(self.db));
-            break_code([format!("{name}: {ty}")], None)
         } else {
             ControlFlow::Continue(())
         }

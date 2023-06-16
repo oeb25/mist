@@ -10,7 +10,7 @@ use itertools::Itertools;
 use mist_syntax::ast::{self, HasName, Spanned};
 
 use crate::{
-    def::{Def, DefKind, Function, Struct, TypeInvariant},
+    def::{Def, DefKind, Struct},
     hir::typecheck::{Typed, TypingMutExt},
     types::builtin::*,
 };
@@ -31,19 +31,7 @@ pub fn file_definitions(db: &dyn crate::Db, file: SourceFile) -> Vec<Def> {
     file::parse_file(db, file)
         .tree()
         .items()
-        .filter_map(|item| match item {
-            ast::Item::Fn(node) => {
-                Some(DefKind::from(Function::new(db, ast_map.ast_id(file, &node))))
-            }
-            ast::Item::Struct(node) => {
-                Some(DefKind::from(Struct::new(db, ast_map.ast_id(file, &node))))
-            }
-            ast::Item::TypeInvariant(node) => {
-                Some(DefKind::from(TypeInvariant::new(db, ast_map.ast_id(file, &node))))
-            }
-            ast::Item::Const(_) | ast::Item::Macro(_) => None,
-        })
-        .map(|kind| Def::new(db, kind))
+        .filter_map(|item| Some(Def::new(db, DefKind::new(db, ast_map.ast_id(file, &item))?)))
         .collect()
 }
 

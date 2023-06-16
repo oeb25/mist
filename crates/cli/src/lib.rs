@@ -86,7 +86,7 @@ pub fn accumulated_errors(
             MistError::TypeCheck(_) => {}
             MistError::Mir(err) => err.populate_spans(
                 |def, expr| Some(def.hir(db)?.source_map(db).expr_span(def.hir(db)?.cx(db), expr)),
-                |def, var| Some(def.hir(db)?.cx(db).var_span(var)),
+                |def, var| Some(def.hir(db)?.cx(db).var_decl_span(var)),
             ),
             MistError::ViperLower(err) => {
                 err.populate_spans(|def, block_or_instr| {
