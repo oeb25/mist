@@ -558,11 +558,17 @@ where
 
             match self.vcx.cx[stmt].data.clone() {
                 StatementData::Expr(expr) => self.walk_expr(visitor, expr)?,
-                StatementData::Let { variable: _, explicit_ty, initializer } => {
-                    if let Some(ty) = explicit_ty {
+                StatementData::Let(let_stmt) => {
+                    if let Some(ty) = self.vcx.source_map.stmt_ast(stmt).and_then(|ast| {
+                        let_stmt.explicit_ty(
+                            &ast.cast()?.to_node(self.root.syntax()),
+                            &self.vcx.source_map,
+                        )
+                    }) {
                         self.walk_ty(visitor, ty)?;
                     }
-                    self.walk_expr(visitor, initializer)?;
+
+                    self.walk_expr(visitor, let_stmt.initializer)?;
                 }
                 StatementData::Assertion { exprs, .. } => self.walk_exprs(visitor, &exprs)?,
             }

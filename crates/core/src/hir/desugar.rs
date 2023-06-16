@@ -1,7 +1,7 @@
 use mist_syntax::ast::operators::{ArithOp, BinaryOp, LogicOp};
 
 use crate::{
-    hir::IfExpr,
+    hir::{IfExpr, Let},
     types::builtin::{bool, int, void},
 };
 
@@ -69,11 +69,10 @@ pub fn desugar(db: &dyn crate::Db, cx: &mut ItemContext) {
                     alloc_expr!(ExprData::Builtin(BuiltinExpr::RangeMin(it.in_expr)), int());
                 let var_max_expr =
                     alloc_expr!(ExprData::Builtin(BuiltinExpr::RangeMax(it.in_expr)), int());
-                let let_var_stmt = cx.stmt_arena.alloc(Statement::new(StatementData::Let {
+                let let_var_stmt = cx.stmt_arena.alloc(Statement::new(StatementData::Let(Let {
                     variable: it.variable,
-                    explicit_ty: None,
                     initializer: var_min_expr,
-                }));
+                })));
                 let var_expr =
                     alloc_expr!(ExprData::Ident(it.variable), cx.var_ty(db, it.variable).id());
                 let cond_expr = alloc_expr!(

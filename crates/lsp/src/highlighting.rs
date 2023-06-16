@@ -317,10 +317,14 @@ impl<'src> Visitor for Highlighter<'src> {
     }
 
     fn visit_stmt(&mut self, vcx: &VisitContext, stmt: hir::StatementId) -> ControlFlow<()> {
-        if let hir::StatementData::Let { variable, explicit_ty, .. } = &vcx.cx[stmt].data {
+        if let hir::StatementData::Let(let_stmt) = &vcx.cx[stmt].data {
+            let explicit_ty = vcx.source_map.stmt_ast(stmt).and_then(|ast| {
+                let_stmt.explicit_ty(&ast.cast()?.to_node(self.root.syntax()), &vcx.source_map)
+            });
+
             if explicit_ty.is_none() {
-                let span = vcx.cx.var_span(*variable);
-                let ty = vcx.cx.var_ty(self.db, *variable);
+                let span = vcx.cx.var_span(let_stmt.variable);
+                let ty = vcx.cx.var_ty(self.db, let_stmt.variable);
                 self.inlay_hints.push(InlayHint {
                     position: Position::from_byte_offset(self.src, span.end()),
                     label: format!(": {}", vcx.cx.pretty_ty(self.db, ty.id())),

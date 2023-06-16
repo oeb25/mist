@@ -5,7 +5,7 @@ use tracing::debug;
 use crate::{
     def::Def,
     hir::{
-        self, pretty, AssertionKind, ExprData, ExprIdx, IfExpr, ItemContext, StatementData,
+        self, pretty, AssertionKind, ExprData, ExprIdx, IfExpr, ItemContext, Let, StatementData,
         StatementId, VariableIdx,
     },
     mir::{MirError, MirErrors, Operand},
@@ -321,7 +321,7 @@ impl MirLower<'_> {
     fn stmt(&mut self, mut bid: BlockId, target: Option<BlockId>, stmt: StatementId) -> BlockId {
         match &self.cx[stmt].data {
             StatementData::Expr(expr) => self.expr(*expr, bid, target, Placement::Ignore),
-            StatementData::Let { variable, explicit_ty: _, initializer } => {
+            StatementData::Let(Let { variable, initializer }) => {
                 let dest = self.alloc_local(*variable);
                 self.expr(*initializer, bid, target, Placement::Assign(dest.into()))
             }

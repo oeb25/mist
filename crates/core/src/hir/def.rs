@@ -1,12 +1,17 @@
 use derive_more::Display;
 use derive_new::new;
-use mist_syntax::ast::operators::{BinaryOp, UnaryOp};
+use mist_syntax::ast::{
+    self,
+    operators::{BinaryOp, UnaryOp},
+};
 
 use crate::{
     def::{Name, Struct, StructField},
     types::{Field, TypeData, TypeId},
     util::impl_idx,
 };
+
+use super::ItemSourceMap;
 
 #[salsa::interned]
 pub struct Variable {
@@ -184,10 +189,16 @@ impl Statement {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Let {
+    pub variable: VariableIdx,
+    pub initializer: ExprIdx,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StatementData {
     Expr(ExprIdx),
-    Let { variable: VariableIdx, explicit_ty: Option<TypeSrc>, initializer: ExprIdx },
+    Let(Let),
     Assertion { kind: AssertionKind, exprs: Vec<ExprIdx> },
 }
 
@@ -207,4 +218,10 @@ pub enum AssertionKind {
 pub struct TypeSrc {
     pub data: Option<TypeData<TypeSrc>>,
     pub ty: TypeId,
+}
+
+impl Let {
+    pub fn explicit_ty(&self, ast: &ast::LetStmt, source_map: &ItemSourceMap) -> Option<TypeSrc> {
+        source_map.ty_ast((&ast.ty()?).into())
+    }
 }

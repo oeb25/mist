@@ -288,6 +288,9 @@ impl ItemSourceMap {
     pub fn stmt_ast(&self, stmt: StatementId) -> Option<AstPtr<ast::Stmt>> {
         self.stmt_map_back.get(stmt).cloned()
     }
+    pub fn ty_ast(&self, ast: SpanOrAstPtr<ast::Type>) -> Option<TypeSrc> {
+        self.ty_src_map_back.get(&ast).copied()
+    }
 }
 
 impl std::ops::Index<ExprIdx> for ItemSourceMap {

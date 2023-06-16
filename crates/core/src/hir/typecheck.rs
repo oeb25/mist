@@ -32,7 +32,7 @@ pub(crate) use typing::{TypingMut, TypingMutExt};
 use super::{
     desugar,
     item_context::{FunctionContext, SpanOrAstPtr},
-    ItemContext, ItemSourceMap, StatementId, TypeSrc,
+    ItemContext, ItemSourceMap, Let, StatementId, TypeSrc,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -468,7 +468,7 @@ impl<'a> TypeChecker<'a> {
                     },
                 );
 
-                StatementData::Let { variable, explicit_ty, initializer }
+                StatementData::Let(Let { variable, initializer })
             }
             ast::Stmt::Item(it) => StatementData::Expr(self.expr_error(
                 it.span(),
