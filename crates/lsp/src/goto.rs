@@ -3,9 +3,9 @@ use std::ops::ControlFlow;
 use derive_new::new;
 use itertools::Either;
 use mist_core::{
-    hir::{self, SourceFile, VariableIdx},
+    hir::{self, SourceFile, TypeRefKind, VariableIdx},
     salsa,
-    types::{Field, TypeProvider, TDK},
+    types::Field,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
     VariableDeclarationKind,
 };
@@ -110,8 +110,8 @@ impl Visitor for DeclarationFinder<'_> {
     ) -> ControlFlow<Option<DeclarationSpans>> {
         let original_span = vcx.source_map[ty].span();
         if original_span.contains(self.byte_offset) {
-            match vcx.cx.ty_kind(ty.ty(self.db)) {
-                TDK::Struct(s) => {
+            match ty.type_ref(self.db) {
+                Some(TypeRefKind::Struct(s)) => {
                     let target_span = s.ast_node(self.db).name().unwrap().span();
                     ControlFlow::Break(Some(DeclarationSpans { original_span, target_span }))
                 }

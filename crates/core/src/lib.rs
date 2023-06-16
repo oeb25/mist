@@ -25,6 +25,7 @@ pub struct Jar(
     crate::hir::file_context::initialize_file_context,
     crate::hir::def::Variable,
     crate::hir::def::TypeSrc,
+    crate::hir::def::TypeRef,
     crate::hir::SourceFile,
     crate::hir::file_definitions,
     crate::hir::DefinitionHir,

@@ -93,10 +93,10 @@ impl ItemContext {
         &self.params
     }
     pub fn return_ty(&self, db: &dyn crate::Db) -> Option<TypeId> {
-        self.return_ty.map(|ty| ty.ty(db))
+        self.return_ty.map(|ts| ts.ty(db))
     }
     pub fn self_ty(&self, db: &dyn crate::Db) -> Option<TypeId> {
-        self.self_ty.map(|ty| ty.ty(db))
+        self.self_ty.map(|ts| ts.ty(db))
     }
     pub fn self_invariants(&self) -> &[ExprIdx] {
         &self.self_invariants
@@ -287,6 +287,9 @@ impl ItemSourceMap {
     }
     pub fn stmt_ast(&self, stmt: StatementId) -> Option<AstPtr<ast::Stmt>> {
         self.stmt_map_back.get(stmt).cloned()
+    }
+    pub fn ty_src(&self, src: TypeSrc) -> Option<SpanOrAstPtr<ast::Type>> {
+        self.ty_src_map.get(&src).cloned()
     }
     pub fn ty_ast(&self, ast: SpanOrAstPtr<ast::Type>) -> Option<TypeSrc> {
         self.ty_src_map_back.get(&ast).copied()

@@ -13,7 +13,7 @@ use crate::{
     TypeCheckError, TypeCheckErrors,
 };
 
-use super::typecheck::TypingMut;
+use super::{typecheck::TypingMut, TypeRef, TypeRefKind};
 
 #[salsa::tracked]
 pub(crate) fn initialize_file_context(
@@ -44,7 +44,7 @@ pub(crate) fn initialize_file_context(
             }
             if let Some(name) = s_ast.name() {
                 let ts = b.alloc_ty_src(
-                    TypeSrc::new(db, Some(TDK::Struct(s).into()), s_ty),
+                    TypeSrc::sourced(db, TypeRef::new(db, TypeRefKind::Struct(s)), s_ty),
                     Some(name.span().into()),
                 );
                 b.fc.struct_types.insert(s, ts);

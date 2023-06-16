@@ -2,9 +2,9 @@ use std::ops::ControlFlow;
 
 use derive_new::new;
 use mist_core::{
-    hir::{pretty, ExprData, ExprIdx, Param, SourceFile, TypeSrc, VariableIdx},
+    hir::{pretty, ExprData, ExprIdx, Param, SourceFile, TypeRefKind, TypeSrc, VariableIdx},
     salsa,
-    types::{Field, ListField, TypeProvider, TDK},
+    types::{Field, ListField, TypeProvider},
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
     VariableDeclarationKind,
 };
@@ -144,8 +144,8 @@ impl<'a> Visitor for HoverFinder<'a> {
 
         let pretty_ty = pretty::ty(&*vcx.cx, self.db, false, ty.ty(self.db));
 
-        let s = match ty.data(self.db).map(|d| d.kind) {
-            Some(TDK::Struct(_)) => format!("struct {pretty_ty}"),
+        let s = match ty.type_ref(self.db) {
+            Some(TypeRefKind::Struct(_)) => format!("struct {pretty_ty}"),
             _ => pretty_ty,
         };
 

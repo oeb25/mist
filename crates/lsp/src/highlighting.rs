@@ -5,10 +5,10 @@ use std::{ops::ControlFlow, sync::Arc};
 use derive_new::new;
 use itertools::Itertools;
 use mist_core::{
-    hir::{self, file, ExprIdx, SourceFile, TypeSrc, VariableIdx},
+    hir::{self, file, ExprIdx, SourceFile, TypeRefKind, TypeSrc, VariableIdx},
     mir::{self, pass::Pass},
     salsa,
-    types::{TypeProvider, TDK},
+    types::TDK,
     util::Position,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
 };
@@ -245,7 +245,7 @@ impl<'src> Visitor for Highlighter<'src> {
     ) -> ControlFlow<()> {
         self.push(vcx.cx.var_span(param.name), TT::Parameter, None);
 
-        if param.ty.data(self.db).is_none() {
+        if param.ty.type_ref(self.db).is_none() {
             let span = vcx.cx.var_span(param.name);
             let ty = vcx.cx.var_ty(self.db, param.name);
             self.inlay_hints.push(InlayHint {
@@ -303,11 +303,11 @@ impl<'src> Visitor for Highlighter<'src> {
     }
 
     fn visit_ty(&mut self, vcx: &VisitContext, ts: hir::TypeSrc) -> ControlFlow<()> {
-        match vcx.cx.ty_kind(ts.ty(self.db)) {
-            TDK::Primitive(_) => {
+        match ts.type_ref(self.db) {
+            Some(TypeRefKind::Primitive(_)) => {
                 self.push_opt(Some(vcx.source_map[ts].span()), TT::Type, Some(TM::DefaultLibrary));
             }
-            TDK::Struct(_) => {
+            Some(TypeRefKind::Struct(_)) => {
                 self.push_opt(Some(vcx.source_map[ts].span()), TT::Type, None);
             }
             _ => {}

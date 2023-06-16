@@ -13,7 +13,7 @@ use crate::{
         self, Block, Decreases, ExprData, ExprIdx, IfExpr, ItemContext, ItemSourceMap, Param,
         SourceFile, StatementData, StatementId, TypeSrc, VariableIdx, WhileExpr,
     },
-    types::{Field, TDK},
+    types::Field,
 };
 
 pub trait Walker<'db>: Sized {
@@ -338,35 +338,23 @@ where
 
     #[must_use]
     fn walk_ty<V: Visitor>(&mut self, visitor: &mut V, ty: TypeSrc) -> ControlFlow<V::Item> {
-        if self.pre() {
-            visitor.visit_ty(&self.vcx, ty)?;
-        }
-
-        let td = if let Some(td) = ty.data(self.db) {
-            td
-        } else {
-            return ControlFlow::Continue(());
-        };
-
-        match td.kind {
-            TDK::Error | TDK::Void | TDK::Primitive(_) | TDK::Null | TDK::Free => {}
-            TDK::Ref { inner, .. }
-            | TDK::List(inner)
-            | TDK::Range(inner)
-            | TDK::Optional(inner) => {
-                self.walk_ty(visitor, inner)?;
-            }
-            TDK::Struct(_) => {}
-            TDK::Function { params, return_ty, .. } => {
-                for param in params.iter() {
-                    self.walk_ty(visitor, param.ty)?;
+        if let Some(ast) = self.vcx.source_map.ty_src(ty).and_then(|ast| ast.into_ptr()) {
+            let walk = ast.syntax_node_ptr().to_node(self.root.syntax()).preorder();
+            for event in walk {
+                match event.map(|it| {
+                    ast::Type::cast(it).and_then(|t| self.vcx.source_map.ty_ast((&t).into()))
+                }) {
+                    WalkEvent::Enter(Some(t)) if self.pre() => {
+                        visitor.visit_ty(&self.vcx, t)?;
+                    }
+                    WalkEvent::Leave(Some(t)) if self.post() => {
+                        visitor.visit_ty(&self.vcx, t)?;
+                    }
+                    _ => {}
                 }
-                self.walk_ty(visitor, return_ty)?;
             }
         }
-        if self.post() {
-            visitor.visit_ty(&self.vcx, ty)?;
-        }
+
         ControlFlow::Continue(())
     }
 

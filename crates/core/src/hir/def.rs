@@ -3,11 +3,12 @@ use derive_new::new;
 use mist_syntax::ast::{
     self,
     operators::{BinaryOp, UnaryOp},
+    AttrFlags,
 };
 
 use crate::{
     def::{Name, Struct, StructField},
-    types::{Field, TypeData, TypeId},
+    types::{Field, Primitive, TypeId},
     util::impl_idx,
 };
 
@@ -214,10 +215,57 @@ pub enum AssertionKind {
     Exhale,
 }
 
+/// A unique explicit type with origin in a source file. One of these should be
+/// instantiated for each type in a source file. It's actual representation is
+/// interned in [`TypeRef`].
 #[salsa::tracked]
 pub struct TypeSrc {
-    pub data: Option<TypeData<TypeSrc>>,
+    data: Option<TypeRef>,
     pub ty: TypeId,
+}
+
+/// An interned explicit type, as written in a source file. Instances of
+/// [`TypeRef`] are not unique, and cannot be used to rely on to track source
+/// locations. To do so, use [`TypeSrc`].
+#[salsa::interned]
+pub struct TypeRef {
+    #[salsa(return_ref)]
+    pub data: TypeRefKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum TypeRefKind {
+    Error,
+    Void,
+    Ref {
+        is_mut: bool,
+        inner: Box<TypeRefKind>,
+    },
+    List(Box<TypeRefKind>),
+    Optional(Box<TypeRefKind>),
+    Ghost(Box<TypeRefKind>),
+    Primitive(Primitive),
+    Struct(Struct),
+    Null,
+    Function {
+        attrs: AttrFlags,
+        name: Option<Name>,
+        params: Vec<Param<Name, TypeRefKind>>,
+        return_ty: Box<TypeRefKind>,
+    },
+    Range(Box<TypeRefKind>),
+}
+
+impl TypeSrc {
+    pub fn sourced(db: &dyn crate::Db, data: TypeRef, ty: TypeId) -> TypeSrc {
+        TypeSrc::new(db, Some(data), ty)
+    }
+    pub fn unsourced(db: &dyn crate::Db, ty: TypeId) -> TypeSrc {
+        TypeSrc::new(db, None, ty)
+    }
+    pub fn type_ref(self, db: &dyn crate::Db) -> Option<TypeRefKind> {
+        self.data(db).map(|it| it.data(db))
+    }
 }
 
 impl Let {

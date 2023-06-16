@@ -2,7 +2,7 @@ use mist_syntax::ast::{self, HasName, Spanned};
 
 use crate::{
     def::Name,
-    hir::{typecheck::TypeCheckErrorKind, SpanOrAstPtr, TypeSrc},
+    hir::{typecheck::TypeCheckErrorKind, SpanOrAstPtr, TypeRef, TypeRefKind, TypeSrc},
     types::{
         builtin::{bool, error, int},
         Primitive, TypeData, TypeId, TypeProvider, TDK,
@@ -27,7 +27,7 @@ impl<T: TypingMut> TypingMutExt for T {}
 
 pub(crate) trait TypingMutExt: TypingMut + Sized {
     fn unsourced_ty(&mut self, ty: impl Typed) -> TypeSrc {
-        let ty_src = TypeSrc::new(self.db(), None, ty.ty(self));
+        let ty_src = TypeSrc::unsourced(self.db(), ty.ty(self));
         self.alloc_ty_src(ty_src, None)
     }
 
@@ -51,68 +51,8 @@ pub(crate) trait TypingMutExt: TypingMut + Sized {
     }
 
     fn lower_type(&mut self, ast_ty: &ast::Type) -> TypeSrc {
-        let (td, ty) = match ast_ty {
-            mist_syntax::ast::Type::NamedType(ast_name) => {
-                let name = ast_name.name().unwrap();
-                let ty = self.find_named_type(ast_name, name.into());
-                let td = match self.ty_kind(ty) {
-                    TDK::Struct(s) => TDK::Struct(s),
-                    TDK::Error => TDK::Error,
-                    _ => todo!(),
-                };
-                (td.into(), ty)
-            }
-            mist_syntax::ast::Type::Primitive(it) => match () {
-                _ if it.int_token().is_some() => (TDK::Primitive(Primitive::Int).into(), int()),
-                _ if it.bool_token().is_some() => (TDK::Primitive(Primitive::Bool).into(), bool()),
-                _ => {
-                    todo!();
-                }
-            },
-            mist_syntax::ast::Type::Optional(it) => {
-                let inner = if let Some(ty) = it.ty() {
-                    self.lower_type(&ty)
-                } else {
-                    let ty = self.new_free();
-                    self.unsourced_ty(ty)
-                };
-                let td = TDK::Optional(inner);
-                let ty = td.canonical(self);
-                let ty = self.alloc_ty_data(ty);
-                (td.into(), ty)
-            }
-            mist_syntax::ast::Type::RefType(r) => {
-                let is_mut = r.mut_token().is_some();
-
-                let inner = if let Some(ty) = r.ty() { self.lower_type(&ty) } else { todo!() };
-                let td = TDK::Ref { is_mut, inner };
-                let ty = td.canonical(self);
-                let ty = self.alloc_ty_data(ty);
-                (td.into(), ty)
-            }
-            mist_syntax::ast::Type::ListType(t) => {
-                let inner = if let Some(ty) = t.ty() {
-                    self.lower_type(&ty)
-                } else {
-                    let ty = self.new_free();
-                    self.unsourced_ty(ty)
-                };
-                let td = TDK::List(inner);
-                let ty = td.canonical(self);
-                let ty = self.alloc_ty_data(ty);
-                (td.into(), ty)
-            }
-            mist_syntax::ast::Type::GhostType(t) => {
-                let inner = if let Some(ty) = t.ty() { self.lower_type(&ty) } else { todo!() };
-                let td = TypeData { kind: inner.data(self.db()).unwrap().kind, is_ghost: true };
-                let ty = td.canonical(self);
-                let ty = self.alloc_ty_data(ty);
-                (td, ty)
-            }
-        };
-
-        let ts = TypeSrc::new(self.db(), Some(td), ty);
-        self.alloc_ty_src(ts, Some(ast_ty.into()))
+        let (_, _, ts) = lower_type_inner(self, ast_ty);
+        ts
     }
 
     fn expect_find_type(&mut self, ty: &Option<ast::Type>) -> TypeId {
@@ -129,14 +69,62 @@ pub(crate) trait TypingMutExt: TypingMut + Sized {
     }
 }
 
-impl TypeData<TypeSrc> {
-    fn canonical(&self, t: &impl TypingMut) -> TypeData {
-        self.map(|id| id.ty(t))
+fn lower_type_inner_opt(
+    tc: &mut impl TypingMut,
+    ast_ty: Option<ast::Type>,
+) -> (TypeRefKind, TypeId) {
+    if let Some(ty) = ast_ty {
+        let (td, ty, _) = lower_type_inner(tc, &ty);
+        (td, ty)
+    } else {
+        (TypeRefKind::Error, tc.new_free())
     }
 }
+fn lower_type_inner(tc: &mut impl TypingMut, ast_ty: &ast::Type) -> (TypeRefKind, TypeId, TypeSrc) {
+    let (td, ty) = match ast_ty {
+        ast::Type::NamedType(ast_name) => {
+            let name = ast_name.name().unwrap();
+            let ty = tc.find_named_type(ast_name, name.into());
+            let td = match tc.ty_kind(ty) {
+                TDK::Struct(s) => TypeRefKind::Struct(s),
+                TDK::Error => TypeRefKind::Error,
+                _ => todo!(),
+            };
+            (td, ty)
+        }
+        ast::Type::Primitive(it) => match () {
+            _ if it.int_token().is_some() => (TypeRefKind::Primitive(Primitive::Int), int()),
+            _ if it.bool_token().is_some() => (TypeRefKind::Primitive(Primitive::Bool), bool()),
+            _ => {
+                todo!();
+            }
+        },
+        ast::Type::Optional(it) => {
+            let (inner, inner_ty) = lower_type_inner_opt(tc, it.ty());
+            (
+                TypeRefKind::Optional(Box::new(inner)),
+                tc.alloc_ty_data(TDK::Optional(inner_ty).into()),
+            )
+        }
+        ast::Type::ListType(it) => {
+            let (inner, inner_ty) = lower_type_inner_opt(tc, it.ty());
+            (TypeRefKind::List(Box::new(inner)), tc.alloc_ty_data(TDK::List(inner_ty).into()))
+        }
+        ast::Type::GhostType(it) => {
+            let (inner, inner_ty) = lower_type_inner_opt(tc, it.ty());
+            (TypeRefKind::Ghost(Box::new(inner)), inner_ty.ghosted(tc))
+        }
+        ast::Type::RefType(it) => {
+            let is_mut = it.mut_token().is_some();
+            let (inner, inner_ty) = lower_type_inner_opt(tc, it.ty());
+            (
+                TypeRefKind::Ref { is_mut, inner: Box::new(inner) },
+                tc.alloc_ty_data(TDK::Ref { is_mut, inner: inner_ty }.into()),
+            )
+        }
+    };
 
-impl TDK<TypeSrc> {
-    fn canonical(&self, t: &impl TypingMut) -> TypeData {
-        TypeData::from(self.clone()).canonical(t)
-    }
+    let ts = TypeSrc::sourced(tc.db(), TypeRef::new(tc.db(), td.clone()), ty);
+    tc.alloc_ty_src(ts, Some(ast_ty.into()));
+    (td, ty, ts)
 }
