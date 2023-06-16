@@ -30,8 +30,6 @@ pub struct ItemContext {
     #[new(default)]
     pub(super) declarations: Trace<VariableIdx, VariableDeclaration>,
     #[new(default)]
-    pub(super) var_types: IdxMap<VariableIdx, TypeSrc>,
-    #[new(default)]
     pub(super) stmt_arena: IdxArena<StatementId>,
     #[new(default)]
     pub(super) expr_arena: IdxArena<ExprIdx>,
@@ -106,11 +104,11 @@ impl ItemContext {
     pub fn body_expr(&self) -> Option<ExprIdx> {
         self.body_expr
     }
-    pub fn var_ty_src(&self, var: impl Into<VariableIdx>) -> TypeSrc {
-        self.var_types[var.into()]
+    pub fn var(&self, var: VariableIdx) -> Variable {
+        self.declarations.arena[var]
     }
-    pub fn var_ty(&self, db: &dyn crate::Db, var: impl Into<VariableIdx>) -> TypePtr<Self> {
-        self.var_types[var.into()].ty(db).wrap(self)
+    pub fn var_ty(&self, db: &dyn crate::Db, var: VariableIdx) -> TypePtr<Self> {
+        self.var(var).ty(db).wrap(self)
     }
     /// Returns the original expr, without going through the desugared table
     pub fn original_expr(&self, expr: ExprIdx) -> &Expr {
@@ -126,17 +124,14 @@ impl ItemContext {
     pub fn expr_ty(&self, expr: ExprIdx) -> TypePtr<Self> {
         self.expr_arena[expr].ty.wrap(self)
     }
-    pub fn var(&self, var: impl Into<VariableIdx>) -> Variable {
-        self.declarations.arena[var.into()]
+    pub fn decl(&self, var: VariableIdx) -> &VariableDeclaration {
+        &self.declarations.map[var]
     }
-    pub fn decl(&self, var: impl Into<VariableIdx>) -> &VariableDeclaration {
-        &self.declarations.map[var.into()]
+    pub fn var_span(&self, var: VariableIdx) -> SourceSpan {
+        self.declarations.map[var].span()
     }
-    pub fn var_span(&self, var: impl Into<VariableIdx>) -> SourceSpan {
-        self.declarations.map[var.into()].span()
-    }
-    pub fn var_name(&self, var: impl Into<VariableIdx>) -> Name {
-        self.declarations.map[var.into()].name()
+    pub fn var_name(&self, var: VariableIdx) -> Name {
+        self.declarations.map[var].name()
     }
     pub fn field_ty_src(&self, field: Field) -> Option<TypeSrc> {
         match field {

@@ -8,19 +8,17 @@ use crate::{
     util::impl_idx,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Variable {}
-impl Variable {
-    pub fn new() -> Variable {
-        Variable {}
-    }
-}
-impl Default for Variable {
-    fn default() -> Self {
-        Self::new()
-    }
+#[salsa::interned]
+pub struct Variable {
+    pub name: Name,
+    pub ty_src: TypeSrc,
 }
 impl_idx!(VariableIdx, Variable, default_debug);
+impl Variable {
+    pub fn ty(&self, db: &dyn crate::Db) -> TypeId {
+        self.ty_src(db).ty(db)
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Param<I, T> {
     pub is_ghost: bool,

@@ -37,7 +37,7 @@ pub fn desugar(db: &dyn crate::Db, cx: &mut ItemContext) {
 
         let new_eid = match cx.expr_arena[eid].data.clone() {
             ExprData::Quantifier { quantifier, over: QuantifierOver::In(var, in_expr), expr } => {
-                let params = vec![Param { is_ghost: false, name: var, ty: cx.var_ty_src(var) }];
+                let params = vec![Param { is_ghost: false, name: var, ty: cx.var(var).ty_src(db) }];
 
                 let var_expr = alloc_expr!(ExprData::Ident(var), cx.var_ty(db, var).id());
                 let condition =

@@ -510,16 +510,15 @@ impl<'a> TypeChecker<'a> {
     ) -> VariableIdx {
         let name = decl.name();
         let ast = decl.ast.clone();
-        let var = self.cx.declarations.alloc(decl, Variable::new());
+        let var = self.cx.declarations.alloc(decl, Variable::new(self.db, name.clone(), ty));
         self.source_map.register_name(ast, Named::Variable(var)).unwrap();
         self.scope.insert(name, var);
-        self.cx.var_types.insert(var, ty);
         let ty_src = ty_span.into();
         self.source_map.register_ty_src(ty, ty_src).unwrap();
         var
     }
     pub fn var_ty(&self, var: VariableIdx) -> TypeId {
-        self.cx.var_types.get(var).expect("VariableIdx was not in types map").ty(self)
+        self.cx.var_ty(self.db, var).id()
     }
     pub fn lookup_name(&mut self, name: &ast::NameRef) -> VariableIdx {
         if let Some(var) = self.scope.get(&name.clone().into()) {
