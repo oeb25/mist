@@ -11,7 +11,7 @@ use crate::{
     mir::{MirError, MirErrors, Operand},
     types::{
         builtin::{bool, error, int},
-        Field, ListField, Primitive, TypeDataKind as TDK, TypeId,
+        AdtKind, Field, ListField, Primitive, TypeDataKind as TDK, TypeId,
     },
 };
 
@@ -403,9 +403,10 @@ impl MirLower<'_> {
                     Operand::Literal(hir::Literal::Bool(true)),
                 ));
             }
-            TDK::Struct(_) => todo!(),
+            TDK::Adt(_) => todo!(),
             TDK::Function { .. } => todo!(),
             TDK::Range(_) => todo!(),
+            TDK::Generic(_) => todo!(),
             TDK::Null | TDK::Free => {
                 assertions.push(MExpr::Use(Operand::Literal(hir::Literal::Bool(false))))
             }
@@ -458,7 +459,7 @@ impl MirLower<'_> {
                     }
                 }
             }
-            ExprData::Struct { .. } => todo!(),
+            ExprData::Adt { .. } => todo!(),
             ExprData::Missing => (bid, self.alloc_tmp(error())),
             ExprData::If(_) => todo!(),
             ExprData::For { .. } => todo!(),
@@ -589,7 +590,7 @@ impl MirLower<'_> {
                 // NOTE: It the MIR level `!` is a noop
                 self.expr(*it, bid, target, dest)
             }
-            ExprData::Struct { struct_declaration, fields } => {
+            ExprData::Adt { adt, fields } => {
                 let mut operands = vec![];
 
                 for f in fields {
@@ -598,9 +599,7 @@ impl MirLower<'_> {
                 }
 
                 let dest = match dest {
-                    Placement::Ignore => {
-                        self.alloc_tmp(self.cx.struct_ty(self.db, *struct_declaration))
-                    }
+                    Placement::Ignore => self.alloc_tmp(expr_data.ty),
                     Placement::Assign(p) => p,
                     Placement::IntoOperand(ty, o) => {
                         let tmp = self.alloc_tmp(ty);
@@ -617,7 +616,9 @@ impl MirLower<'_> {
                     }
                 };
 
-                let inst = Instruction::NewStruct(dest, *struct_declaration, operands);
+                let inst = match adt.kind() {
+                    AdtKind::Struct(s) => Instruction::NewStruct(dest, s, operands),
+                };
                 self.alloc_instruction(Some(expr), bid, inst);
 
                 bid

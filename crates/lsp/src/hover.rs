@@ -141,7 +141,7 @@ impl<'a> Visitor for HoverFinder<'a> {
         let pretty_ty = pretty::ty(&*vcx.cx, self.db, false, ty.ty(self.db));
 
         let s = match ty.type_ref(self.db) {
-            Some(TypeRefKind::Struct(_)) => format!("struct {pretty_ty}"),
+            Some(TypeRefKind::Path(_)) => format!("struct {pretty_ty}"),
             _ => pretty_ty,
         };
 

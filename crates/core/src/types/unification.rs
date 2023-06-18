@@ -158,14 +158,14 @@ impl Typer {
                 self.unify(inner1, inner2)?;
                 expected
             }
-            (TDK::Optional(inner), TDK::Struct(_)) if inner == actual => expected,
-            (TDK::Struct(_), TDK::Optional(inner)) if inner == expected => actual,
+            (TDK::Optional(inner), TDK::Adt(_)) if inner == actual => expected,
+            (TDK::Adt(_), TDK::Optional(inner)) if inner == expected => actual,
             (TDK::Range(inner1), TDK::Range(inner2)) => {
                 self.unify(inner1, inner2)?;
                 expected
             }
             (TDK::Primitive(p1), TDK::Primitive(p2)) if p1 == p2 => expected,
-            (TDK::Struct(s1), TDK::Struct(s2)) if s1 == s2 => expected,
+            (TDK::Adt(s1), TDK::Adt(s2)) if s1 == s2 => expected,
             (TDK::List(s1), TDK::List(s2)) => {
                 self.unify(s1, s2)?;
                 expected

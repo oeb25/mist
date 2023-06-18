@@ -10,7 +10,7 @@ use miette::Diagnostic;
 use mist_core::{
     def, hir,
     mir::{self, analysis::cfg, BlockOrInstruction},
-    types::{Field, ListField, Primitive, TypeProvider, TypePtr, TDK},
+    types::{AdtKind, Field, ListField, Primitive, TypeProvider, TypePtr, TDK},
     util::{IdxArena, IdxMap, IdxWrap},
 };
 use mist_syntax::{
@@ -250,6 +250,11 @@ impl<'a> BodyLower<'a> {
                 // VTy::internal_type().into()
                 VTy::int().into()
             }
+            TDK::Generic(_) => {
+                // TODO: Perhaps this should be handeld at a previous stage?
+                // VTy::internal_type().into()
+                VTy::int().into()
+            }
             TDK::Ref { is_mut, inner } => ViperType {
                 vty: VTy::ref_(),
                 is_mut,
@@ -269,9 +274,9 @@ impl<'a> BodyLower<'a> {
                 Primitive::Int => VTy::int().into(),
                 Primitive::Bool => VTy::bool().into(),
             },
-            TDK::Struct(s) => match s.name(self.db).as_str() {
-                "Multiset" => VTy::Multiset { element_type: Box::new(VTy::int()) }.into(),
-                _ => ViperType {
+            TDK::Adt(s) => match (s.name(self.db).as_str(), s.kind()) {
+                ("Multiset", _) => VTy::Multiset { element_type: Box::new(VTy::int()) }.into(),
+                (_, AdtKind::Struct(s)) => ViperType {
                     vty: VTy::ref_(),
                     optional: false,
                     is_mut: false,

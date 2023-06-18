@@ -27,7 +27,7 @@ pub enum TypeDataKind<T> {
     List(T),
     Optional(T),
     Primitive(Primitive),
-    Struct(Struct),
+    Adt(Adt<T>),
     Null,
     Function {
         attrs: AttrFlags,
@@ -36,10 +36,26 @@ pub enum TypeDataKind<T> {
         return_ty: T,
     },
     Range(T),
+    Generic(Generic),
     Free,
 }
 impl_idx!(TypeDataIdx, TypeData, default_debug);
 use TypeDataKind as TDK;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Adt<T = TypeId> {
+    kind: AdtKind,
+    generic_args: Vec<T>,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AdtKind {
+    Struct(Struct),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Generic {
+    _filler: (),
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Primitive {
@@ -65,6 +81,28 @@ impl Field {
             Field::StructField(sf) => sf.name(db),
             Field::List(_, lf) => Name::new(&lf.to_string()),
             Field::Undefined => Name::new("?undefined"),
+        }
+    }
+}
+
+impl<T> Adt<T> {
+    pub(crate) fn new_struct(s: Struct, generic_args: Vec<T>) -> Self {
+        Adt { kind: AdtKind::Struct(s), generic_args }
+    }
+    pub fn map<S>(&self, f: impl FnMut(&T) -> S) -> Adt<S> {
+        Adt { kind: self.kind, generic_args: self.generic_args.iter().map(f).collect() }
+    }
+    pub fn kind(&self) -> AdtKind {
+        self.kind
+    }
+    pub fn struct_(&self) -> Option<Struct> {
+        match self.kind {
+            AdtKind::Struct(s) => Some(s),
+        }
+    }
+    pub fn name(&self, db: &dyn crate::Db) -> Name {
+        match self.kind {
+            AdtKind::Struct(s) => s.name(db),
         }
     }
 }
@@ -101,7 +139,7 @@ impl<T> TypeData<T> {
             TDK::List(it) => TDK::List(f(it)),
             TDK::Optional(it) => TDK::Optional(f(it)),
             TDK::Primitive(it) => TDK::Primitive(it.clone()),
-            TDK::Struct(it) => TDK::Struct(*it),
+            TDK::Adt(it) => TDK::Adt(it.map(f)),
             TDK::Null => TDK::Null,
             TDK::Function { attrs, name, params, return_ty } => TDK::Function {
                 attrs: *attrs,
@@ -110,6 +148,7 @@ impl<T> TypeData<T> {
                 return_ty: f(return_ty),
             },
             TDK::Range(it) => TDK::Range(f(it)),
+            TDK::Generic(g) => TDK::Generic(*g),
             TDK::Free => TDK::Free,
         };
         TypeData { is_ghost: self.is_ghost, kind }

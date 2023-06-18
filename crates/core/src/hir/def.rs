@@ -8,7 +8,7 @@ use mist_syntax::ast::{
 
 use crate::{
     def::{Name, Struct, StructField},
-    types::{Field, Primitive, TypeId},
+    types::{Adt, Field, Primitive, TypeId},
     util::impl_idx,
 };
 
@@ -91,7 +91,7 @@ pub enum ExprData {
     Ident(VariableIdx),
     Block(Block),
     Field { expr: ExprIdx, field: Field },
-    Struct { struct_declaration: Struct, fields: Vec<StructExprField> },
+    Adt { adt: Adt, fields: Vec<StructExprField> },
     Missing,
     If(IfExpr),
     While(WhileExpr),
@@ -215,6 +215,12 @@ pub enum AssertionKind {
     Exhale,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Path {
+    Name(Name),
+    Struct(Struct),
+}
+
 /// A unique explicit type with origin in a source file. One of these should be
 /// instantiated for each type in a source file. It's actual representation is
 /// interned in [`TypeRef`].
@@ -245,7 +251,7 @@ pub enum TypeRefKind {
     Optional(Box<TypeRefKind>),
     Ghost(Box<TypeRefKind>),
     Primitive(Primitive),
-    Struct(Struct),
+    Path(Path),
     Null,
     Function {
         attrs: AttrFlags,
