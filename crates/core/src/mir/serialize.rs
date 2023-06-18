@@ -187,7 +187,7 @@ impl Serializer<'_> {
                 self.expr(db, cx, e);
                 wln!(self, Default, "");
             }
-            Instruction::NewStruct(t, s, fields) => {
+            Instruction::NewAdt(t, s, fields) => {
                 self.place(Some(db), cx, *t);
                 w!(self, Default, " := {} {{", s.name(db));
                 let mut first = true;

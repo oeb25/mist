@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{collections::HashMap, fmt};
 
 use crate::{
     def::{Name, Struct, StructField},
@@ -27,7 +27,7 @@ pub enum TypeDataKind<T> {
     List(T),
     Optional(T),
     Primitive(Primitive),
-    Adt(Adt<T>),
+    Adt(Adt),
     Null,
     Function {
         attrs: AttrFlags,
@@ -42,30 +42,58 @@ pub enum TypeDataKind<T> {
 impl_idx!(TypeDataIdx, TypeData, default_debug);
 use TypeDataKind as TDK;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Adt<T = TypeId> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Adt {
     kind: AdtKind,
-    generic_args: Vec<T>,
+    generic_args: GenericArgs,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AdtKind {
     Struct(Struct),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[salsa::interned]
+pub struct GenericArgs {
+    #[return_ref]
+    pub args: Vec<TypeId>,
+}
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Generic {
     _filler: (),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AdtPrototype {
+    StructPrototype(StructPrototype),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StructPrototype {
+    pub parent: Struct,
+    pub generics: Vec<TypeId>,
+    pub fields: HashMap<StructField, TypeId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Primitive {
     Int,
     Bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, From)]
-pub enum Field {
+pub struct AdtField {
+    adt: Adt,
+    ty: TypeId,
+    kind: AdtFieldKind,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, From)]
+pub enum AdtFieldKind {
     StructField(StructField),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, From)]
+pub enum Field {
+    AdtField(AdtField),
     List(TypeId, ListField),
     Undefined,
 }
@@ -78,27 +106,61 @@ pub enum ListField {
 impl Field {
     pub fn name(&self, db: &dyn crate::Db) -> Name {
         match self {
-            Field::StructField(sf) => sf.name(db),
+            Field::AdtField(af) => af.name(db),
             Field::List(_, lf) => Name::new(&lf.to_string()),
             Field::Undefined => Name::new("?undefined"),
         }
     }
+    pub fn is_ghost(&self, db: &dyn crate::Db) -> bool {
+        match self {
+            Field::AdtField(af) => af.is_ghost(db),
+            Field::List(_, _) => false,
+            Field::Undefined => false,
+        }
+    }
 }
 
-impl<T> Adt<T> {
-    pub(crate) fn new_struct(s: Struct, generic_args: Vec<T>) -> Self {
-        Adt { kind: AdtKind::Struct(s), generic_args }
+impl AdtField {
+    pub fn adt(&self) -> Adt {
+        self.adt
     }
-    pub fn map<S>(&self, f: impl FnMut(&T) -> S) -> Adt<S> {
-        Adt { kind: self.kind, generic_args: self.generic_args.iter().map(f).collect() }
-    }
-    pub fn kind(&self) -> AdtKind {
+    pub fn kind(&self) -> AdtFieldKind {
         self.kind
+    }
+    pub fn name(&self, db: &dyn crate::Db) -> Name {
+        match self.kind {
+            AdtFieldKind::StructField(sf) => sf.name(db),
+        }
+    }
+    pub fn is_ghost(&self, db: &dyn crate::Db) -> bool {
+        match self.kind {
+            AdtFieldKind::StructField(sf) => sf.is_ghost(db),
+        }
+    }
+
+    pub(crate) fn new_struct_field(adt: Adt, ty: TypeId, f: StructField) -> AdtField {
+        Self { adt, ty, kind: AdtFieldKind::StructField(f) }
+    }
+
+    pub fn ty(&self) -> TypeId {
+        self.ty
+    }
+}
+
+impl Adt {
+    pub(super) fn new(db: &dyn crate::Db, kind: AdtKind, generic_args: Vec<TypeId>) -> Self {
+        Adt { kind, generic_args: GenericArgs::new(db, generic_args) }
     }
     pub fn struct_(&self) -> Option<Struct> {
         match self.kind {
             AdtKind::Struct(s) => Some(s),
         }
+    }
+    pub fn kind(&self) -> AdtKind {
+        self.kind
+    }
+    pub fn generic_args<'db>(&self, db: &'db dyn crate::Db) -> impl Iterator<Item = TypeId> + 'db {
+        self.generic_args.args(db).iter().copied()
     }
     pub fn name(&self, db: &dyn crate::Db) -> Name {
         match self.kind {
@@ -139,7 +201,7 @@ impl<T> TypeData<T> {
             TDK::List(it) => TDK::List(f(it)),
             TDK::Optional(it) => TDK::Optional(f(it)),
             TDK::Primitive(it) => TDK::Primitive(it.clone()),
-            TDK::Adt(it) => TDK::Adt(it.map(f)),
+            TDK::Adt(it) => TDK::Adt(*it),
             TDK::Null => TDK::Null,
             TDK::Function { attrs, name, params, return_ty } => TDK::Function {
                 attrs: *attrs,

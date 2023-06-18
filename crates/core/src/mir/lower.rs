@@ -11,7 +11,7 @@ use crate::{
     mir::{MirError, MirErrors, Operand},
     types::{
         builtin::{bool, error, int},
-        AdtKind, Field, ListField, Primitive, TypeDataKind as TDK, TypeId,
+        Field, ListField, Primitive, TypeDataKind as TDK, TypeId,
     },
 };
 
@@ -39,7 +39,9 @@ pub fn lower_item(db: &dyn crate::Db, def: Def) -> Option<DefinitionMir> {
 
     lower.body.result_slot = cx.return_ty(db).map(|ret_ty| lower.alloc_slot(Slot::Result, ret_ty));
 
-    lower.body.self_slot = cx.self_ty(db).map(|self_ty| lower.alloc_slot(Slot::Self_, self_ty));
+    if let Some(self_ty) = cx.self_ty(db) {
+        lower.body.slot_type.insert(lower.body.self_slot, self_ty);
+    }
 
     for cond in cx.conditions() {
         match cond {
@@ -92,7 +94,8 @@ struct MirLower<'a> {
 
 impl<'a> MirLower<'a> {
     fn new(db: &'a dyn crate::Db, cx: &'a ItemContext) -> Self {
-        Self { db, cx, body: Body::new(cx.def(), cx.ty_table()), source_map: Default::default() }
+        let body = Body::new(cx.def(), cx.ty_table());
+        Self { db, cx, body, source_map: Default::default() }
     }
 
     fn alloc_tmp(&mut self, ty: impl Into<TypeId>) -> Place {
@@ -119,7 +122,7 @@ impl<'a> MirLower<'a> {
                 self.source_map.var_map.insert(var, id);
                 id
             }
-            Slot::Self_ => *self.body.self_slot.get_or_insert_with(|| self.body.slots.alloc(slot)),
+            Slot::Self_ => self.body.self_slot,
             Slot::Result => {
                 *self.body.result_slot.get_or_insert_with(|| self.body.slots.alloc(slot))
             }
@@ -165,8 +168,11 @@ impl<'a> MirLower<'a> {
     fn alloc_function(&mut self, function: Function) -> FunctionId {
         self.body.functions.alloc(function)
     }
-    fn self_slot(&self) -> Option<SlotId> {
+    fn self_slot(&self) -> SlotId {
         self.body.self_slot
+    }
+    fn self_ty(&self) -> Option<TypeId> {
+        self.body.slot_type.get(self.self_slot()).copied()
     }
     fn var_place(&mut self, var: VariableIdx) -> Place {
         if let Some(&slot) = self.source_map.var_map.get(var) {
@@ -440,7 +446,7 @@ impl MirLower<'_> {
             ExprData::Field { expr: base, field, .. } => {
                 let (bid, place) = self.lhs_expr(*base, bid, None);
                 match field {
-                    Field::StructField(_) | Field::List(_, _) => {
+                    Field::AdtField(_) | Field::List(_, _) => {
                         let f_ty = expr_data.ty;
                         (bid, self.project_deeper(place, &[Projection::Field(*field, f_ty)]))
                     }
@@ -532,8 +538,13 @@ impl MirLower<'_> {
                 bid
             }
             ExprData::Self_ => {
-                if let Some(self_slot) = self.self_slot() {
-                    self.put(bid, dest, Some(expr), MExpr::Use(Operand::Move(self_slot.into())));
+                if let Some(self_ty) = self.self_ty() {
+                    self.put(
+                        bid,
+                        dest,
+                        Some(expr),
+                        MExpr::Use(Operand::Move(self.self_slot().into())),
+                    );
                 } else {
                     MirErrors::push(
                         self.db,
@@ -554,7 +565,7 @@ impl MirLower<'_> {
                 self.block(block, next_bid, target, dest)
             }
             ExprData::Field { expr: base, field } => match field {
-                Field::StructField(_) | Field::List(_, _) => {
+                Field::AdtField(_) | Field::List(_, _) => {
                     let tmp = self.expr_into_operand(*base, &mut bid, None);
                     if let Some(place) = tmp.place() {
                         let f_ty = expr_data.ty;
@@ -616,9 +627,7 @@ impl MirLower<'_> {
                     }
                 };
 
-                let inst = match adt.kind() {
-                    AdtKind::Struct(s) => Instruction::NewStruct(dest, s, operands),
-                };
+                let inst = Instruction::NewAdt(dest, *adt, operands);
                 self.alloc_instruction(Some(expr), bid, inst);
 
                 bid

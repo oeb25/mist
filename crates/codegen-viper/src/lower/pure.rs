@@ -310,7 +310,7 @@ impl BodyLower<'_> {
                 let exp = self.expr(inst, e)?;
                 acc.wrap_in_assignment(self, inst, *x, exp)?
             }
-            mir::Instruction::NewStruct(_, _, _) => {
+            mir::Instruction::NewAdt(_, _, _) => {
                 return Err(ViperLowerError::NotYetImplemented {
                     msg: "struct initialization in pure context".to_string(),
                     def: self.cx.def(),
@@ -328,14 +328,11 @@ impl BodyLower<'_> {
                     }
                     _ => return Ok(acc),
                 };
-                if let Some(s) = self.body.place_ty(unfolding_place).ty_struct() {
+                if let Some(s) = self.body.place_ty(unfolding_place).ty_adt() {
                     acc.try_map_exp(|exp| {
                         let place_ref = self.place_to_ref(inst, unfolding_place)?;
                         let pred_acc = PredicateAccessPredicate::new(
-                            PredicateAccess::new(
-                                mangle::mangled_struct(self.db, s),
-                                vec![place_ref],
-                            ),
+                            PredicateAccess::new(mangle::mangled_adt(self.db, s), vec![place_ref]),
                             self.alloc(inst, PermExp::Wildcard),
                         );
 

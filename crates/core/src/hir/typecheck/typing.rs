@@ -5,7 +5,7 @@ use crate::{
     hir::{typecheck::TypeCheckErrorKind, Path, SpanOrAstPtr, TypeRef, TypeRefKind, TypeSrc},
     types::{
         builtin::{bool, error, int},
-        AdtKind, Primitive, TypeData, TypeId, TypeProvider, TDK,
+        Adt, AdtKind, AdtPrototype, Generic, Primitive, TypeData, TypeId, TypeProvider, TDK,
     },
     TypeCheckError,
 };
@@ -16,8 +16,17 @@ pub(crate) trait TypingMut: TypeProvider {
     fn push_error(&self, err: TypeCheckError);
     fn db(&self) -> &dyn crate::Db;
 
-    fn lookup_named_ty(&self, name: Name) -> Option<TypeId>;
+    fn lookup_adt_kind(&self, name: Name) -> Option<AdtKind>;
     fn new_free(&mut self) -> TypeId;
+    fn new_generic(&mut self, generic: Generic) -> TypeId;
+
+    fn create_adt_prototype(&mut self, kind: AdtKind, prototype: AdtPrototype);
+    fn instantiate_adt(
+        &mut self,
+        kind: AdtKind,
+        generic_args: impl IntoIterator<Item = TypeId>,
+    ) -> Adt;
+    fn adt_ty(&self, adt: Adt) -> TypeId;
 
     fn alloc_ty_data(&mut self, data: TypeData) -> TypeId;
     fn alloc_ty_src(&mut self, ts: TypeSrc, ty_src: Option<SpanOrAstPtr<ast::Type>>) -> TypeSrc;
@@ -44,8 +53,8 @@ pub(crate) trait TypingMutExt: TypingMut + Sized {
         error()
     }
 
-    fn find_named_type(&self, span: impl Spanned, name: Name) -> TypeId {
-        self.lookup_named_ty(name.clone()).unwrap_or_else(|| {
+    fn find_adt_kind(&self, span: impl Spanned, name: Name) -> Result<AdtKind, TypeId> {
+        self.lookup_adt_kind(name.clone()).ok_or_else(|| {
             self.ty_error(span, None, None, TypeCheckErrorKind::UndefinedType(name.to_string()))
         })
     }
@@ -84,15 +93,28 @@ fn lower_type_inner(tc: &mut impl TypingMut, ast_ty: &ast::Type) -> (TypeRefKind
     let (td, ty) = match ast_ty {
         ast::Type::NamedType(ast_name) => {
             let name = ast_name.name().unwrap();
-            let ty = tc.find_named_type(ast_name, name.into());
-            let td = match tc.ty_kind(ty) {
-                TDK::Adt(adt) => match adt.kind() {
-                    AdtKind::Struct(s) => TypeRefKind::Path(Path::Struct(s)),
+            match tc.find_adt_kind(ast_name, name.into()) {
+                Ok(adt_kind) => match adt_kind {
+                    AdtKind::Struct(s) => {
+                        if let Some(args) = ast_name.generic_arg_list() {
+                            let (type_ref_args, type_args): (Vec<_>, Vec<_>) = args
+                                .generic_args()
+                                .map(|arg| lower_type_inner_opt(tc, arg.ty()))
+                                .unzip();
+
+                            let adt = tc.instantiate_adt(adt_kind, type_args);
+                            let ty = tc.adt_ty(adt);
+
+                            (TypeRefKind::Path(Path::Struct(s)), ty)
+                        } else {
+                            let adt = tc.instantiate_adt(adt_kind, []);
+                            let ty = tc.adt_ty(adt);
+                            (TypeRefKind::Path(Path::Struct(s)), ty)
+                        }
+                    }
                 },
-                TDK::Error => TypeRefKind::Error,
-                _ => todo!(),
-            };
-            (td, ty)
+                Err(err_ty) => (TypeRefKind::Error, err_ty),
+            }
         }
         ast::Type::Primitive(it) => match () {
             _ if it.int_token().is_some() => (TypeRefKind::Primitive(Primitive::Int), int()),

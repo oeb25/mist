@@ -12,7 +12,7 @@ use mist_syntax::ast::{self, HasName, Spanned};
 use crate::{
     def::{Def, DefKind},
     hir::typecheck::{Typed, TypingMutExt},
-    types::builtin::*,
+    types::{builtin::*, TypeProvider, TDK},
 };
 
 pub use def::*;
@@ -53,26 +53,28 @@ pub(crate) fn lower_def(db: &dyn crate::Db, def: Def) -> Option<DefinitionHir> {
             let mut checker = TypeChecker::init(db, def);
 
             if let Some(self_ty) = checker.cx.self_ty(db) {
-                let related_invs = file_definitions(db, def.file(db))
-                    .into_iter()
-                    .filter_map(|def| def.kind(db).to_type_invariant())
-                    .filter(|inv| {
-                        checker.find_named_type(&inv.ast_node(db), inv.name(db)) == self_ty
-                    })
-                    .collect_vec();
+                if let TDK::Adt(adt) = checker.ty_data(self_ty).kind {
+                    let related_invs = file_definitions(db, def.file(db))
+                        .into_iter()
+                        .filter_map(|def| def.kind(db).to_type_invariant())
+                        .filter(|inv| {
+                            checker.find_adt_kind(&inv.ast_node(db), inv.name(db)) == Ok(adt.kind())
+                        })
+                        .collect_vec();
 
-                for ty_inv in related_invs {
-                    let ty_inv_ast = ty_inv.ast_node(db);
-                    if let Some(ast_body) = ty_inv_ast.block_expr() {
-                        let body = checker.check_block(&ast_body, |f| f);
-                        let ret = ghost_bool();
-                        let name_span = ty_inv_ast.name_ref().unwrap().span();
-                        checker.expect_ty(name_span, ret, body.return_ty);
-                        let body_expr = checker.alloc_expr(
-                            ExprData::Block(body).typed(ret),
-                            &ast::Expr::from(ast_body),
-                        );
-                        checker.cx.self_invariants.push(body_expr);
+                    for ty_inv in related_invs {
+                        let ty_inv_ast = ty_inv.ast_node(db);
+                        if let Some(ast_body) = ty_inv_ast.block_expr() {
+                            let body = checker.check_block(&ast_body, |f| f);
+                            let ret = ghost_bool();
+                            let name_span = ty_inv_ast.name_ref().unwrap().span();
+                            checker.expect_ty(name_span, ret, body.return_ty);
+                            let body_expr = checker.alloc_expr(
+                                ExprData::Block(body).typed(ret),
+                                &ast::Expr::from(ast_body),
+                            );
+                            checker.cx.self_invariants.push(body_expr);
+                        }
                     }
                 }
             }

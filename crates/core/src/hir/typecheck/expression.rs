@@ -434,11 +434,12 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 TDK::Error => (None, error()),
                 TDK::Ref { is_mut, inner } => match tc.ty_kind(inner) {
                     TDK::Adt(s) => {
-                        if let Some(field) = tc.fields_of(&s).find(|f| f.name(tc.db) == field) {
+                        if let Some(field) =
+                            tc.fields_of(s).into_iter().find(|f| f.name(tc.db) == field)
+                        {
                             (
                                 Some(field.into()),
-                                tc.expect_find_type(&field.ast_node(tc.db).ty())
-                                    .with_ghost(tc, field.is_ghost(tc.db)),
+                                tc.field_ty(field.into()).with_ghost(tc, field.is_ghost(tc.db)),
                             )
                         } else {
                             return Left(expr_error(
@@ -464,8 +465,10 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                     }
                 },
                 TDK::Adt(s) => {
-                    if let Some(field) = tc.fields_of(&s).find(|f| f.name(tc.db) == field) {
-                        (Some(field.into()), tc.expect_find_type(&field.ast_node(tc.db).ty()))
+                    if let Some(field) =
+                        tc.fields_of(s).into_iter().find(|f| f.name(tc.db) == field)
+                    {
+                        (Some(field.into()), tc.field_ty(field.into()))
                     } else {
                         tc.ty_error(
                             &field_ast,
@@ -482,9 +485,6 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 TDK::List(_) => match field.as_str() {
                     "len" => {
                         let field = Field::List(expr_ty, ListField::Len);
-                        let int_ty = int();
-                        let int_ty_src = tc.unsourced_ty(int_ty);
-                        tc.field_tys.entry(field).or_insert(int_ty_src);
                         (Some(field), int())
                     }
                     _ => {
@@ -534,11 +534,13 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
         }
         ast::Expr::StructExpr(it) => {
             let name_ref = if let Some(name_ref) = it.name_ref() { name_ref } else { todo!() };
-            let struct_ty = tc.find_named_type(&name_ref, (&name_ref).into());
-
-            let s = match tc.ty_kind(struct_ty) {
-                TDK::Adt(s) => s,
-                _ => {
+            let adt_kind = tc.find_adt_kind(&name_ref, (&name_ref).into());
+            let adt = match adt_kind {
+                Ok(kind) => {
+                    // TODO: instantiate new struct type instance
+                    tc.instantiate_adt(kind, [])
+                }
+                Err(_) => {
                     // NOTE: Still check the types of the fields
                     for f in it.fields() {
                         let _ = check_inner(tc, &f);
@@ -552,36 +554,37 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 }
             };
 
-            let fields = tc.fields_of(&s).collect_vec();
+            let fields = tc.fields_of(adt);
             let mut present_fields = vec![];
 
-            for f in it.fields() {
+            for expr_f in it.fields() {
                 let mut matched = false;
-                for &sf in &fields {
-                    let field_name = Name::from(&f.name_ref().unwrap());
-                    if field_name == sf.name(tc.db) {
-                        let value = check_inner(tc, &f);
-                        let expected = tc.expect_find_type(&sf.ast_node(tc.db).ty());
+                for &field in &fields {
+                    let field_name = Name::from(&expr_f.name_ref().unwrap());
+                    if field_name == field.name(tc.db) {
+                        let value = check_inner(tc, &expr_f);
+                        let expected = tc.field_ty(field.into());
                         tc.expect_ty(tc.expr_span(value), expected, tc.expr_ty(value));
-                        present_fields.push(StructExprField::new(sf, value));
+                        present_fields.push(StructExprField::new(field, value));
                         matched = true;
                     }
                 }
                 if !matched {
                     tc.ty_error(
-                        f.span(),
+                        expr_f.span(),
                         None,
                         None,
                         TypeCheckErrorKind::NotYetImplemented(format!(
                             "field '{}' does not exist on '{}'",
-                            f.name_ref().unwrap(),
-                            s.name(tc.db)
+                            expr_f.name_ref().unwrap(),
+                            adt.name(tc.db)
                         )),
                     );
                 }
             }
 
-            Expr { ty: struct_ty, data: ExprData::Adt { adt: s, fields: present_fields } }
+            dbg!(tc.pretty_ty(tc.adt_ty(adt)));
+            dbg!(Expr { ty: tc.adt_ty(adt), data: ExprData::Adt { adt, fields: present_fields } })
         }
         ast::Expr::ParenExpr(e) => return Left(check_inner(tc, e)),
         ast::Expr::RefExpr(it) => {

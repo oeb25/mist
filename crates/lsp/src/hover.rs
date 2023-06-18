@@ -5,7 +5,7 @@ use mist_core::{
     def::{Def, DefKind},
     hir::{pretty, ExprData, ExprIdx, SourceFile, TypeRefKind, TypeSrc, VariableIdx},
     salsa,
-    types::{Field, ListField, TypeProvider},
+    types::{AdtKind, Field, ListField, TypeProvider},
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
     VariableDeclarationKind,
 };
@@ -65,13 +65,19 @@ impl<'a> Visitor for HoverFinder<'a> {
     ) -> ControlFlow<Option<HoverResult>> {
         if reference.contains_pos(self.byte_offset) {
             match field {
-                Field::StructField(sf) => {
-                    let s = sf.parent_struct(self.db);
-                    let struct_ty =
-                        pretty::ty(&*vcx.cx, self.db, false, vcx.cx.struct_ty(self.db, s).id());
+                Field::AdtField(af) => {
                     let ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx.field_ty_ptr(field).id());
                     break_code(
-                        [format!("struct {struct_ty}"), format!("{}: {ty}", field.name(self.db))],
+                        [
+                            format!(
+                                "{} {}",
+                                match af.adt().kind() {
+                                    AdtKind::Struct(_) => "struct",
+                                },
+                                af.adt().name(self.db)
+                            ),
+                            format!("{}: {ty}", field.name(self.db)),
+                        ],
                         Some(reference.span()),
                     )
                 }

@@ -10,7 +10,7 @@ use miette::Diagnostic;
 use mist_core::{
     def, hir,
     mir::{self, analysis::cfg, BlockOrInstruction},
-    types::{AdtKind, Field, ListField, Primitive, TypeProvider, TypePtr, TDK},
+    types::{Adt, AdtKind, Field, ListField, Primitive, TypeId, TypeProvider, TypePtr, TDK},
     util::{IdxArena, IdxMap, IdxWrap},
 };
 use mist_syntax::{
@@ -180,12 +180,12 @@ pub struct ViperType {
     pub is_mut: bool,
     pub inner: Option<Box<ViperType>>,
     pub is_ref: bool,
-    pub strukt: Option<def::Struct>,
+    pub adt: Option<Adt>,
 }
 
 impl From<VTy> for ViperType {
     fn from(vty: VTy) -> Self {
-        ViperType { vty, is_mut: false, is_ref: false, optional: false, inner: None, strukt: None }
+        ViperType { vty, is_mut: false, is_ref: false, optional: false, inner: None, adt: None }
     }
 }
 
@@ -261,7 +261,7 @@ impl<'a> BodyLower<'a> {
                 is_ref: true,
                 optional: false,
                 inner: Some(Box::new(self.lower_type(inner)?)),
-                strukt: None,
+                adt: None,
             },
             TDK::List(inner) => {
                 VTy::Seq { element_type: Box::new(self.lower_type(inner)?.vty) }.into()
@@ -274,7 +274,7 @@ impl<'a> BodyLower<'a> {
                 Primitive::Int => VTy::int().into(),
                 Primitive::Bool => VTy::bool().into(),
             },
-            TDK::Adt(s) => match (s.name(self.db).as_str(), s.kind()) {
+            TDK::Adt(adt) => match (adt.name(self.db).as_str(), adt.kind()) {
                 ("Multiset", _) => VTy::Multiset { element_type: Box::new(VTy::int()) }.into(),
                 (_, AdtKind::Struct(s)) => ViperType {
                     vty: VTy::ref_(),
@@ -282,7 +282,7 @@ impl<'a> BodyLower<'a> {
                     is_mut: false,
                     is_ref: false,
                     inner: None,
-                    strukt: Some(s),
+                    adt: Some(adt),
                 },
             },
             TDK::Null => ViperType {
@@ -291,7 +291,7 @@ impl<'a> BodyLower<'a> {
                 is_mut: false,
                 inner: None,
                 is_ref: false,
-                strukt: None,
+                adt: None,
             },
             TDK::Function { .. } => {
                 return Err(ViperLowerError::NotYetImplemented {
@@ -465,9 +465,9 @@ impl BodyLower<'_> {
                             let exp = SeqExp::Length { s: base };
                             self.alloc(source, exp)
                         }
-                        Field::StructField(sf) => {
+                        Field::AdtField(af) => {
                             let exp = VField::new(
-                                mangle::mangled_field(self.db, sf),
+                                mangle::mangled_adt_field(self.db, af),
                                 // TODO: Should we look at the contraints?
                                 self.lower_type(self.body.ty_ptr(ty))?.vty,
                             )
@@ -556,12 +556,12 @@ impl BodyLower<'_> {
         ty: TypePtr<impl TypeProvider>,
     ) -> Result<(Option<VExprId>, Option<VExprId>)> {
         let ty = self.lower_type(ty)?;
-        if let Some(st) = ty.strukt {
+        if let Some(st) = ty.adt {
             let perm = self.alloc(source, PermExp::Full);
             let pred = self.alloc(
                 source,
                 AccessPredicate::Predicate(PredicateAccessPredicate::new(
-                    PredicateAccess::new(mangle::mangled_struct(self.db, st), vec![place]),
+                    PredicateAccess::new(mangle::mangled_adt(self.db, st), vec![place]),
                     perm,
                 )),
             );
@@ -576,7 +576,7 @@ impl BodyLower<'_> {
         }
         if let Some(inner) = ty.inner {
             if ty.is_ref {
-                if let Some(st) = inner.strukt {
+                if let Some(st) = inner.adt {
                     let perm = if ty.is_mut {
                         self.alloc(source, PermExp::Full)
                     } else {
@@ -585,7 +585,7 @@ impl BodyLower<'_> {
                     let exp = self.alloc(
                         source,
                         AccessPredicate::Predicate(PredicateAccessPredicate::new(
-                            PredicateAccess::new(mangle::mangled_struct(self.db, st), vec![place]),
+                            PredicateAccess::new(mangle::mangled_adt(self.db, st), vec![place]),
                             perm,
                         )),
                     );

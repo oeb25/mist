@@ -1,6 +1,4 @@
-use crate::def::Struct;
-
-use super::{TypeData, TypeId, TypeProvider, TDK};
+use super::{Adt, TypeData, TypeId, TypeProvider, TDK};
 
 #[derive(PartialEq, Eq, Hash)]
 pub struct TypePtr<'a, T> {
@@ -34,12 +32,12 @@ where
     pub fn kind(self) -> TDK<Self> {
         self.data().kind
     }
-    pub fn ty_struct(self) -> Option<Struct> {
+    pub fn ty_adt(self) -> Option<Adt> {
         match self.kind() {
-            TDK::Adt(s) => s.struct_(),
+            TDK::Adt(adt) => Some(adt),
 
-            TDK::Ref { inner, .. } => inner.ty_struct(),
-            TDK::Optional(inner) => inner.ty_struct(),
+            TDK::Ref { inner, .. } => inner.ty_adt(),
+            TDK::Optional(inner) => inner.ty_adt(),
 
             TDK::Error
             | TDK::Void

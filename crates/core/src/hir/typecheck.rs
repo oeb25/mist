@@ -16,14 +16,15 @@ use thiserror::Error;
 use tracing::error;
 
 use crate::{
-    def::{Name, StructField},
+    def::Name,
     hir::{
         self, AssertionKind, Block, Condition, Decreases, Expr, ExprData, ExprIdx, Param,
         Statement, StatementData, Variable, VariableIdx,
     },
     types::{
         builtin::{error, ghost_bool, void},
-        Adt, AdtKind, Field, TypeData, TypeId, TypeProvider, TypeTable, Typer,
+        Adt, AdtField, AdtKind, AdtPrototype, Generic, TypeData, TypeId, TypeProvider, TypeTable,
+        Typer,
     },
 };
 
@@ -167,23 +168,13 @@ pub(crate) struct TypeChecker<'w> {
     source_map: ItemSourceMap,
     pub(super) cx: ItemContext,
     typer: Typer,
-    field_tys: HashMap<Field, TypeSrc>,
 }
 
 impl hir::DefinitionHir {
     pub(crate) fn from_tc(db: &dyn crate::Db, mut tc: TypeChecker<'_>) -> Self {
-        tc.cx.ty_table = Some(Arc::new(TypeTable::new(
-            tc.typer.canonicalized().collect_vec(),
-            tc.cx
-                .file_context
-                .struct_field_types
-                .iter()
-                .map(|(&f, &ty_src)| (f.into(), ty_src))
-                .chain(tc.field_tys.iter().map(|(&f, &ty)| (f, ty)))
-                .collect_vec()
-                .into_iter()
-                .map(|(f, ty)| (f, ty.ty(tc.db))),
-        )));
+        let (type_data, adt_instantiations) = tc.typer.canonicalized();
+        tc.cx.ty_table =
+            Some(Arc::new(TypeTable::new(type_data.collect_vec(), adt_instantiations.clone())));
         desugar::desugar(db, &mut tc.cx);
 
         hir::DefinitionHir::new(tc.db, tc.cx.def(), tc.cx, tc.source_map)
@@ -196,8 +187,7 @@ impl<'a> TypeChecker<'a> {
 
         let mut checker = Self {
             db,
-            typer: fc.typer(),
-            field_tys: Default::default(),
+            typer: fc.typer(db),
             scope: Default::default(),
             scope_stack: vec![],
             source_map,
@@ -300,12 +290,33 @@ impl<'a> TypeChecker<'a> {
         }
 
         checker.cx.self_ty = match def.kind(db) {
-            hir::DefKind::TypeInvariant(ty_inv) => ty_inv.ast_node(db).name_ref().map(|name| {
-                checker.unsourced_ty(checker.find_named_type(name.span(), name.into()))
-            }),
-            hir::DefKind::Struct(s) => s.ast_node(db).name().map(|name| {
-                checker.unsourced_ty(checker.find_named_type(name.span(), name.into()))
-            }),
+            hir::DefKind::TypeInvariant(ty_inv) => {
+                // TODO: use an actual type in ty_inv instead of a NameRef
+                // TODO: make work with generics
+                ty_inv.ast_node(db).name_ref().map(|name| {
+                    match checker.find_adt_kind(name.span(), name.into()) {
+                        Ok(adt_kind) => {
+                            let adt = checker.typer.instantiate_adt(db, adt_kind, Vec::new());
+                            let ty = checker.typer.adt_ty(adt);
+                            checker.unsourced_ty(ty)
+                        }
+                        Err(err_ty) => checker.unsourced_ty(err_ty),
+                    }
+                })
+            }
+            hir::DefKind::Struct(s) => {
+                // TODO: make work with generics
+                s.ast_node(db).name().map(|name| {
+                    match checker.find_adt_kind(name.span(), name.into()) {
+                        Ok(adt_kind) => {
+                            let adt = checker.typer.instantiate_adt(db, adt_kind, Vec::new());
+                            let ty = checker.typer.adt_ty(adt);
+                            checker.unsourced_ty(ty)
+                        }
+                        Err(err_ty) => checker.unsourced_ty(err_ty),
+                    }
+                })
+            }
             hir::DefKind::StructField(_) => None,
             hir::DefKind::Function(_) => None,
         };
@@ -537,12 +548,6 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    fn fields_of(&self, s: &Adt) -> impl Iterator<Item = StructField> + 'a {
-        match s.kind() {
-            AdtKind::Struct(s) => s.fields(self.db),
-        }
-    }
-
     fn is_ghost(&self, e: ExprIdx) -> bool {
         self.expr_ty(e).is_ghost(self)
     }
@@ -564,9 +569,8 @@ impl<'a> TypeProvider for TypeChecker<'a> {
     fn ty_data(&self, ty: TypeId) -> TypeData {
         self.typer.probe_type(ty)
     }
-
-    fn struct_field_ty(&self, f: StructField) -> TypeId {
-        self.field_tys[&f.into()].ty(self.db)
+    fn fields_of(&self, adt: Adt) -> Vec<AdtField> {
+        self.typer.adt_fields(adt).to_vec()
     }
 }
 
@@ -579,12 +583,31 @@ impl<'a> TypingMut for TypeChecker<'a> {
         TypeCheckErrors::push(self.db, err);
     }
 
-    fn lookup_named_ty(&self, name: Name) -> Option<TypeId> {
-        self.cx.file_context.named_types.get(&name).copied()
+    fn lookup_adt_kind(&self, name: Name) -> Option<AdtKind> {
+        self.cx.file_context.adts.get(&name).copied()
     }
 
     fn new_free(&mut self) -> TypeId {
         self.typer.new_free()
+    }
+
+    fn create_adt_prototype(&mut self, kind: AdtKind, prototype: AdtPrototype) {
+        self.typer.create_adt_prototype(kind, prototype)
+    }
+
+    fn instantiate_adt(
+        &mut self,
+        kind: AdtKind,
+        generic_args: impl IntoIterator<Item = TypeId>,
+    ) -> Adt {
+        self.typer.instantiate_adt(self.db, kind, generic_args)
+    }
+    fn adt_ty(&self, adt: Adt) -> TypeId {
+        self.typer.adt_ty(adt)
+    }
+
+    fn new_generic(&mut self, generic: Generic) -> TypeId {
+        self.typer.new_generic(generic)
     }
 
     fn alloc_ty_data(&mut self, data: TypeData) -> TypeId {

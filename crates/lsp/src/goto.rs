@@ -5,7 +5,7 @@ use itertools::Either;
 use mist_core::{
     hir::{self, SourceFile, TypeRefKind, VariableIdx},
     salsa,
-    types::Field,
+    types::{AdtField, Field},
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
     VariableDeclarationKind,
 };
@@ -89,12 +89,13 @@ impl Visitor for DeclarationFinder<'_> {
         if reference.contains_pos(self.byte_offset) {
             let original_span = reference.span();
             match field {
-                Field::StructField(sf) => {
-                    let target_span = sf.ast_node(self.db).name().unwrap().span();
-                    return ControlFlow::Break(Some(DeclarationSpans {
-                        original_span,
-                        target_span,
-                    }));
+                Field::AdtField(af) => {
+                    // TODO: determine span of ADT field
+                    // let target_span = af.ast_node(self.db).name().unwrap().span();
+                    // return ControlFlow::Break(Some(DeclarationSpans {
+                    //     original_span,
+                    //     target_span,
+                    // }));
                 }
                 Field::List(_, _) | Field::Undefined => {}
             }

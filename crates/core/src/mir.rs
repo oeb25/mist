@@ -17,9 +17,11 @@ use mist_syntax::{
 use tracing::debug;
 
 use crate::{
-    def::{Def, Struct, StructField},
+    def::Def,
     hir::{self, AssertionKind, Literal, Quantifier, VariableIdx},
-    types::{Field, TypeData, TypeId, TypeProvider, TypePtr, TypeTable},
+    types::{
+        builtin::error, Adt, AdtField, Field, TypeData, TypeId, TypeProvider, TypePtr, TypeTable,
+    },
     util::{impl_idx, IdxArena, IdxMap, IdxWrap},
 };
 
@@ -244,7 +246,7 @@ impl_idx!(InstructionId, Instruction, default_debug);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Instruction {
     Assign(Place, MExpr),
-    NewStruct(Place, Struct, Vec<(StructField, Operand)>),
+    NewAdt(Place, Adt, Vec<(AdtField, Operand)>),
     Assertion(AssertionKind, MExpr),
     Folding(Folding),
     PlaceMention(Place),
@@ -380,43 +382,29 @@ pub enum RangeKind {
     Full,
 }
 
-#[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Body {
     def: Def,
 
     ty_table: Arc<TypeTable>,
+    self_slot: SlotId,
 
-    #[new(default)]
     blocks: IdxArena<BlockId>,
-    #[new(default)]
     instructions: IdxArena<InstructionId>,
-    #[new(default)]
     slots: IdxArena<SlotId>,
-    #[new(value = "{ let mut arena = IdxArena::default(); arena.alloc(vec![]); arena }")]
     projections: IdxArena<ProjectionList>,
-    #[new(default)]
     functions: IdxArena<FunctionId>,
 
-    #[new(default)]
     params: Vec<SlotId>,
 
-    #[new(default)]
     block_invariants: IdxMap<BlockId, Vec<BlockId>>,
-    #[new(default)]
     slot_type: IdxMap<SlotId, TypeId>,
 
-    #[new(default)]
     requires: Vec<BlockId>,
-    #[new(default)]
     ensures: Vec<BlockId>,
-    #[new(default)]
     invariants: Vec<BlockId>,
 
-    #[new(default)]
     result_slot: Option<SlotId>,
-    #[new(default)]
-    self_slot: Option<SlotId>,
-    #[new(default)]
     body_block: Option<BlockId>,
 }
 
@@ -451,17 +439,50 @@ impl TypeProvider for Body {
     fn ty_data(&self, ty: TypeId) -> TypeData {
         self.ty_table.ty_data(ty)
     }
-
-    fn struct_field_ty(&self, f: StructField) -> TypeId {
-        self.ty_table.struct_field_ty(f)
+    fn fields_of(&self, adt: Adt) -> Vec<AdtField> {
+        self.ty_table.fields_of(adt)
     }
 }
 
 impl Body {
+    fn new(def: Def, ty_table: Arc<TypeTable>) -> Body {
+        let mut slots: IdxArena<_> = Default::default();
+        let self_slot = slots.alloc(Slot::Self_);
+
+        Body {
+            def,
+
+            ty_table,
+            self_slot,
+
+            blocks: Default::default(),
+            instructions: Default::default(),
+            slots,
+            projections: {
+                let mut arena = IdxArena::default();
+                arena.alloc(vec![]);
+                arena
+            },
+            functions: Default::default(),
+
+            params: Default::default(),
+
+            block_invariants: Default::default(),
+            slot_type: Default::default(),
+
+            requires: Default::default(),
+            ensures: Default::default(),
+            invariants: Default::default(),
+
+            result_slot: Default::default(),
+            body_block: Default::default(),
+        }
+    }
+
     pub fn result_slot(&self) -> Option<SlotId> {
         self.result_slot
     }
-    pub fn self_slot(&self) -> Option<SlotId> {
+    pub fn self_slot(&self) -> SlotId {
         self.self_slot
     }
 
@@ -549,7 +570,7 @@ impl Body {
     }
 
     pub fn slot_ty(&self, slot: SlotId) -> TypePtr<Self> {
-        self.slot_type[slot].wrap(self)
+        self.slot_type.get(slot).copied().unwrap_or_else(error).wrap(self)
     }
 
     pub fn place_ty(&self, place: Place) -> TypePtr<Self> {
@@ -836,7 +857,7 @@ impl Instruction {
             Instruction::Assign(target, expr) => {
                 Left(Left([*target].into_iter().chain(Left(expr.places()))))
             }
-            Instruction::NewStruct(target, _, fields) => Left(Left(
+            Instruction::NewAdt(target, _, fields) => Left(Left(
                 [*target].into_iter().chain(Right(fields.iter().flat_map(|f| f.1.place()))),
             )),
             Instruction::Assertion(_, expr) => Left(Right(expr.places())),
@@ -855,7 +876,7 @@ impl Instruction {
                 // referenced as well?
                 Left(None.into_iter().chain(Left(expr.places())))
             }
-            Instruction::NewStruct(_, _, fields) => {
+            Instruction::NewAdt(_, _, fields) => {
                 Left(None.into_iter().chain(Right(fields.iter().flat_map(|f| f.1.place()))))
             }
             Instruction::Assertion(_, expr) => Left(None.into_iter().chain(Left(expr.places()))),
@@ -871,9 +892,7 @@ impl Instruction {
 
     fn places_written_to(&self) -> impl Iterator<Item = Place> + '_ {
         match self {
-            Instruction::Assign(target, _) | Instruction::NewStruct(target, _, _) => {
-                Left([*target])
-            }
+            Instruction::Assign(target, _) | Instruction::NewAdt(target, _, _) => Left([*target]),
             Instruction::Assertion(_, _)
             | Instruction::PlaceMention(_)
             | Instruction::Folding(_) => Right([]),

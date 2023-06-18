@@ -4,6 +4,7 @@ mod db;
 pub mod def;
 pub mod hir;
 pub mod mir;
+pub mod mono;
 pub mod types;
 pub mod util;
 pub mod visit;
@@ -15,11 +16,15 @@ pub use salsa;
 
 #[salsa::jar(db = Db)]
 pub struct Jar(
+    // def
     crate::def::Def,
     crate::def::Function,
     crate::def::Struct,
     crate::def::StructField,
     crate::def::TypeInvariant,
+    // types
+    crate::types::GenericArgs,
+    // hir
     crate::hir::file::parse_file,
     crate::hir::file::ast_map,
     crate::hir::file_context::initialize_file_context,
@@ -31,6 +36,14 @@ pub struct Jar(
     crate::hir::DefinitionHir,
     crate::hir::lower_def,
     crate::hir::typecheck::TypeCheckErrors,
+    // mono
+    crate::mono::types::Type,
+    crate::mono::types::Adt,
+    crate::mono::types::FunctionType,
+    crate::mono::Function,
+    crate::mono::monomorphized_items,
+    crate::mono::Monomorphized,
+    // mir
     crate::mir::MirErrors,
     crate::mir::DefinitionMir,
     crate::mir::lower_item,

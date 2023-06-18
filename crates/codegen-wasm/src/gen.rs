@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use mist_core::{
-    def, hir, mir,
-    types::{AdtKind, Primitive, TypeProvider, TypePtr, TDK},
+    hir, mir,
+    types::{Adt, Primitive, TypeProvider, TypePtr, TDK},
     util::IdxMap,
 };
 
@@ -49,8 +49,8 @@ impl<'a> FunctionLowerer<'a> {
         })
     }
 
-    fn compute_struct_layout(&self, s: def::Struct) -> StructLayout {
-        let (layout, _) = s.fields(self.db).fold(
+    fn compute_adt_layout(&self, adt: Adt) -> StructLayout {
+        let (layout, _) = self.cx.fields_of(adt).into_iter().fold(
             (StructLayout::default(), 0),
             |(mut layout, current_offset), f| {
                 layout.field_offsets.push((layout.types.len(), current_offset));
@@ -76,9 +76,7 @@ impl<'a> FunctionLowerer<'a> {
                 layout.insert(0, wasm::ValType::I32);
                 layout
             }
-            TDK::Adt(adt) => match adt.kind() {
-                AdtKind::Struct(s) => self.compute_struct_layout(s).types,
-            },
+            TDK::Adt(adt) => self.compute_adt_layout(adt).types,
             TDK::Range(_) => Vec::new(),
             TDK::Error
             | TDK::Void
