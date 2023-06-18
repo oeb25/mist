@@ -7,8 +7,8 @@ use mist_syntax::ast::{
 };
 
 use crate::{
-    def::{Name, Struct, StructField},
-    types::{Adt, Field, Primitive, TypeId},
+    def::{Name, Struct},
+    types::{Adt, AdtField, Field, Primitive, TypeId},
     util::impl_idx,
 };
 
@@ -144,7 +144,7 @@ pub enum Quantifier {
 }
 #[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StructExprField {
-    pub decl: StructField,
+    pub decl: AdtField,
     pub value: ExprIdx,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

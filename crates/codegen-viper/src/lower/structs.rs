@@ -1,6 +1,10 @@
-use mist_core::{def, mir, types::TypeProvider, util::IdxWrap};
+use mist_core::{
+    def, mir,
+    types::{Adt, TypeProvider},
+    util::IdxWrap,
+};
 use silvers::{
-    expression::{AbstractLocalVar, BinOp, Exp, FieldAccess, PermExp},
+    expression::{AbstractLocalVar, BinOp, Exp, FieldAccess, LocalVar, PermExp},
     program::{Field, Predicate},
 };
 
@@ -12,26 +16,30 @@ use crate::{
 use super::{BodyLower, Result};
 
 impl BodyLower<'_> {
-    pub fn struct_lower(
+    pub fn adt_lower(
         &mut self,
-        s: def::Struct,
+        adt: Adt,
         invariants: impl IntoIterator<Item = mir::BlockId>,
     ) -> Result<Vec<ViperItem<VExprId>>> {
         let mut viper_items = vec![];
 
         let source = mir::BlockId::from_raw(0.into());
-        let self_slot = self.body.self_slot().expect("self slot must be set");
+        let self_slot = self.body.self_slot();
         let self_var = self.slot_to_var(self_slot)?;
+        let self_var = LocalVar { name: self_var.name, typ: silvers::typ::Type::ref_() };
         let self_ = self.alloc(source, AbstractLocalVar::LocalVar(self_var.clone()));
 
         self.pre_unfolded.insert(self_slot.into());
 
-        let field_invs: Vec<_> = s
-            .fields(self.db)
+        let field_invs: Vec<_> = self
+            .cx
+            .fields_of(adt)
+            .into_iter()
             .map(|f| {
                 let field_ty = self.body.field_ty_ptr(f.into());
                 let ty = self.lower_type(field_ty)?;
-                let viper_field = Field { name: mangle::mangled_field(self.db, f), typ: ty.vty };
+                let viper_field =
+                    Field { name: mangle::mangled_adt_field(self.db, f), typ: ty.vty };
                 viper_items.push(ViperItem::Field(viper_field.clone()));
                 let perm = self.alloc(source, PermExp::Full);
                 let field_access = FieldAccess::new(self_, viper_field);
@@ -53,7 +61,7 @@ impl BodyLower<'_> {
             .reduce(|acc, next| self.alloc(source, Exp::bin(acc, BinOp::And, next)));
 
         viper_items.push(ViperItem::Predicate(Predicate {
-            name: mangle::mangled_struct(self.db, s),
+            name: mangle::mangled_adt(self.db, adt),
             formal_args: vec![self_var.into()],
             body,
         }));

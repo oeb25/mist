@@ -9,8 +9,8 @@ use mist_syntax::{
 use tracing::info;
 
 use crate::{
-    def::{Name, Struct, StructField},
-    types::{Field, TypeData, TypeId, TypeProvider, TypePtr, TypeTable},
+    def::Name,
+    types::{Adt, AdtField, TypeData, TypeId, TypeProvider, TypePtr, TypeTable},
     util::{IdxArena, IdxMap, IdxWrap},
     VariableDeclaration,
 };
@@ -133,18 +133,6 @@ impl ItemContext {
     pub fn var_name(&self, var: VariableIdx) -> Name {
         self.declarations.map[var].name()
     }
-    pub fn field_ty_src(&self, field: Field) -> Option<TypeSrc> {
-        match field {
-            Field::StructField(sf) => Some(self.file_context.struct_field_types[&sf]),
-            Field::List(_, _) | Field::Undefined => None,
-        }
-    }
-    pub fn struct_ty_src(&self, s: Struct) -> TypeSrc {
-        self.file_context.struct_types[&s]
-    }
-    pub fn struct_ty(&self, db: &dyn crate::Db, s: Struct) -> TypePtr<Self> {
-        self.struct_ty_src(s).ty(db).wrap(self)
-    }
 
     pub fn ty_table(&self) -> Arc<TypeTable> {
         Arc::clone(self.ty_table.as_ref().expect("TypeTable was not yet built"))
@@ -170,9 +158,8 @@ impl TypeProvider for ItemContext {
     fn ty_data(&self, ty: TypeId) -> TypeData {
         self.ty_table.as_ref().expect("TypeTable was not yet set").ty_data(ty)
     }
-
-    fn struct_field_ty(&self, f: StructField) -> TypeId {
-        self.ty_table.as_ref().expect("TypeTable was not yet set").struct_field_ty(f)
+    fn fields_of(&self, adt: Adt) -> Vec<AdtField> {
+        self.ty_table.as_ref().expect("TypeTable was not yet set").fields_of(adt)
     }
 }
 

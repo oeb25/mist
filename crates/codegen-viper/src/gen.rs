@@ -1,4 +1,7 @@
-use std::{collections::HashMap, fmt::Write};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Write,
+};
 
 use derive_more::From;
 use derive_new::new;
@@ -84,9 +87,12 @@ fn internal_viper_item(
     mir: &mir::Body,
 ) -> Result<Vec<ViperItem<VExprId>>> {
     match def.kind(db) {
-        def::DefKind::Struct(s) => {
-            let mut lower = lowerer.body_lower(db, cx, mir, false);
-            lower.struct_lower(s, mir.invariants().iter().copied())
+        def::DefKind::Struct(_s) => {
+            // TODO: we should lower the actual instantications of structs, not
+            // those found in the file necessarily.
+            Ok(vec![])
+            // let mut lower = lowerer.body_lower(db, cx, mir, false);
+            // lower.adt_lower(s, mir.invariants().iter().copied())
         }
         def::DefKind::StructField(_) => {
             // TODO: We should perhaps emit the field here instead of in struct?
@@ -97,6 +103,13 @@ fn internal_viper_item(
             let is_method = !function.attrs(db).is_pure();
 
             let mut lower = lowerer.body_lower(db, cx, mir, is_method);
+
+            let items = cx
+                .ty_table()
+                .adts()
+                .map(|adt| lower.adt_lower(adt, []))
+                .collect::<Result<Vec<_>>>()?;
+            let mut items = items.into_iter().flatten().collect_vec();
 
             let mut pres = vec![];
             let mut posts = vec![];
@@ -174,7 +187,7 @@ fn internal_viper_item(
                     body,
                 };
 
-                Ok(vec![func.into()])
+                items.push(func.into());
             } else {
                 let formal_returns = return_ty.map(|ret| vec![ret]).unwrap_or_default();
 
@@ -187,13 +200,15 @@ fn internal_viper_item(
                     body: mir.body_block().map(|body| lower.method_lower(body)).transpose()?,
                 };
 
-                Ok(vec![method.into()])
+                items.push(method.into());
             }
+
+            Ok(items)
         }
     }
 }
 
-#[derive(new, Debug, Clone, PartialEq, Eq, From)]
+#[derive(new, Debug, Clone, PartialEq, Eq, From, Hash)]
 pub enum ViperItem<E> {
     Domain(Domain<E>),
     Field(Field),

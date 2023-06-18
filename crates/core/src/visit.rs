@@ -2,7 +2,7 @@ use std::{iter, ops::ControlFlow, sync::Arc};
 
 use derive_new::new;
 use mist_syntax::{
-    ast::{self, HasName, Spanned},
+    ast::{self, Spanned},
     ptr::AstPtr,
     AstNode, SourceSpan, WalkEvent,
 };
@@ -259,13 +259,14 @@ where
         if self.pre() {
             visitor.visit_ty_decl(&self.vcx, s)?;
         }
-        self.walk_ty(visitor, self.vcx.cx.struct_ty_src(s))?;
-        for f in s.fields(self.db) {
-            let f_ast = f.ast_node(self.db);
-            if let Some(name) = f_ast.name() {
-                self.walk_field(visitor, f.into(), &ast::NameOrNameRef::Name(name))?
-            }
-        }
+        // TODO
+        // self.walk_ty(visitor, self.vcx.cx.struct_ty_src(s))?;
+        // for f in s.fields(self.db) {
+        //     let f_ast = f.ast_node(self.db);
+        //     if let Some(name) = f_ast.name() {
+        //         self.walk_field(visitor, f.into(), &ast::NameOrNameRef::Name(name))?
+        //     }
+        // }
         if self.post() {
             visitor.visit_ty_decl(&self.vcx, s)?;
         }
@@ -297,9 +298,10 @@ where
         if self.pre() {
             visitor.visit_field(&self.vcx, field, reference)?;
         }
-        if let Some(ty) = self.vcx.cx.field_ty_src(field) {
-            self.walk_ty(visitor, ty)?;
-        }
+        // TODO
+        // if let Some(ty) = self.vcx.cx.field_ty_src(field) {
+        //     self.walk_ty(visitor, ty)?;
+        // }
         if self.post() {
             visitor.visit_field(&self.vcx, field, reference)?;
         }
@@ -422,9 +424,10 @@ where
                     .flatten();
 
                 for (f, f_ast) in iter::zip(fields, src_fields) {
-                    if let Some(name) = f_ast.and_then(|f_ast| f_ast.name_ref()) {
-                        self.walk_field(visitor, f.decl.into(), &name.into())?;
-                    }
+                    // TODO
+                    // if let Some(name) = f_ast.and_then(|f_ast| f_ast.name_ref()) {
+                    //     self.walk_field(visitor, f.decl.into(), &name.into())?;
+                    // }
                     self.walk_expr(visitor, f.value)?;
                 }
             }
