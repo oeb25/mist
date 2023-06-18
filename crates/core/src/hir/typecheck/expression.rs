@@ -511,8 +511,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
 
             let field_ty = field_ty.with_ghost(tc, expr_ty.is_ghost(tc));
 
-            ExprData::Field { expr, field_name: field, field: sf.unwrap_or(Field::Undefined) }
-                .typed(field_ty)
+            ExprData::Field { expr, field: sf.unwrap_or(Field::Undefined) }.typed(field_ty)
         }
         ast::Expr::NotNullExpr(it) => {
             let inner = check_inner(tc, it);

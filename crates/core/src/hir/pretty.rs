@@ -87,7 +87,8 @@ pub fn expr(pp: &impl PrettyPrint, db: &dyn crate::Db, expr: ExprIdx) -> String 
         },
         ExprData::Self_ => "self".to_string(),
         ExprData::Ident(i) => pp.resolve_var(*i).to_string(),
-        ExprData::Field { expr, field_name, .. } => {
+        ExprData::Field { expr, field, .. } => {
+            let field_name = field.name(db);
             format!("{}.{field_name}", pp_expr(pp, db, *expr))
         }
         ExprData::Struct { struct_declaration, fields, .. } => format!(

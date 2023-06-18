@@ -90,7 +90,7 @@ pub enum ExprData {
     Self_,
     Ident(VariableIdx),
     Block(Block),
-    Field { expr: ExprIdx, field_name: Name, field: Field },
+    Field { expr: ExprIdx, field: Field },
     Struct { struct_declaration: Struct, fields: Vec<StructExprField> },
     Missing,
     If(IfExpr),

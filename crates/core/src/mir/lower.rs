@@ -552,7 +552,7 @@ impl MirLower<'_> {
                 self.body.blocks[bid].set_terminator(Terminator::Goto(next_bid));
                 self.block(block, next_bid, target, dest)
             }
-            ExprData::Field { expr: base, field_name: _, field } => match field {
+            ExprData::Field { expr: base, field } => match field {
                 Field::StructField(_) | Field::List(_, _) => {
                     let tmp = self.expr_into_operand(*base, &mut bid, None);
                     if let Some(place) = tmp.place() {
