@@ -110,8 +110,14 @@ impl Visitor for DeclarationFinder<'_> {
         let original_span = vcx.source_map[ty].span();
         if original_span.contains(self.byte_offset) {
             match ty.type_ref(self.db) {
-                Some(TypeRefKind::Struct(s)) => {
-                    let target_span = s.ast_node(self.db).name().unwrap().span();
+                Some(TypeRefKind::Path(s)) => {
+                    let target_span = match s {
+                        hir::Path::Name(_) => {
+                            // TODO
+                            return ControlFlow::Continue(());
+                        }
+                        hir::Path::Struct(s) => s.ast_node(self.db).name().unwrap().span(),
+                    };
                     ControlFlow::Break(Some(DeclarationSpans { original_span, target_span }))
                 }
                 _ => ControlFlow::Continue(()),

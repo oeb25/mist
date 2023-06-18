@@ -39,6 +39,7 @@ pub fn ty(pp: &impl PrettyPrint, db: &dyn crate::Db, strip_ghost: bool, ty: Type
         TDK::Error => "Error".to_string(),
         TDK::Void => "void".to_string(),
         TDK::Free => "free".to_string(),
+        TDK::Generic(_) => "generic".to_string(),
         TDK::Ref { is_mut, inner } => {
             format!("&{}{}", if is_mut { "mut " } else { "" }, pp_ty(pp, db, false, inner))
         }
@@ -46,7 +47,7 @@ pub fn ty(pp: &impl PrettyPrint, db: &dyn crate::Db, strip_ghost: bool, ty: Type
         TDK::List(inner) => format!("[{}]", pp_ty(pp, db, false, inner)),
         TDK::Optional(inner) => format!("?{}", pp_ty(pp, db, false, inner)),
         TDK::Primitive(t) => format!("{t:?}").to_lowercase(),
-        TDK::Struct(s) => s.name(db).to_string(),
+        TDK::Adt(s) => s.name(db).to_string(),
         TDK::Null => "null".to_string(),
         TDK::Function { attrs, name, params, return_ty } => {
             let is_ghost = attrs.is_ghost();
@@ -91,7 +92,7 @@ pub fn expr(pp: &impl PrettyPrint, db: &dyn crate::Db, expr: ExprIdx) -> String 
             let field_name = field.name(db);
             format!("{}.{field_name}", pp_expr(pp, db, *expr))
         }
-        ExprData::Struct { struct_declaration, fields, .. } => format!(
+        ExprData::Adt { adt: struct_declaration, fields, .. } => format!(
             "{} {{ {} }}",
             struct_declaration.name(db),
             fields

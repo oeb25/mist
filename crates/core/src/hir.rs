@@ -10,7 +10,7 @@ use itertools::Itertools;
 use mist_syntax::ast::{self, HasName, Spanned};
 
 use crate::{
-    def::{Def, DefKind, Struct},
+    def::{Def, DefKind},
     hir::typecheck::{Typed, TypingMutExt},
     types::builtin::*,
 };

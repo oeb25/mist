@@ -433,8 +433,8 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             let (sf, field_ty): (Option<Field>, TypeId) = match tc.ty_kind(expr_ty) {
                 TDK::Error => (None, error()),
                 TDK::Ref { is_mut, inner } => match tc.ty_kind(inner) {
-                    TDK::Struct(s) => {
-                        if let Some(field) = tc.struct_fields(s).find(|f| f.name(tc.db) == field) {
+                    TDK::Adt(s) => {
+                        if let Some(field) = tc.fields_of(&s).find(|f| f.name(tc.db) == field) {
                             (
                                 Some(field.into()),
                                 tc.expect_find_type(&field.ast_node(tc.db).ty())
@@ -463,8 +463,8 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                         (None, error())
                     }
                 },
-                TDK::Struct(s) => {
-                    if let Some(field) = tc.struct_fields(s).find(|f| f.name(tc.db) == field) {
+                TDK::Adt(s) => {
+                    if let Some(field) = tc.fields_of(&s).find(|f| f.name(tc.db) == field) {
                         (Some(field.into()), tc.expect_find_type(&field.ast_node(tc.db).ty()))
                     } else {
                         tc.ty_error(
@@ -537,7 +537,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             let struct_ty = tc.find_named_type(&name_ref, (&name_ref).into());
 
             let s = match tc.ty_kind(struct_ty) {
-                TDK::Struct(s) => s,
+                TDK::Adt(s) => s,
                 _ => {
                     // NOTE: Still check the types of the fields
                     for f in it.fields() {
@@ -552,7 +552,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 }
             };
 
-            let fields = tc.struct_fields(s).collect_vec();
+            let fields = tc.fields_of(&s).collect_vec();
             let mut present_fields = vec![];
 
             for f in it.fields() {
@@ -581,10 +581,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 }
             }
 
-            Expr {
-                ty: struct_ty,
-                data: ExprData::Struct { struct_declaration: s, fields: present_fields },
-            }
+            Expr { ty: struct_ty, data: ExprData::Adt { adt: s, fields: present_fields } }
         }
         ast::Expr::ParenExpr(e) => return Left(check_inner(tc, e)),
         ast::Expr::RefExpr(it) => {

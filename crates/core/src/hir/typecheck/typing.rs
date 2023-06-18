@@ -2,10 +2,10 @@ use mist_syntax::ast::{self, HasName, Spanned};
 
 use crate::{
     def::Name,
-    hir::{typecheck::TypeCheckErrorKind, SpanOrAstPtr, TypeRef, TypeRefKind, TypeSrc},
+    hir::{typecheck::TypeCheckErrorKind, Path, SpanOrAstPtr, TypeRef, TypeRefKind, TypeSrc},
     types::{
         builtin::{bool, error, int},
-        Primitive, TypeData, TypeId, TypeProvider, TDK,
+        AdtKind, Primitive, TypeData, TypeId, TypeProvider, TDK,
     },
     TypeCheckError,
 };
@@ -86,7 +86,9 @@ fn lower_type_inner(tc: &mut impl TypingMut, ast_ty: &ast::Type) -> (TypeRefKind
             let name = ast_name.name().unwrap();
             let ty = tc.find_named_type(ast_name, name.into());
             let td = match tc.ty_kind(ty) {
-                TDK::Struct(s) => TypeRefKind::Struct(s),
+                TDK::Adt(adt) => match adt.kind() {
+                    AdtKind::Struct(s) => TypeRefKind::Path(Path::Struct(s)),
+                },
                 TDK::Error => TypeRefKind::Error,
                 _ => todo!(),
             };

@@ -36,7 +36,7 @@ where
     }
     pub fn ty_struct(self) -> Option<Struct> {
         match self.kind() {
-            TDK::Struct(s) => Some(s),
+            TDK::Adt(s) => s.struct_(),
 
             TDK::Ref { inner, .. } => inner.ty_struct(),
             TDK::Optional(inner) => inner.ty_struct(),
@@ -48,6 +48,7 @@ where
             | TDK::Null
             | TDK::Function { .. }
             | TDK::Range(_)
+            | TDK::Generic(_)
             | TDK::Free => None,
         }
     }

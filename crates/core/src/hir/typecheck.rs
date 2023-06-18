@@ -23,7 +23,7 @@ use crate::{
     },
     types::{
         builtin::{error, ghost_bool, void},
-        Field, TypeData, TypeId, TypeProvider, TypeTable, Typer,
+        Adt, AdtKind, Field, TypeData, TypeId, TypeProvider, TypeTable, Typer,
     },
 };
 
@@ -537,8 +537,10 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    fn struct_fields(&self, s: crate::hir::Struct) -> impl Iterator<Item = StructField> + 'a {
-        s.fields(self.db)
+    fn fields_of(&self, s: &Adt) -> impl Iterator<Item = StructField> + 'a {
+        match s.kind() {
+            AdtKind::Struct(s) => s.fields(self.db),
+        }
     }
 
     fn is_ghost(&self, e: ExprIdx) -> bool {

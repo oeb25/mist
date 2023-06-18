@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use mist_core::{
     def, hir, mir,
-    types::{Primitive, TypeProvider, TypePtr, TDK},
+    types::{AdtKind, Primitive, TypeProvider, TypePtr, TDK},
     util::IdxMap,
 };
 
@@ -76,13 +76,16 @@ impl<'a> FunctionLowerer<'a> {
                 layout.insert(0, wasm::ValType::I32);
                 layout
             }
-            TDK::Struct(s) => self.compute_struct_layout(s).types,
+            TDK::Adt(adt) => match adt.kind() {
+                AdtKind::Struct(s) => self.compute_struct_layout(s).types,
+            },
             TDK::Range(_) => Vec::new(),
             TDK::Error
             | TDK::Void
             | TDK::List(_)
             | TDK::Null
             | TDK::Function { .. }
+            | TDK::Generic(_)
             | TDK::Free => Vec::new(),
         }
     }

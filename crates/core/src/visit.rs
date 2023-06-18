@@ -409,7 +409,7 @@ where
                     res?;
                 }
             }
-            ExprData::Struct { fields, .. } => {
+            ExprData::Adt { fields, .. } => {
                 let src_fields = expr_src
                     .into_ptr()
                     .and_then(|expr| match expr.to_node(self.root.syntax()) {

@@ -9,7 +9,7 @@ use crate::{
         typecheck::{TypeCheckErrorKind, Typed, TypingMutExt},
         ItemSourceMap, Param, SpanOrAstPtr, TypeSrc,
     },
-    types::{builtin::void, TypeData, TypeId, TypeProvider, Typer, TDK},
+    types::{builtin::void, Adt, TypeData, TypeId, TypeProvider, Typer, TDK},
     TypeCheckError, TypeCheckErrors,
 };
 
@@ -31,7 +31,7 @@ pub(crate) fn initialize_file_context(
         if let hir::DefKind::Struct(s) = def.kind(db) {
             let s_ast = s.ast_node(db);
 
-            let s_ty = b.alloc_ty_data(TDK::Struct(s).into());
+            let s_ty = b.alloc_ty_data(TDK::Adt(Adt::new_struct(s, Vec::new())).into());
             if let Some(_old) = b.fc.named_types.insert(s.name(db), s_ty) {
                 b.ty_error(
                     s_ast.span(),
@@ -44,7 +44,11 @@ pub(crate) fn initialize_file_context(
             }
             if let Some(name) = s_ast.name() {
                 let ts = b.alloc_ty_src(
-                    TypeSrc::sourced(db, TypeRef::new(db, TypeRefKind::Struct(s)), s_ty),
+                    TypeSrc::sourced(
+                        db,
+                        TypeRef::new(db, TypeRefKind::Path(hir::Path::Struct(s))),
+                        s_ty,
+                    ),
                     Some(name.span().into()),
                 );
                 b.fc.struct_types.insert(s, ts);

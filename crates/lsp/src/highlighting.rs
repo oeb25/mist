@@ -267,7 +267,7 @@ impl<'src> Visitor for Highlighter<'src> {
             hir::ExprData::Result => {
                 self.push(&src, TT::Keyword, None);
             }
-            hir::ExprData::Struct { .. } => {
+            hir::ExprData::Adt { .. } => {
                 let ast = src.into_ptr().map(|n| n.to_node(self.root.syntax()));
                 if let Some(ast::Expr::StructExpr(it)) = ast {
                     if let Some(t) = it.name_ref() {
@@ -297,7 +297,7 @@ impl<'src> Visitor for Highlighter<'src> {
             Some(TypeRefKind::Primitive(_)) => {
                 self.push_opt(Some(vcx.source_map[ts].span()), TT::Type, Some(TM::DefaultLibrary));
             }
-            Some(TypeRefKind::Struct(_)) => {
+            Some(TypeRefKind::Path(_)) => {
                 self.push_opt(Some(vcx.source_map[ts].span()), TT::Type, None);
             }
             _ => {}
