@@ -160,13 +160,13 @@ mod tests {
         let src = "fn main() { let x = 12; }";
         insta::assert_display_snapshot!(generate_annotated_mir(src), @r###"
         :B0
-          {%0: @}
-        > {%0: @}
+          {%1_x: @}
+        > {%1_x: @}
           !goto :B1
         :B1
-          {%0: @}
-        > {%0: X}
-          %0 := $12
+          {%1_x: @}
+        > {%1_x: X}
+          %1_x := $12
         "###)
     }
 
@@ -182,19 +182,19 @@ mod tests {
         "#;
         insta::assert_display_snapshot!(generate_annotated_mir(src), @r###"
         :B0
-          {%result: @, %1: @}
-        > {%result: @, %1: @}
+          {%result: @, %2_x: @}
+        > {%result: @, %2_x: @}
           !goto :B1
         :B1
-          {%result: @, %1: @}
-        > {%result: @, %1: X}
-          %1 := T { n: $12 }
-          {%result: @, %1: { .n X }}
-        > {%result: @, %1: { .n X }}
-          assert (== %1.n $12)
-          {%result: @, %1: X}
-        > {%result: X, %1: X}
-          %result := %1
+          {%result: @, %2_x: @}
+        > {%result: @, %2_x: X}
+          %2_x := T { n: $12 }
+          {%result: @, %2_x: { .n X }}
+        > {%result: @, %2_x: { .n X }}
+          assert (== %2_x.n $12)
+          {%result: @, %2_x: X}
+        > {%result: X, %2_x: X}
+          %result := %2_x
         "###)
     }
 
@@ -208,16 +208,16 @@ mod tests {
         "#;
         insta::assert_display_snapshot!(generate_annotated_mir(src), @r###"
         :B0
-          {%0: { .n X }, %1: @}
-        > {%0: { .n X }, %1: @}
+          {%1_p: { .n X }, %2: @}
+        > {%1_p: { .n X }, %2: @}
           !goto :B1
         :B1
-          {%0: { .n X }, %1: @}
-        > {%0: { .n X }, %1: X}
-          %1 := (+ %0.n $1)
-          {%0: { .n X }, %1: X}
-        > {%0: { .n X }, %1: X}
-          %0.n := %1
+          {%1_p: { .n X }, %2: @}
+        > {%1_p: { .n X }, %2: X}
+          %2 := (+ %1_p.n $1)
+          {%1_p: { .n X }, %2: X}
+        > {%1_p: { .n X }, %2: X}
+          %1_p.n := %2
         "###)
     }
 
@@ -233,22 +233,22 @@ mod tests {
         "#;
         insta::assert_display_snapshot!(generate_annotated_mir(src), @r###"
         :B0
-          {%0: X, %1: @}
-        > {%0: X, %1: @}
+          {%1_p: X, %2: @}
+        > {%1_p: X, %2: @}
           !goto :B1
         :B1
-          {%0: X, %1: @}
-        > {%0: { .t X .n X }, %1: @}
-          %0.t := %0
-          {%0: { .t { .n X } .n X }, %1: @}
-        > {%0: { .t { .n X } .n X }, %1: X}
-          %1 := (+ %0.n $1)
-          {%0: { .t { .n X } .n @ }, %1: X}
-        > {%0: { .t { .n X } .n X }, %1: X}
-          %0.n := %1
-          {%0: { .t { .n X } .n X }}
-        > {%0: { .t { .n X } .n X }}
-          %0.t.n := %0.n
+          {%1_p: X, %2: @}
+        > {%1_p: { .t X .n X }, %2: @}
+          %1_p.t := %1_p
+          {%1_p: { .t { .n X } .n X }, %2: @}
+        > {%1_p: { .t { .n X } .n X }, %2: X}
+          %2 := (+ %1_p.n $1)
+          {%1_p: { .t { .n X } .n @ }, %2: X}
+        > {%1_p: { .t { .n X } .n X }, %2: X}
+          %1_p.n := %2
+          {%1_p: { .t { .n X } .n X }}
+        > {%1_p: { .t { .n X } .n X }}
+          %1_p.t.n := %1_p.n
         "###)
     }
 
@@ -263,23 +263,23 @@ mod tests {
         "#;
         insta::assert_display_snapshot!(generate_annotated_mir(src), @r###"
         :B0
-          {%0: @, %1: @, %2: @}
-        > {%0: @, %1: @, %2: @}
+          {%1_ts: @, %2: @, %3: @}
+        > {%1_ts: @, %2: @, %3: @}
           !goto :B1
         :B1
-          {%0: @, %1: @, %2: @}
-        > {%0: @, %1: X, %2: @}
-          %1 := T { n: $0 }
-          {%0: @, %1: X, %2: @}
-        > {%0: X, %1: X, %2: @}
-          !call %0 := (#list %1) -> :B2
+          {%1_ts: @, %2: @, %3: @}
+        > {%1_ts: @, %2: X, %3: @}
+          %2 := T { n: $0 }
+          {%1_ts: @, %2: X, %3: @}
+        > {%1_ts: X, %2: X, %3: @}
+          !call %1_ts := (#list %2) -> :B2
         :B2
-          {%0: { [%2] { .n X } }, %2: @}
-        > {%0: { [%2] { .n X } }, %2: X}
-          %2 := $0
-          {%0: { [%2] { .n X } }}
-        > {%0: { [%2] { .n X } }}
-          %0[%2].n := $15
+          {%1_ts: { [%3] { .n X } }, %3: @}
+        > {%1_ts: { [%3] { .n X } }, %3: X}
+          %3 := $0
+          {%1_ts: { [%3] { .n X } }}
+        > {%1_ts: { [%3] { .n X } }}
+          %1_ts[%3].n := $15
         "###)
     }
 }

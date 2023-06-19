@@ -583,8 +583,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 }
             }
 
-            dbg!(tc.pretty_ty(tc.adt_ty(adt)));
-            dbg!(Expr { ty: tc.adt_ty(adt), data: ExprData::Adt { adt, fields: present_fields } })
+            Expr { ty: tc.adt_ty(adt), data: ExprData::Adt { adt, fields: present_fields } }
         }
         ast::Expr::ParenExpr(e) => return Left(check_inner(tc, e)),
         ast::Expr::RefExpr(it) => {

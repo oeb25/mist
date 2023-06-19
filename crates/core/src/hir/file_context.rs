@@ -51,17 +51,7 @@ fn initialize_file_context_inner(
                     ),
                 );
             }
-            // if let Some(name) = s_ast.name() {
-            //     let ts = b.alloc_ty_src(
-            //         TypeSrc::sourced(
-            //             db,
-            //             TypeRef::new(db, TypeRefKind::Path(hir::Path::Struct(s))),
-            //             s_ty,
-            //         ),
-            //         Some(name.span().into()),
-            //     );
-            //     b.fc.struct_types.insert(s, ts);
-            // }
+            b.create_adt_prototype(AdtKind::Struct(s), AdtPrototype::Delayed);
         }
     }
     for def in hir::file_definitions(db, file) {
@@ -230,8 +220,8 @@ impl<'a> TypingMut for FileContextBuilder<'a> {
         self.fc.events.push(FileContextBuilderEvent::InstantiateAdt(kind, generic_args.clone()));
         self.typer.instantiate_adt(self.db, kind, generic_args)
     }
-    fn adt_ty(&self, adt: Adt) -> TypeId {
-        self.typer.adt_ty(adt)
+    fn adt_ty(&mut self, adt: Adt) -> TypeId {
+        self.typer.adt_ty(self.db, adt)
     }
 
     fn alloc_ty_data(&mut self, data: TypeData) -> TypeId {

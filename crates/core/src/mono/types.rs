@@ -41,7 +41,7 @@ pub struct FunctionType {
 pub struct Adt {
     pub kind: AdtKind,
     #[return_ref]
-    pub fields: Vec<AdtField>,
+    raw_fields: Vec<(crate::types::AdtField, crate::types::TypeId)>,
 }
 
 #[salsa::interned]
@@ -53,6 +53,24 @@ pub struct AdtField {
 impl Adt {
     pub fn name(&self, db: &dyn crate::Db) -> Name {
         self.kind(db).name(db)
+    }
+    pub fn fields(&self, db: &dyn crate::Db) -> Vec<AdtField> {
+        match self.kind(db) {
+            AdtKind::Struct(s) => {
+                let def = Def::new(db, crate::def::DefKind::Struct(s));
+                let hir = def.hir(db).unwrap();
+                let cx = hir.cx(db);
+                let mut inner_mdl = MonoDefLower::new(db, cx);
+
+                self.raw_fields(db)
+                    .iter()
+                    .map(|(af, ty)| {
+                        let ty = inner_mdl.lower_ty(*ty);
+                        AdtField::new(db, af.name(db), ty)
+                    })
+                    .collect()
+            }
+        }
     }
     pub fn invariants(&self, db: &dyn crate::Db) -> Vec<ExprPtr> {
         match self.kind(db) {

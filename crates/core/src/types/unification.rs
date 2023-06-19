@@ -2,13 +2,13 @@ use std::{collections::HashMap, sync::Mutex};
 
 use ena::unify::InPlaceUnificationTable;
 use itertools::Itertools;
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::util::IdxWrap;
 
 use super::{
     data::{Generic, Primitive},
-    Adt, AdtField, AdtKind, AdtPrototype, TypeData, TypeDataIdx, TDK,
+    Adt, AdtField, AdtKind, AdtPrototype, StructPrototype, TypeData, TypeDataIdx, TDK,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -60,6 +60,7 @@ pub struct Typer {
     ty_cache: HashMap<TypeData, TypeId>,
     ty_keys: Vec<TypeId>,
     adt_prototypes: HashMap<AdtKind, AdtPrototype>,
+    adt_tys: HashMap<Adt, TypeId>,
     adt_instantiations: HashMap<Adt, AdtInstantiation>,
 }
 
@@ -98,6 +99,7 @@ macro_rules! type_prelude {
                     ty_cache,
                     ty_keys,
                     adt_prototypes: Default::default(),
+                    adt_tys: Default::default(),
                     adt_instantiations: Default::default(),
                 }
             }
@@ -156,8 +158,9 @@ impl Typer {
     }
     pub fn create_adt_prototype(&mut self, kind: AdtKind, prototype: AdtPrototype) {
         debug!(?kind, "creating adt prototype");
-        if self.adt_prototypes.insert(kind, prototype).is_some() {
-            todo!("repopulation of adt prototype")
+        match self.adt_prototypes.insert(kind, prototype) {
+            Some(AdtPrototype::Delayed) | None => {}
+            _ => todo!("repopulation of adt prototype"),
         }
     }
     pub fn instantiate_adt(
@@ -173,33 +176,61 @@ impl Typer {
             return adt;
         }
 
+        let ty = self.ty_id(TDK::Adt(adt).into());
+        self.adt_tys.insert(adt, ty);
+
         let prototype = self
             .adt_prototypes
             .get(&kind)
             .expect("tried to instantiate ADT which did not have a registred prototype")
             .clone();
-        let fields = match prototype {
-            AdtPrototype::StructPrototype(sp) => sp
-                .fields
-                .into_iter()
-                .map(|(sf, f)| {
-                    let ty = self.substitude(f, &mut |_tc, ty| {
-                        sp.generics
-                            .iter()
-                            .zip_eq(adt.generic_args(db))
-                            .find_map(|(param, arg)| if *param == ty { Some(arg) } else { None })
-                            .unwrap_or(ty)
-                    });
-                    AdtField::new_struct_field(adt, ty, sf)
-                })
-                .collect(),
-        };
-        let ty = self.ty_id(TDK::Adt(adt).into());
-        self.adt_instantiations.insert(adt, AdtInstantiation { adt, ty, fields });
+        match prototype {
+            AdtPrototype::Delayed => {
+                info!("ADT {} was delayed!", adt.name(db));
+            }
+            AdtPrototype::StructPrototype(sp) => self.finish_instantiation(db, adt, sp, ty),
+        }
         adt
     }
-    pub fn adt_ty(&self, adt: Adt) -> TypeId {
-        self.adt_instantiations[&adt].ty
+    pub fn adt_ty(&mut self, db: &dyn crate::Db, adt: Adt) -> TypeId {
+        if let Some(ty) = self.adt_instantiations.get(&adt) {
+            return ty.ty;
+        }
+
+        let ty = self.adt_tys[&adt];
+
+        match self.adt_prototypes.get(&adt.kind()).cloned() {
+            Some(AdtPrototype::Delayed) => {
+                info!("ADT {} still delayed...", adt.name(db));
+            }
+            Some(AdtPrototype::StructPrototype(sp)) => self.finish_instantiation(db, adt, sp, ty),
+            None => todo!("should never happen"),
+        }
+        ty
+    }
+
+    fn finish_instantiation(
+        &mut self,
+        db: &dyn crate::Db,
+        adt: Adt,
+        sp: StructPrototype,
+        ty: TypeId,
+    ) {
+        let fields = sp
+            .fields
+            .into_iter()
+            .map(|(sf, f)| {
+                let ty = self.substitude(f, &mut |_tc, ty| {
+                    sp.generics
+                        .iter()
+                        .zip_eq(adt.generic_args(db))
+                        .find_map(|(param, arg)| if *param == ty { Some(arg) } else { None })
+                        .unwrap_or(ty)
+                });
+                AdtField::new_struct_field(adt, ty, sf)
+            })
+            .collect();
+        self.adt_instantiations.insert(adt, AdtInstantiation { adt, ty, fields });
     }
     pub fn adt_fields(&self, adt: Adt) -> &[AdtField] {
         &self.adt_instantiations[&adt].fields

@@ -300,7 +300,7 @@ impl<'a> TypeChecker<'a> {
                     match checker.find_adt_kind(name.span(), name.into()) {
                         Ok(adt_kind) => {
                             let adt = checker.typer.instantiate_adt(db, adt_kind, Vec::new());
-                            let ty = checker.typer.adt_ty(adt);
+                            let ty = checker.typer.adt_ty(db, adt);
                             checker.unsourced_ty(ty)
                         }
                         Err(err_ty) => checker.unsourced_ty(err_ty),
@@ -592,8 +592,8 @@ impl<'a> TypingMut for TypeChecker<'a> {
     ) -> Adt {
         self.typer.instantiate_adt(self.db, kind, generic_args)
     }
-    fn adt_ty(&self, adt: Adt) -> TypeId {
-        self.typer.adt_ty(adt)
+    fn adt_ty(&mut self, adt: Adt) -> TypeId {
+        self.typer.adt_ty(self.db, adt)
     }
 
     fn new_generic(&mut self, generic: Generic) -> TypeId {
