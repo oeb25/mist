@@ -2,11 +2,11 @@ use itertools::Itertools;
 use mist_syntax::ast::AttrFlags;
 
 use crate::{
-    def::Name,
+    def::{Def, DefKind, Name},
     types::{AdtKind, Generic, Primitive},
 };
 
-use super::exprs::ExprPtr;
+use super::{exprs::ExprPtr, lower::MonoDefLower};
 
 #[salsa::interned]
 pub struct Type {
@@ -42,7 +42,6 @@ pub struct Adt {
     pub kind: AdtKind,
     #[return_ref]
     pub fields: Vec<AdtField>,
-    pub invariants: Vec<ExprPtr>,
 }
 
 #[salsa::interned]
@@ -54,6 +53,26 @@ pub struct AdtField {
 impl Adt {
     pub fn name(&self, db: &dyn crate::Db) -> Name {
         self.kind(db).name(db)
+    }
+    pub fn invariants(&self, db: &dyn crate::Db) -> Vec<ExprPtr> {
+        match self.kind(db) {
+            AdtKind::Struct(s) => {
+                let file = Def::new(db, crate::def::DefKind::Struct(s)).file(db);
+                file.definitions(db)
+                    .iter()
+                    .filter_map(|def| match def.kind(db) {
+                        DefKind::TypeInvariant(_) => {
+                            let hir = def.hir(db)?;
+                            let cx = hir.cx(db);
+                            let mut inner_mdl = MonoDefLower::new(db, cx);
+                            inner_mdl.lower_ty(cx.self_ty(db)?);
+                            Some(inner_mdl.lower_expr(cx.body_expr()?))
+                        }
+                        _ => None,
+                    })
+                    .collect()
+            }
+        }
     }
 }
 

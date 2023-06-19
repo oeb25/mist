@@ -155,7 +155,7 @@ fn type_invariant(p: &mut Parser, attr_checkpoint: Checkpoint) {
     p.start_node_at(attr_checkpoint, TYPE_INVARIANT, |p| {
         p.bump();
         generic_param_list_opt(p);
-        name_ref(p);
+        ty(p);
         generic_arg_list_opt(p);
         block(p);
     });

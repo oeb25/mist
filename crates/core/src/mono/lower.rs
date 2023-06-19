@@ -116,9 +116,7 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
             })
             .collect();
 
-        // TODO: invariants
-
-        let new_adt = Adt::new(self.db, adt.kind(), fields, vec![]);
+        let new_adt = Adt::new(self.db, adt.kind(), fields);
         self.adt_cache.insert(adt, new_adt);
         new_adt
     }
