@@ -28,7 +28,7 @@ use crate::{
     },
 };
 
-pub(crate) use typing::{TypingMut, TypingMutExt};
+pub(crate) use typing::{NamedType, TypingMut, TypingMutExt};
 
 use super::{
     desugar,
@@ -146,6 +146,7 @@ impl Default for ScopeFlags {
 #[derive(Debug, Default, Clone)]
 pub struct Scope {
     flags: ScopeFlags,
+    types: HashMap<Name, TypeId>,
     vars: HashMap<Name, VariableIdx>,
 }
 
@@ -158,6 +159,12 @@ impl Scope {
     }
     pub fn get(&mut self, name: &Name) -> Option<VariableIdx> {
         self.vars.get(name).copied()
+    }
+    pub fn insert_ty(&mut self, name: Name, ty: TypeId) {
+        self.types.insert(name, ty);
+    }
+    pub fn get_ty(&self, name: &Name) -> Option<TypeId> {
+        self.types.get(name).copied()
     }
 }
 
@@ -291,7 +298,6 @@ impl<'a> TypeChecker<'a> {
 
         checker.cx.invariant_ty = match def.kind(db) {
             hir::DefKind::TypeInvariant(ty_inv) => {
-                // TODO: make work with generics
                 Some(checker.expect_find_type_src(&ty_inv.ty(db)))
             }
             hir::DefKind::Struct(_) | hir::DefKind::StructField(_) | hir::DefKind::Function(_) => {
@@ -525,6 +531,10 @@ impl<'a> TypeChecker<'a> {
             self.declare_variable(VariableDeclaration::new_undefined(name.clone()), ty, name.span())
         }
     }
+    #[allow(dead_code)]
+    pub fn declare_type(&mut self, name: &ast::Name, ty: TypeSrc) {
+        self.scope.insert_ty(name.into(), ty.ty(self.db));
+    }
 
     fn is_ghost(&self, e: ExprIdx) -> bool {
         self.expr_ty(e).is_ghost(self)
@@ -561,8 +571,12 @@ impl<'a> TypingMut for TypeChecker<'a> {
         TypeCheckErrors::push(self.db, err);
     }
 
-    fn lookup_adt_kind(&self, name: Name) -> Option<AdtKind> {
-        self.cx.file_context.adts.get(&name).copied()
+    fn lookup_named_ty(&self, name: Name) -> Option<NamedType> {
+        if let Some(ts) = self.scope.get_ty(&name) {
+            Some(NamedType::TypeId(ts))
+        } else {
+            self.cx.file_context.adts.get(&name).copied().map(NamedType::AdtKind)
+        }
     }
 
     fn new_free(&mut self) -> TypeId {
