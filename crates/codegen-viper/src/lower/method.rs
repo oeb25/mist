@@ -1,7 +1,4 @@
-use mist_core::{
-    hir, mir,
-    types::{Field, TypeProvider},
-};
+use mist_core::{hir, mir, mono::exprs::Field};
 use silvers::{
     ast::Declaration,
     expression::{Exp, FieldAccess, PermExp, PredicateAccess, PredicateAccessPredicate, SeqExp},
@@ -109,13 +106,14 @@ impl BodyLower<'_> {
                         let cond =
                             if let Some(&cond) = self.inlined.get(cond) { cond } else { cond };
 
-                        let liveness = mir::analysis::liveness::Liveness::compute(self.body);
+                        let liveness =
+                            mir::analysis::liveness::Liveness::compute(self.db, self.body);
 
                         let access_invs = liveness
                             .entry(self.body.first_loc_in(block))
                             .iter()
                             .map(|s| {
-                                let place_ty = self.body.place_ty(s.into());
+                                let place_ty = self.body.place_ty(self.db, s.into());
                                 let place_ref = self.place_to_ref(block, s.into())?;
                                 let (pre, _) = self.ty_to_condition(block, place_ref, place_ty)?;
                                 Ok(pre)
@@ -171,7 +169,7 @@ impl BodyLower<'_> {
                 mir::Terminator::Call { func, args, destination, target } => {
                     let var = self.place_for_assignment(*destination)?;
                     let f = self.function(block, *func, args)?;
-                    let voided = self.body.place_ty(*destination).is_void();
+                    let voided = self.body.place_ty(self.db, *destination).is_void(self.db);
 
                     match f {
                         Exp::FuncApp { funcname, args } => {
@@ -232,13 +230,13 @@ impl BodyLower<'_> {
                     }
                     [.., mir::Projection::Field(f, ty)] => {
                         match f {
-                            Field::AdtField(af) => insts.push(Stmt::FieldAssign {
+                            Field::AdtField(adt, af) => insts.push(Stmt::FieldAssign {
                                 lhs: FieldAccess::new(
                                     self.place_to_ref(inst, t.parent(self.body).unwrap())?,
                                     VField::new(
-                                        mangle::mangled_adt_field(self.db, af),
+                                        mangle::mangled_adt_field(self.db, adt, af),
                                         // TODO: should we respect the extra constraints in such a scenario?
-                                        self.lower_type(self.body.ty_ptr(ty))?.vty,
+                                        self.lower_type(ty)?.vty,
                                     ),
                                 ),
                                 rhs,
@@ -260,13 +258,13 @@ impl BodyLower<'_> {
                         let seq = self.place_to_ref(inst, parent)?;
                         let new_rhs = self.alloc(inst, SeqExp::Update { s: seq, idx, elem: rhs });
                         match f {
-                            Field::AdtField(af) => {
+                            Field::AdtField(adt, af) => {
                                 let lhs = FieldAccess::new(
                                     self.place_to_ref(inst, grand_parent)?,
                                     VField::new(
-                                        mangle::mangled_adt_field(self.db, af),
+                                        mangle::mangled_adt_field(self.db, adt, af),
                                         // TODO: should we respect the extra constraints in such a scenario?
-                                        self.lower_type(self.body.ty_ptr(ty))?.vty,
+                                        self.lower_type(ty)?.vty,
                                     ),
                                 );
                                 insts.push(Stmt::FieldAssign { lhs, rhs: new_rhs });
@@ -283,12 +281,13 @@ impl BodyLower<'_> {
                 let mut field_insts = Vec::with_capacity(fields.len());
 
                 for (af, f) in fields {
-                    let ty = self.lower_type(self.cx.field_ty_ptr(af.into()))?;
+                    let ty = self.lower_type(af.ty(self.db))?;
                     let lhs = FieldAccess::new(
                         base,
-                        VField::new(mangle::mangled_adt_field(self.db, af), ty.vty.clone()),
+                        VField::new(mangle::mangled_adt_field(self.db, adt, af), ty.vty.clone()),
                     );
-                    new_fields.push(VField::new(mangle::mangled_adt_field(self.db, af), ty.vty));
+                    new_fields
+                        .push(VField::new(mangle::mangled_adt_field(self.db, adt, af), ty.vty));
                     field_insts
                         .push(Stmt::FieldAssign { lhs, rhs: self.operand_to_ref(inst, &f)? });
                 }
@@ -321,7 +320,7 @@ impl BodyLower<'_> {
                     mir::Folding::Fold { into, .. } => into,
                     mir::Folding::Unfold { consume, .. } => consume,
                 };
-                if let Some(adt) = self.body.place_ty(place).ty_adt() {
+                if let Some(adt) = self.body.place_ty(self.db, place).ty_adt(self.db) {
                     let name = mangle::mangled_adt(self.db, adt);
                     let place_ref = self.place_to_ref(inst, place)?;
                     let acc = PredicateAccessPredicate::new(

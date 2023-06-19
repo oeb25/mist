@@ -8,6 +8,7 @@ use mist_codegen_viper::gen::ViperOutput;
 use mist_core::{
     hir,
     mir::{self, pass::Pass},
+    mono,
 };
 use tracing::{error, info, warn, Level};
 use tracing_subscriber::prelude::*;
@@ -75,62 +76,56 @@ async fn cli() -> Result<()> {
                 .into_diagnostic()
                 .wrap_err_with(|| format!("failed to read `{}`", file.display()))?;
             let file = hir::SourceFile::new(&db, source);
-            for def in file.definitions(&db) {
-                info!("{}", def.display(&db));
-                let span = tracing::span!(Level::DEBUG, "dump", def = def.display(&db).to_string());
+            for item in mono::monomorphized_items(&db, file).items(&db) {
+                info!("{}", item.name(&db));
+                let span = tracing::span!(Level::DEBUG, "dump", def = item.name(&db).to_string());
                 let _enter = span.enter();
 
-                let Some((cx, mir)) = def.hir_mir(&db) else { continue };
-                let mut mir = mir.clone();
+                let Some(mir) = mir::lower_item(&db, item) else { continue };
+                let mut body = mir.body(&db).clone();
 
-                mir::pass::MentionPass::run(&db, &mut mir);
+                mir::pass::MentionPass::run(&db, &mut body);
 
                 if dump_mir {
-                    let a = mir::analysis::liveness::FoldingAnalysisResults::compute(&mir);
-                    let mir2 = mir.clone();
+                    let a = mir::analysis::liveness::FoldingAnalysisResults::compute(&db, &body);
+                    let mir2 = body.clone();
                     println!(
                         "{}",
-                        mir.serialize_with_annotation(
-                            &db,
-                            Some(cx),
-                            mir::serialize::Color::Yes,
-                            Box::new(move |loc| { Some(a.try_entry(loc)?.debug_str(None, &mir2)) })
-                        )
+                        body.serialize_with_annotation(&db, mir::serialize::Color::Yes, |loc| {
+                            Some(a.try_entry(loc)?.debug_str(&db, &mir2))
+                        })
                     );
                 }
                 if dump_isorecursive {
-                    mir::pass::IsorecursivePass::run(&db, &mut mir);
-                    let a = mir::analysis::liveness::FoldingAnalysisResults::compute(&mir);
+                    mir::pass::IsorecursivePass::run(&db, &mut body);
+                    let a = mir::analysis::liveness::FoldingAnalysisResults::compute(&db, &body);
                     if dump_mir {
-                        let mir2 = mir.clone();
+                        let mir2 = body.clone();
                         println!(
                             "{}",
-                            mir.serialize_with_annotation(
+                            body.serialize_with_annotation(
                                 &db,
-                                Some(cx),
                                 mir::serialize::Color::Yes,
-                                Box::new(move |loc| {
-                                    Some(a.try_entry(loc)?.debug_str(None, &mir2))
-                                })
+                                |loc| { Some(a.try_entry(loc)?.debug_str(&db, &mir2)) }
                             )
                         );
                     }
                 }
                 if dump_cfg {
-                    let cfg = mir::analysis::cfg::Cfg::compute(&mir);
-                    let dot = cfg.dot(&db, cx, &mir);
+                    let cfg = mir::analysis::cfg::Cfg::compute(&body);
+                    let dot = cfg.dot(&db, &body);
                     mir::analysis::cfg::dot_imgcat(&dot);
 
                     if dump_liveness {
                         mir::analysis::cfg::dot_imgcat(&cfg.analysis_dot(
-                            &mir,
-                            &mir::analysis::liveness::FoldingAnalysisResults::compute(&mir),
-                            |x| x.debug_str(Some(&db), &mir),
+                            &body,
+                            &mir::analysis::liveness::FoldingAnalysisResults::compute(&db, &body),
+                            |x| x.debug_str(&db, &body),
                         ));
                     }
                 }
                 if dump_viper {
-                    match mist_codegen_viper::gen::viper_item(&db, def) {
+                    match mist_codegen_viper::gen::viper_item(&db, item) {
                         Ok((viper_items, viper_body, _viper_source_map)) => {
                             if viper_items.is_empty() {
                                 warn!("no viper code generated")

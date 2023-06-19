@@ -32,16 +32,10 @@ impl Cfg {
     }
     /// Construct a graph where the nodes and edge labes are replaced for
     /// serializations for their value
-    pub fn pretty(
-        &self,
-        db: &dyn crate::Db,
-        cx: &hir::ItemContext,
-        body: &Body,
-    ) -> Graph<String, String> {
-        let fmt_node =
-            |n: BlockId| serialize::serialize_block(serialize::Color::No, db, Some(cx), body, n);
+    pub fn pretty(&self, db: &dyn crate::Db, body: &Body) -> Graph<String, String> {
+        let fmt_node = |n: BlockId| serialize::serialize_block(serialize::Color::No, db, body, n);
         self.map_graph(fmt_node, |e| {
-            serialize::serialize_terminator(serialize::Color::No, Some(db), Some(cx), body, e)
+            serialize::serialize_terminator(serialize::Color::No, db, body, e)
         })
     }
     pub fn analysis_dot<A: MonotoneFramework>(
@@ -119,8 +113,8 @@ impl Cfg {
         PostdominanceFrontier { relation }
     }
     /// Construct the DOT represenation of the CFG
-    pub fn dot(&self, db: &dyn crate::Db, cx: &hir::ItemContext, body: &Body) -> String {
-        petgraph::dot::Dot::new(&self.pretty(db, cx, body)).to_string()
+    pub fn dot(&self, db: &dyn crate::Db, body: &Body) -> String {
+        petgraph::dot::Dot::new(&self.pretty(db, body)).to_string()
     }
     /// Perform a DFS over all the reachable nodes from `entry`
     pub fn visit_dfs(&self, entry: BlockId, mut f: impl FnMut(BlockId)) {

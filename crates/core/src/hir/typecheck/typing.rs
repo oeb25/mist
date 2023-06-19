@@ -97,7 +97,8 @@ fn lower_type_inner(tc: &mut impl TypingMut, ast_ty: &ast::Type) -> (TypeRefKind
                 Ok(adt_kind) => match adt_kind {
                     AdtKind::Struct(s) => {
                         if let Some(args) = ast_name.generic_arg_list() {
-                            let (type_ref_args, type_args): (Vec<_>, Vec<_>) = args
+                            // TODO: put `type_ref_args` on the type ref
+                            let (_type_ref_args, type_args): (Vec<_>, Vec<_>) = args
                                 .generic_args()
                                 .map(|arg| lower_type_inner_opt(tc, arg.ty()))
                                 .unzip();

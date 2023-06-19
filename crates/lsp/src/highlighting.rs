@@ -7,7 +7,7 @@ use itertools::Itertools;
 use mist_core::{
     hir::{self, ExprIdx, SourceFile, TypeRefKind, VariableIdx},
     mir::{self, pass::Pass},
-    salsa,
+    mono, salsa,
     types::TDK,
     util::Position,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
@@ -43,14 +43,11 @@ pub fn inlay_hints(db: &dyn crate::Db, source: SourceFile) -> Arc<Vec<InlayHint>
     let result = Arc::make_mut(&mut inlay_hints);
 
     if ANNOTATE_BAD_FOLDINGS {
-        source
-            .definitions(db)
+        mono::monomorphized_items(db, source)
+            .items(db)
             .into_iter()
-            .filter_map(|def| {
-                let mir = def.mir(db)?;
-                let hir = def.hir(db)?;
-                let cx = hir.cx(db);
-                let source_map = hir.source_map(db);
+            .filter_map(|item| {
+                let mir = mir::lower_item(db, item)?;
                 let mir_source_map = mir.source_map(db);
                 let mut body = mir.body(db).clone();
                 mir::pass::FullDefaultPass::run(db, &mut body);
@@ -69,15 +66,14 @@ pub fn inlay_hints(db: &dyn crate::Db, source: SourceFile) -> Arc<Vec<InlayHint>
                             for f in stacked_up.drain(..) {
                                 let p = mir::serialize::serialize_place(
                                     mir::serialize::Color::No,
-                                    Some(db),
-                                    Some(cx),
+                                    db,
                                     &body,
                                     f.place(),
                                 );
                                 result.push(InlayHint {
                                     position: Position::from_byte_offset(
                                         source.text(db),
-                                        source_map[expr].span().offset(),
+                                        expr.ast(db).span().offset(),
                                     ),
                                     label: match f {
                                         mir::Folding::Fold { .. } => format!("fold {p}"),

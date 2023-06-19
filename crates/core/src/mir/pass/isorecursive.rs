@@ -6,7 +6,7 @@ use crate::{
         analysis::{cfg::Cfg, folding_tree::FoldingTree, liveness, monotone::MonotoneFramework},
         BlockLocation, Body, BodyLocation, Folding, Instruction,
     },
-    types::TDK,
+    mono::types::TypeData,
 };
 
 use super::Pass;
@@ -22,8 +22,8 @@ struct InternalFolding {
 
 impl Pass for IsorecursivePass {
     #[tracing::instrument(name = "IsorecursivePass", skip_all)]
-    fn run(_db: &dyn crate::Db, body: &mut Body) {
-        let folding_analysis = liveness::FoldingAnalysisResults::compute(body);
+    fn run(db: &dyn crate::Db, body: &mut Body) {
+        let folding_analysis = liveness::FoldingAnalysisResults::compute(db, body);
         let mut internal_foldings: Vec<InternalFolding> = Vec::new();
 
         let cfg = Cfg::compute(body);
@@ -32,7 +32,7 @@ impl Pass for IsorecursivePass {
         let mut tree_from_returns = FoldingTree::default();
         for &s in body.params() {
             tree_from_params.require(body, None, RequireType::Folded, s.into());
-            if let TDK::Ref { .. } = body.slot_ty(s).kind() {
+            if let TypeData::Ref { .. } = body.slot_ty(db, s).kind(db) {
                 tree_from_returns.require(body, None, RequireType::Folded, s.into());
             }
         }
@@ -61,7 +61,7 @@ impl Pass for IsorecursivePass {
                     }
                 }
                 let outgoing = current;
-                let termination_folding = liveness::FoldingAnalysis.initial(body);
+                let termination_folding = liveness::FoldingAnalysis.initial(db, body);
 
                 if body.succeeding_blocks(bid).next().is_none() {
                     let mut outgoing = outgoing;

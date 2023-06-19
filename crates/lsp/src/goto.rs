@@ -5,7 +5,7 @@ use itertools::Either;
 use mist_core::{
     hir::{self, SourceFile, TypeRefKind, VariableIdx},
     salsa,
-    types::{AdtField, Field},
+    types::Field,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
     VariableDeclarationKind,
 };

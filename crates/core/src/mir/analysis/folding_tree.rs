@@ -1,7 +1,7 @@
 use folding_tree::RequireType;
 use itertools::Itertools;
 
-use crate::{hir, mir, util::IdxMap};
+use crate::{mir, util::IdxMap};
 
 use super::monotone::Lattice;
 
@@ -32,28 +32,24 @@ impl PartialEq for FoldingTree {
 }
 
 impl FoldingTree {
-    pub fn debug_str(&self, db: Option<&dyn crate::Db>, body: &mir::Body) -> String {
+    pub fn debug_str(&self, db: &dyn crate::Db, body: &mir::Body) -> String {
         let entries = self
             .inner
             .iter()
             .map(|(slot, ft)| {
                 let new_ft = ft.map_edges(|e| match body[e].last() {
                     Some(mir::Projection::Field(f, _)) => {
-                        if let Some(db) = db {
-                            format!(".{}", f.name(db))
-                        } else {
-                            format!(".?")
-                        }
+                        format!(".{}", f.name(db))
                     }
                     Some(mir::Projection::Index(idx, _)) => format!(
                         "[{}]",
-                        mir::serialize::serialize_slot(mir::serialize::Color::No, None, body, *idx)
+                        mir::serialize::serialize_slot(mir::serialize::Color::No, db, body, *idx)
                     ),
                     None => "#".to_string(),
                 });
 
                 let slot =
-                    mir::serialize::serialize_slot(mir::serialize::Color::No, None, body, slot);
+                    mir::serialize::serialize_slot(mir::serialize::Color::No, db, body, slot);
 
                 format!("{slot}: {new_ft}")
             })
@@ -275,8 +271,7 @@ impl Lattice<mir::Body> for FoldingTree {
 
 #[allow(unused)]
 pub(crate) fn debug_folding_tree(
-    db: Option<&dyn crate::Db>,
-    cx: Option<&hir::ItemContext>,
+    db: &dyn crate::Db,
     body: &mir::Body,
     tree: &FoldingTree,
 ) -> String {
@@ -290,14 +285,13 @@ mod test {
     use itertools::Itertools;
     use proptest::prelude::*;
 
-    use crate::{hir, mir::Place};
+    use crate::{hir, mir::Place, mono};
 
     use super::*;
 
     #[derive(Clone)]
     struct Context {
         db: Arc<crate::db::Database>,
-        cx: hir::ItemContext,
         body: mir::Body,
     }
     impl fmt::Debug for Context {
@@ -331,15 +325,15 @@ mod test {
                 x.b.b.b;
             }";
             let file = hir::SourceFile::new(&db, source.to_string());
-            let def = hir::file_definitions(&db, file).into_iter().nth(1).unwrap();
-            let (cx, body) = def.hir_mir(&db).unwrap();
-            let (cx, body) = (cx.clone(), body.clone());
+            let mono = mono::monomorphized_items(&db, file);
+            let item = mono.items(&db)[1];
+            let body = mir::lower_item(&db, item).unwrap().body(&db).clone();
 
-            Context { db: Arc::new(db), cx, body }
+            Context { db: Arc::new(db), body }
         }
     }
     fn debug_folding_tree_ctx(ctx: &Context, tree: &FoldingTree) -> String {
-        debug_folding_tree(Some(&*ctx.db), Some(&ctx.cx), &ctx.body, tree)
+        debug_folding_tree(&*ctx.db, &ctx.body, tree)
     }
 
     struct Input {

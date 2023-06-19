@@ -1,8 +1,4 @@
-use mist_core::{
-    def, mir,
-    types::{Adt, TypeProvider},
-    util::IdxWrap,
-};
+use mist_core::{mir, mono::types::Adt, util::IdxWrap};
 use silvers::{
     expression::{AbstractLocalVar, BinOp, Exp, FieldAccess, LocalVar, PermExp},
     program::{Field, Predicate},
@@ -31,15 +27,14 @@ impl BodyLower<'_> {
 
         self.pre_unfolded.insert(self_slot.into());
 
-        let field_invs: Vec<_> = self
-            .cx
-            .fields_of(adt)
-            .into_iter()
-            .map(|f| {
-                let field_ty = self.body.field_ty_ptr(f.into());
+        let field_invs: Vec<_> = adt
+            .fields(self.db)
+            .iter()
+            .map(|&f| {
+                let field_ty = f.ty(self.db);
                 let ty = self.lower_type(field_ty)?;
                 let viper_field =
-                    Field { name: mangle::mangled_adt_field(self.db, f), typ: ty.vty };
+                    Field { name: mangle::mangled_adt_field(self.db, adt, f), typ: ty.vty };
                 viper_items.push(ViperItem::Field(viper_field.clone()));
                 let perm = self.alloc(source, PermExp::Full);
                 let field_access = FieldAccess::new(self_, viper_field);

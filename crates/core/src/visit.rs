@@ -1,6 +1,5 @@
 use std::{iter, ops::ControlFlow, sync::Arc};
 
-use derive_new::new;
 use mist_syntax::{
     ast::{self, Spanned},
     ptr::AstPtr,
@@ -196,9 +195,8 @@ pub trait Visitor {
     }
 }
 
-#[derive(new)]
 pub struct OrderedWalk<'db, O> {
-    db: &'db dyn crate::Db,
+    _db: &'db dyn crate::Db,
     root: ast::SourceFile,
     vcx: VisitContext,
     order: O,
@@ -251,7 +249,7 @@ where
 {
     fn init(db: &'db dyn crate::Db, vcx: VisitContext) -> Self {
         let root = vcx.cx.def().file(db).root(db);
-        Self { db, root, vcx, order: O::default() }
+        Self { _db: db, root, vcx, order: O::default() }
     }
 
     #[must_use]

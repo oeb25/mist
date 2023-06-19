@@ -1,7 +1,11 @@
 use itertools::Itertools;
 use mist_core::{
     hir, mir,
-    types::{Adt, Primitive, TypeProvider, TypePtr, TDK},
+    mono::{
+        self,
+        types::{Adt, Type, TypeData},
+    },
+    types::Primitive,
     util::IdxMap,
 };
 
@@ -14,9 +18,9 @@ type Result<T, E = Error> = std::result::Result<T, E>;
 pub fn generate_module(db: &dyn crate::Db, file: hir::SourceFile) -> Result<wasm::Module> {
     // let mut builder = wasm::Module::builder();
 
-    for def in hir::file_definitions(db, file) {
-        let Some((cx, body)) = def.hir_mir(db) else { continue };
-        FunctionLowerer::new(db, cx, body).generate_func();
+    for item in mono::monomorphized_items(db, file).items(db) {
+        let Some(mir) = mir::lower_item(db, item) else { continue };
+        FunctionLowerer::new(db, mir.body(db)).generate_func();
     }
 
     todo!()
@@ -24,15 +28,13 @@ pub fn generate_module(db: &dyn crate::Db, file: hir::SourceFile) -> Result<wasm
 
 struct FunctionLowerer<'a> {
     db: &'a dyn crate::Db,
-    #[allow(unused)]
-    cx: &'a hir::ItemContext,
     body: &'a mir::Body,
     slots_stack_offsets: IdxMap<mir::SlotId, usize>,
 }
 
 impl<'a> FunctionLowerer<'a> {
-    fn new(db: &'a dyn crate::Db, cx: &'a hir::ItemContext, body: &'a mir::Body) -> Self {
-        Self { db, cx, body, slots_stack_offsets: Default::default() }
+    fn new(db: &'a dyn crate::Db, body: &'a mir::Body) -> Self {
+        Self { db, body, slots_stack_offsets: Default::default() }
     }
 
     fn allocate_slots<T: From<wasm::ValType>>(
@@ -43,18 +45,18 @@ impl<'a> FunctionLowerer<'a> {
         slots.fold(Vec::new(), |mut items, sid| {
             let idx = offset + items.len();
             self.slots_stack_offsets.insert(sid, idx);
-            let types = self.compute_ty_layout(self.body.slot_ty(sid));
+            let types = self.compute_ty_layout(self.body.slot_ty(self.db, sid));
             items.extend(types.into_iter().map_into());
             items
         })
     }
 
     fn compute_adt_layout(&self, adt: Adt) -> StructLayout {
-        let (layout, _) = self.cx.fields_of(adt).into_iter().fold(
+        let (layout, _) = adt.fields(self.db).iter().fold(
             (StructLayout::default(), 0),
             |(mut layout, current_offset), f| {
                 layout.field_offsets.push((layout.types.len(), current_offset));
-                let next = self.compute_ty_layout(self.body.field_ty_ptr(f.into()));
+                let next = self.compute_ty_layout(f.ty(self.db));
                 let size: u32 = next.iter().map(|ty| ty.num_bytes()).sum();
                 let next_offset = current_offset + size;
                 layout.types.extend(next);
@@ -65,26 +67,25 @@ impl<'a> FunctionLowerer<'a> {
         layout
     }
 
-    fn compute_ty_layout(&self, ty: TypePtr<mir::Body>) -> Vec<wasm::ValType> {
-        match ty.kind() {
-            TDK::Ref { .. } => vec![wasm::ValType::I32],
-            TDK::Primitive(p) => match p {
+    fn compute_ty_layout(&self, ty: Type) -> Vec<wasm::ValType> {
+        match ty.kind(self.db) {
+            TypeData::Ref { .. } => vec![wasm::ValType::I32],
+            TypeData::Primitive(p) => match p {
                 Primitive::Int | Primitive::Bool => vec![wasm::ValType::I32],
             },
-            TDK::Optional(inner) => {
+            TypeData::Optional(inner) => {
                 let mut layout = self.compute_ty_layout(inner);
                 layout.insert(0, wasm::ValType::I32);
                 layout
             }
-            TDK::Adt(adt) => self.compute_adt_layout(adt).types,
-            TDK::Range(_) => Vec::new(),
-            TDK::Error
-            | TDK::Void
-            | TDK::List(_)
-            | TDK::Null
-            | TDK::Function { .. }
-            | TDK::Generic(_)
-            | TDK::Free => Vec::new(),
+            TypeData::Adt(adt) => self.compute_adt_layout(adt).types,
+            TypeData::Range(_) => Vec::new(),
+            TypeData::Error
+            | TypeData::Void
+            | TypeData::List(_)
+            | TypeData::Null
+            | TypeData::Function { .. }
+            | TypeData::Generic(_) => Vec::new(),
         }
     }
 

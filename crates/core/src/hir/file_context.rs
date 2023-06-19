@@ -117,7 +117,7 @@ fn initialize_file_context_inner(
                     .generic_param_list()
                     .into_iter()
                     .flat_map(|generic_params| generic_params.generic_params())
-                    .map(|arg| b.new_generic(Generic::default()))
+                    .map(|_arg| b.new_generic(Generic::default()))
                     .collect();
 
                 let fields = s
@@ -190,7 +190,7 @@ impl<'a> TypeProvider for FileContextBuilder<'a> {
         self.typer.probe_type(ty)
     }
     fn fields_of(&self, adt: Adt) -> Vec<AdtField> {
-        todo!()
+        self.typer.adt_fields(adt).to_vec()
     }
 }
 

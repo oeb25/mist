@@ -3,10 +3,7 @@ use mist_syntax::{
     AstNode,
 };
 
-use crate::{
-    hir::{self, Param, SourceFile},
-    mir,
-};
+use crate::hir::{self, Param, SourceFile};
 
 use super::{Def, DefKind, Function, Name, Struct, StructField, TypeInvariant};
 
@@ -68,19 +65,19 @@ impl Def {
     pub fn hir(&self, db: &dyn crate::Db) -> Option<hir::DefinitionHir> {
         hir::lower_def(db, *self)
     }
-    pub fn mir(&self, db: &dyn crate::Db) -> Option<mir::DefinitionMir> {
-        mir::lower_item(db, *self)
-    }
+    // pub fn mir(&self, db: &dyn crate::Db) -> Option<mir::ItemMir> {
+    //     mir::lower_item(db, *self)
+    // }
 
-    pub fn hir_mir(self, db: &dyn crate::Db) -> Option<(&hir::ItemContext, &mir::Body)> {
-        Some((self.hir(db)?.cx(db), self.mir(db)?.body(db)))
-    }
-    pub fn hir_mir_source_map(
-        self,
-        db: &dyn crate::Db,
-    ) -> Option<(&hir::ItemSourceMap, &mir::BodySourceMap)> {
-        Some((self.hir(db)?.source_map(db), self.mir(db)?.source_map(db)))
-    }
+    // pub fn hir_mir(self, db: &dyn crate::Db) -> Option<(&hir::ItemContext, &mir::Body)> {
+    //     Some((self.hir(db)?.cx(db), self.mir(db)?.body(db)))
+    // }
+    // pub fn hir_mir_source_map(
+    //     self,
+    //     db: &dyn crate::Db,
+    // ) -> Option<(&hir::ItemSourceMap, &mir::BodySourceMap)> {
+    //     Some((self.hir(db)?.source_map(db), self.mir(db)?.source_map(db)))
+    // }
 }
 
 impl Function {

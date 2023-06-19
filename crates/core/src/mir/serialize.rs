@@ -3,10 +3,7 @@ use std::fmt::Write;
 use derive_new::new;
 use owo_colors::{colors::*, OwoColorize};
 
-use crate::{
-    hir::ItemContext,
-    mir::{BlockLocation, Projection, Terminator},
-};
+use crate::mir::{BlockLocation, Projection, Terminator};
 
 use super::{
     BlockId, Body, BodyLocation, BorrowKind, Folding, FunctionData, FunctionId, Instruction,
@@ -14,31 +11,30 @@ use super::{
 };
 
 #[derive(new)]
-struct Serializer<'a> {
+struct Serializer<'a, A> {
     color: Color,
+    db: &'a dyn crate::Db,
     body: &'a Body,
+    annotator: A,
     #[new(default)]
     output: String,
     #[new(default)]
     start_of_line: bool,
     #[new(default)]
     indentation: usize,
-    #[new(default)]
-    annotator: Option<Box<dyn Fn(BodyLocation) -> Option<String>>>,
 }
 
 impl Body {
     pub fn serialize_with_annotation(
         &self,
         db: &dyn crate::Db,
-        cx: Option<&ItemContext>,
         color: Color,
-        f: Box<dyn Fn(BodyLocation) -> Option<String>>,
+        f: impl Fn(BodyLocation) -> Option<String>,
     ) -> String {
-        Serializer::new(color, self).with_annotator(f).finish(db, cx)
+        Serializer::new(color, db, self, f).finish()
     }
-    pub fn serialize(&self, db: &dyn crate::Db, cx: Option<&ItemContext>, color: Color) -> String {
-        Serializer::new(color, self).finish(db, cx)
+    pub fn serialize(&self, db: &dyn crate::Db, color: Color) -> String {
+        Serializer::new(color, db, self, |_| None).finish()
     }
 }
 
@@ -49,54 +45,35 @@ pub enum Color {
 }
 
 impl MExpr {
-    pub fn serialize(
-        &self,
-        color: Color,
-        db: &dyn crate::Db,
-        cx: Option<&ItemContext>,
-        body: &Body,
-    ) -> String {
-        let mut s = Serializer::new(color, body);
-        s.expr(db, cx, self);
+    pub fn serialize(&self, color: Color, db: &dyn crate::Db, body: &Body) -> String {
+        let mut s = Serializer::new(color, db, body, |_| None);
+        s.expr(self);
         s.output
     }
 }
 pub fn serialize_terminator(
     color: Color,
-    db: Option<&dyn crate::Db>,
-    cx: Option<&ItemContext>,
+    db: &dyn crate::Db,
     body: &Body,
     term: &Terminator,
 ) -> String {
-    let mut s = Serializer::new(color, body).with_color(color);
-    s.terminator(db, cx, term);
+    let mut s = Serializer::new(color, db, body, |_| None).with_color(color);
+    s.terminator(term);
     s.output
 }
-pub fn serialize_block(
-    color: Color,
-    db: &dyn crate::Db,
-    cx: Option<&ItemContext>,
-    body: &Body,
-    bid: BlockId,
-) -> String {
-    let mut s = Serializer::new(color, body).with_color(color);
-    s.block(db, cx, bid);
+pub fn serialize_block(color: Color, db: &dyn crate::Db, body: &Body, bid: BlockId) -> String {
+    let mut s = Serializer::new(color, db, body, |_| None).with_color(color);
+    s.block(bid);
     s.output
 }
-pub fn serialize_slot(color: Color, cx: Option<&ItemContext>, body: &Body, slot: SlotId) -> String {
-    let mut s = Serializer::new(color, body).with_color(color);
-    s.slot(cx, slot);
+pub fn serialize_slot(color: Color, db: &dyn crate::Db, body: &Body, slot: SlotId) -> String {
+    let mut s = Serializer::new(color, db, body, |_| None).with_color(color);
+    s.slot(slot);
     s.output
 }
-pub fn serialize_place(
-    color: Color,
-    db: Option<&dyn crate::Db>,
-    cx: Option<&ItemContext>,
-    body: &Body,
-    place: Place,
-) -> String {
-    let mut s = Serializer::new(color, body).with_color(color);
-    s.place(db, cx, place);
+pub fn serialize_place(color: Color, db: &dyn crate::Db, body: &Body, place: Place) -> String {
+    let mut s = Serializer::new(color, db, body, |_| None).with_color(color);
+    s.place(place);
     s.output
 }
 
@@ -131,10 +108,10 @@ macro_rules! wln {
     }};
 }
 
-impl Serializer<'_> {
-    fn finish(mut self, db: &dyn crate::Db, cx: Option<&ItemContext>) -> String {
+impl<'db, A: Fn(BodyLocation) -> Option<String>> Serializer<'db, A> {
+    fn finish(mut self) -> String {
         for bid in self.body.blocks.iter().map(|(id, _)| id).collect::<Vec<_>>() {
-            self.block(db, cx, bid);
+            self.block(bid);
         }
 
         self.output
@@ -146,106 +123,96 @@ impl Serializer<'_> {
         self.indentation -= 1;
     }
 
-    fn block(&mut self, db: &dyn crate::Db, cx: Option<&ItemContext>, body: BlockId) {
+    fn block(&mut self, body: BlockId) {
         self.block_id(Some(body));
         wln!(self, Default, "");
         self.indented(|this| {
             let mut printed = false;
             for &inst in &this.body.blocks[body].instructions {
                 printed = true;
-                if let Some(f) = &this.annotator {
-                    if let Some(s) = f(BlockLocation::Instruction(inst).in_block(body)) {
-                        wln!(this, Default, "{s}");
-                    }
+                if let Some(s) = (this.annotator)(BlockLocation::Instruction(inst).in_block(body)) {
+                    wln!(this, Default, "{s}");
                 }
-                this.inst(db, cx, inst);
+                this.inst(inst);
             }
             if let Some(term) = &this.body.blocks[body].terminator {
                 printed = true;
-                if let Some(f) = &this.annotator {
-                    if let Some(s) = f(BlockLocation::Terminator.in_block(body)) {
-                        wln!(this, Default, "{s}");
-                    }
+                if let Some(s) = (this.annotator)(BlockLocation::Terminator.in_block(body)) {
+                    wln!(this, Default, "{s}");
                 }
-                this.terminator(Some(db), cx, term);
+                this.terminator(term);
             }
             if !printed {
-                if let Some(f) = &this.annotator {
-                    if let Some(s) = f(BlockLocation::Terminator.in_block(body)) {
-                        wln!(this, Default, "{s}");
-                    }
+                if let Some(s) = (this.annotator)(BlockLocation::Terminator.in_block(body)) {
+                    wln!(this, Default, "{s}");
                 }
             }
         });
     }
 
-    fn inst(&mut self, db: &dyn crate::Db, cx: Option<&ItemContext>, inst: InstructionId) {
+    fn inst(&mut self, inst: InstructionId) {
         match &self.body.instructions[inst] {
             Instruction::Assign(t, e) => {
-                self.place(Some(db), cx, *t);
+                self.place(*t);
                 w!(self, Default, " := ");
-                self.expr(db, cx, e);
+                self.expr(e);
                 wln!(self, Default, "");
             }
             Instruction::NewAdt(t, s, fields) => {
-                self.place(Some(db), cx, *t);
-                w!(self, Default, " := {} {{", s.name(db));
+                self.place(*t);
+                w!(self, Default, " := {} {{", s.name(self.db));
                 let mut first = true;
                 for (field, slot) in fields {
                     if !first {
                         w!(self, Default, ",");
                     }
                     first = false;
-                    w!(self, Default, " {}: ", field.name(db));
-                    self.operand(Some(db), cx, slot);
+                    w!(self, Default, " {}: ", field.name(self.db));
+                    self.operand(slot);
                 }
                 wln!(self, Default, " }}");
             }
             Instruction::Assertion(kind, expr) => {
                 w!(self, Default, "{kind} ");
-                self.expr(db, cx, expr);
+                self.expr(expr);
                 wln!(self, Default, "");
             }
             Instruction::PlaceMention(p) => {
                 w!(self, Default, "mention ");
-                self.place(Some(db), cx, *p);
+                self.place(*p);
                 wln!(self, Default, "");
             }
             Instruction::Folding(folding) => {
-                self.folding(Some(db), cx, *folding);
+                self.folding(*folding);
             }
         }
     }
 
-    fn slot(&mut self, cx: Option<&ItemContext>, s: SlotId) {
-        match (&self.body.slots[s], cx) {
-            (Slot::Param(v), Some(cx)) => w!(self, Cyan, "{s}_{}", cx.var_name(*v)),
-            (Slot::Quantified(v), Some(cx)) => w!(self, Cyan, "{s}_{}", cx.var_name(*v)),
-            (Slot::Local(v), Some(cx)) => w!(self, Cyan, "{s}_{}", cx.var_name(*v)),
-            (Slot::Result, _) => w!(self, Magenta, "%result"),
-            (Slot::Self_, _) => w!(self, Magenta, "%self"),
+    fn slot(&mut self, s: SlotId) {
+        match &self.body.slots[s] {
+            Slot::Param(v) => w!(self, Cyan, "{s}_{}", v.name(self.db)),
+            Slot::Quantified(v) => w!(self, Cyan, "{s}_{}", v.name(self.db)),
+            Slot::Local(v) => w!(self, Cyan, "{s}_{}", v.name(self.db)),
+            Slot::Result => w!(self, Magenta, "%result"),
+            Slot::Self_ => w!(self, Magenta, "%self"),
             _ => w!(self, Cyan, "{s}"),
         }
     }
 
-    fn place(&mut self, db: Option<&dyn crate::Db>, cx: Option<&ItemContext>, s: Place) {
+    fn place(&mut self, s: Place) {
         if self.body[s.projection].is_empty() {
-            self.slot(cx, s.slot);
+            self.slot(s.slot);
         } else {
-            self.slot(cx, s.slot);
+            self.slot(s.slot);
             for p in &self.body[s.projection] {
                 match p {
                     Projection::Field(f, _) => {
-                        if let Some(db) = db {
-                            let name = &f.name(db);
-                            w!(self, Default, ".{name}");
-                        } else {
-                            w!(self, Default, ".?");
-                        }
+                        let name = &f.name(self.db);
+                        w!(self, Default, ".{name}");
                     }
                     Projection::Index(idx, _) => {
                         w!(self, Default, "[");
-                        self.slot(cx, *idx);
+                        self.slot(*idx);
                         w!(self, Default, "]");
                     }
                 }
@@ -253,70 +220,66 @@ impl Serializer<'_> {
         }
     }
 
-    fn operand(&mut self, db: Option<&dyn crate::Db>, cx: Option<&ItemContext>, o: &Operand) {
+    fn operand(&mut self, o: &Operand) {
         match o {
-            Operand::Copy(s) => self.place(db, cx, *s),
-            Operand::Move(s) => self.place(db, cx, *s),
+            Operand::Copy(s) => self.place(*s),
+            Operand::Move(s) => self.place(*s),
             Operand::Literal(l) => w!(self, Magenta, "${l}"),
         }
     }
 
-    fn folding(&mut self, db: Option<&dyn crate::Db>, cx: Option<&ItemContext>, f: Folding) {
+    fn folding(&mut self, f: Folding) {
         match f {
             Folding::Fold { into } => {
                 w!(self, Red, "fold ");
-                self.place(db, cx, into);
+                self.place(into);
                 wln!(self, Default, "");
             }
             Folding::Unfold { consume } => {
                 w!(self, Red, "unfold ");
-                self.place(db, cx, consume);
+                self.place(consume);
                 wln!(self, Default, "");
             }
         }
     }
 
-    fn expr(&mut self, db: &dyn crate::Db, cx: Option<&ItemContext>, e: &MExpr) {
+    fn expr(&mut self, e: &MExpr) {
         match e {
-            MExpr::Use(s) => self.operand(Some(db), cx, s),
+            MExpr::Use(s) => self.operand(s),
             MExpr::Ref(bk, p) => {
                 match bk {
                     BorrowKind::Shared => w!(self, Default, "&"),
                     BorrowKind::Mutable => w!(self, Default, "&mut "),
                 }
-                self.place(Some(db), cx, *p);
+                self.place(*p);
             }
             // MExpr::Quantifier(_, q, args, body) => {
             //     w!(self, Default, "{q} (");
             //     for arg in args {
-            //         self.operand(db, cx, arg);
+            //         self.operand( arg);
             //     }
             //     w!(self, Default, ") ");
             //     self.block_id(Some(*body));
             // }
             MExpr::BinaryOp(op, l, r) => {
                 w!(self, Default, "({op} ");
-                self.operand(Some(db), cx, l);
+                self.operand(l);
                 w!(self, Default, " ");
-                self.operand(Some(db), cx, r);
+                self.operand(r);
                 w!(self, Default, ")");
             }
             MExpr::UnaryOp(op, x) => {
                 w!(self, Default, "({op} ");
-                self.operand(Some(db), cx, x);
+                self.operand(x);
                 w!(self, Default, ")");
             }
         }
     }
 
-    fn function(&mut self, cx: Option<&ItemContext>, f: FunctionId) {
+    fn function(&mut self, f: FunctionId) {
         match &self.body.functions[f].data {
             FunctionData::Named(var) => {
-                if let Some(cx) = cx {
-                    w!(self, Default, "{}", cx.var_name(*var))
-                } else {
-                    w!(self, Default, "{var:?}")
-                }
+                w!(self, Default, "{}", var.name(self.db))
             }
             FunctionData::List => w!(self, Default, "#list"),
             FunctionData::ListConcat => w!(self, Default, "#list-concat"),
@@ -336,12 +299,7 @@ impl Serializer<'_> {
             w!(self, Green, ":B!")
         }
     }
-    fn terminator(
-        &mut self,
-        db: Option<&dyn crate::Db>,
-        cx: Option<&ItemContext>,
-        term: &Terminator,
-    ) {
+    fn terminator(&mut self, term: &Terminator) {
         match term {
             Terminator::Return => wln!(self, Default, "!return"),
             Terminator::Goto(b) => {
@@ -352,7 +310,7 @@ impl Serializer<'_> {
             Terminator::Quantify(q, over, b) => {
                 w!(self, Yellow, "!{q} ");
                 for s in over {
-                    self.slot(cx, *s);
+                    self.slot(*s);
                 }
                 w!(self, Default, " :: ");
                 self.block_id(Some(*b));
@@ -365,7 +323,7 @@ impl Serializer<'_> {
             }
             Terminator::Switch(cond, switch) => {
                 w!(self, Yellow, "!switch ");
-                self.operand(db, cx, cond);
+                self.operand(cond);
                 w!(self, Default, " {{");
                 for (idx, value) in switch.values.iter() {
                     w!(self, Default, " {value} -> ");
@@ -378,14 +336,14 @@ impl Serializer<'_> {
             Terminator::Call { func, args, destination, target } => {
                 w!(self, Yellow, "!call ");
 
-                self.place(db, cx, *destination);
+                self.place(*destination);
                 w!(self, Default, " := ");
 
                 w!(self, Default, "(");
-                self.function(cx, *func);
+                self.function(*func);
                 for arg in args {
                     w!(self, Default, " ");
-                    self.operand(db, cx, arg);
+                    self.operand(arg);
                 }
                 w!(self, Default, ")");
                 w!(self, Default, " -> ");
@@ -401,10 +359,5 @@ impl Serializer<'_> {
         } else {
             Self { color, ..self }
         }
-    }
-
-    fn with_annotator(mut self, f: Box<dyn Fn(BodyLocation) -> Option<String>>) -> Self {
-        self.annotator = Some(f);
-        self
     }
 }
