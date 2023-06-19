@@ -64,6 +64,7 @@ pub struct Generic {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AdtPrototype {
+    Delayed,
     StructPrototype(StructPrototype),
 }
 

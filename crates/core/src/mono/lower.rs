@@ -8,7 +8,7 @@ use crate::{
 
 use super::{
     exprs::{ExprPtr, VariablePtr},
-    types::{Adt, AdtField, FunctionType, Type, TypeData},
+    types::{Adt, FunctionType, Type, TypeData},
     Condition, Function, Item, ItemKind, MonoSourceMap, Monomorphized,
 };
 
@@ -110,10 +110,7 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
             .cx
             .fields_of(adt)
             .into_iter()
-            .map(|af| {
-                let ty = self.lower_ty(self.cx.field_ty(af.into()));
-                AdtField::new(self.db, af.name(self.db), ty)
-            })
+            .map(|af| (af, self.cx.field_ty(af.into())))
             .collect();
 
         let new_adt = Adt::new(self.db, adt.kind(), fields);

@@ -1,4 +1,5 @@
 use mist_syntax::ast::{self, HasName, Spanned};
+use tracing::debug;
 
 use crate::{
     def::Name,
@@ -26,7 +27,7 @@ pub(crate) trait TypingMut: TypeProvider {
         kind: AdtKind,
         generic_args: impl IntoIterator<Item = TypeId>,
     ) -> Adt;
-    fn adt_ty(&self, adt: Adt) -> TypeId;
+    fn adt_ty(&mut self, adt: Adt) -> TypeId;
 
     fn alloc_ty_data(&mut self, data: TypeData) -> TypeId;
     fn alloc_ty_src(&mut self, ts: TypeSrc, ty_src: Option<SpanOrAstPtr<ast::Type>>) -> TypeSrc;
