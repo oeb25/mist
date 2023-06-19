@@ -8,9 +8,14 @@ use derive_new::new;
 use itertools::Either;
 use miette::Diagnostic;
 use mist_core::{
-    def, hir,
+    hir,
     mir::{self, analysis::cfg, BlockOrInstruction},
-    types::{Adt, AdtKind, Field, ListField, Primitive, TypeId, TypeProvider, TypePtr, TDK},
+    mono::{
+        self,
+        exprs::Field,
+        types::{Adt, Type, TypeData},
+    },
+    types::{AdtKind, ListField, Primitive},
     util::{IdxArena, IdxMap, IdxWrap},
 };
 use mist_syntax::{
@@ -90,11 +95,10 @@ impl ViperLowerer {
     pub fn body_lower<'a>(
         &'a mut self,
         db: &'a dyn crate::Db,
-        cx: &'a hir::ItemContext,
         mir: &'a mir::Body,
         is_method: bool,
     ) -> BodyLower<'a> {
-        BodyLower::new(db, cx, mir, is_method, &mut self.viper_body, &mut self.source_map)
+        BodyLower::new(db, mir, is_method, &mut self.viper_body, &mut self.source_map)
     }
     pub fn finish(self) -> (ViperBody, ViperSourceMap) {
         (self.viper_body, self.source_map)
@@ -116,14 +120,14 @@ impl std::ops::Index<VExprId> for ViperBody {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ViperSourceMap {
-    pub inst_expr: HashMap<(def::Def, mir::InstructionId), VExprId>,
-    pub inst_expr_back: IdxMap<VExprId, (def::Def, mir::InstructionId)>,
-    pub block_expr: HashMap<(def::Def, mir::BlockId), VExprId>,
-    pub block_expr_back: IdxMap<VExprId, (def::Def, mir::BlockId)>,
+    pub inst_expr: HashMap<(mono::Item, mir::InstructionId), VExprId>,
+    pub inst_expr_back: IdxMap<VExprId, (mono::Item, mir::InstructionId)>,
+    pub block_expr: HashMap<(mono::Item, mir::BlockId), VExprId>,
+    pub block_expr_back: IdxMap<VExprId, (mono::Item, mir::BlockId)>,
 }
 
 impl ViperSourceMap {
-    pub fn trace_exp(&self, exp: VExprId) -> Option<(def::Def, mir::BlockOrInstruction)> {
+    pub fn trace_exp(&self, exp: VExprId) -> Option<(mono::Item, mir::BlockOrInstruction)> {
         if let Some(&(item_id, instr)) = self.inst_expr_back.get(exp) {
             return Some((item_id, instr.into()));
         }
@@ -141,7 +145,7 @@ pub enum ViperLowerError {
     #[error("not yet implemented: {msg}")]
     NotYetImplemented {
         msg: String,
-        def: def::Def,
+        def: mono::Item,
         block_or_inst: Option<mir::BlockOrInstruction>,
         #[label]
         span: Option<SourceSpan>,
@@ -153,7 +157,7 @@ pub enum ViperLowerError {
 impl ViperLowerError {
     pub fn populate_spans(
         &mut self,
-        f: impl Fn(def::Def, mir::BlockOrInstruction) -> Option<SourceSpan>,
+        f: impl Fn(mono::Item, mir::BlockOrInstruction) -> Option<SourceSpan>,
     ) {
         match self {
             ViperLowerError::NotYetImplemented {
@@ -191,7 +195,6 @@ impl From<VTy> for ViperType {
 
 pub struct BodyLower<'a> {
     db: &'a dyn crate::Db,
-    cx: &'a hir::ItemContext,
     body: &'a mir::Body,
     viper_body: &'a mut ViperBody,
     source_map: &'a mut ViperSourceMap,
@@ -211,7 +214,6 @@ pub struct BodyLower<'a> {
 impl<'a> BodyLower<'a> {
     pub fn new(
         db: &'a dyn crate::Db,
-        cx: &'a hir::ItemContext,
         body: &'a mir::Body,
         is_method: bool,
         viper_body: &'a mut ViperBody,
@@ -220,7 +222,6 @@ impl<'a> BodyLower<'a> {
         let cfg = cfg::Cfg::compute(body);
         Self {
             db,
-            cx,
             body,
             is_method,
             viper_body,
@@ -234,28 +235,23 @@ impl<'a> BodyLower<'a> {
         }
     }
 
-    pub fn lower_type(&mut self, ty: TypePtr<impl TypeProvider>) -> Result<ViperType> {
-        Ok(match ty.kind() {
-            TDK::Error => {
+    pub fn lower_type(&mut self, ty: Type) -> Result<ViperType> {
+        Ok(match ty.kind(self.db) {
+            TypeData::Error => {
                 // TODO: Perhaps this should be handeld at a previous stage?
                 VTy::int().into()
             }
-            TDK::Void => {
-                // TODO: Perhaps this should be handeld at a previous stage?
-                // VTy::internal_type().into()
-                VTy::int().into()
-            }
-            TDK::Free => {
+            TypeData::Void => {
                 // TODO: Perhaps this should be handeld at a previous stage?
                 // VTy::internal_type().into()
                 VTy::int().into()
             }
-            TDK::Generic(_) => {
+            TypeData::Generic(_) => {
                 // TODO: Perhaps this should be handeld at a previous stage?
                 // VTy::internal_type().into()
                 VTy::int().into()
             }
-            TDK::Ref { is_mut, inner } => ViperType {
+            TypeData::Ref { is_mut, inner } => ViperType {
                 vty: VTy::ref_(),
                 is_mut,
                 is_ref: true,
@@ -263,20 +259,20 @@ impl<'a> BodyLower<'a> {
                 inner: Some(Box::new(self.lower_type(inner)?)),
                 adt: None,
             },
-            TDK::List(inner) => {
+            TypeData::List(inner) => {
                 VTy::Seq { element_type: Box::new(self.lower_type(inner)?.vty) }.into()
             }
-            TDK::Optional(inner) => {
+            TypeData::Optional(inner) => {
                 let vty = self.lower_type(inner)?;
                 ViperType { optional: true, ..vty }
             }
-            TDK::Primitive(p) => match p {
+            TypeData::Primitive(p) => match p {
                 Primitive::Int => VTy::int().into(),
                 Primitive::Bool => VTy::bool().into(),
             },
-            TDK::Adt(adt) => match (adt.name(self.db).as_str(), adt.kind()) {
+            TypeData::Adt(adt) => match (adt.name(self.db).as_str(), adt.kind(self.db)) {
                 ("Multiset", _) => VTy::Multiset { element_type: Box::new(VTy::int()) }.into(),
-                (_, AdtKind::Struct(s)) => ViperType {
+                (_, AdtKind::Struct(_)) => ViperType {
                     vty: VTy::ref_(),
                     optional: false,
                     is_mut: false,
@@ -285,7 +281,7 @@ impl<'a> BodyLower<'a> {
                     adt: Some(adt),
                 },
             },
-            TDK::Null => ViperType {
+            TypeData::Null => ViperType {
                 vty: VTy::ref_(),
                 optional: true,
                 is_mut: false,
@@ -293,7 +289,7 @@ impl<'a> BodyLower<'a> {
                 is_ref: false,
                 adt: None,
             },
-            TDK::Function { .. } => {
+            TypeData::Function { .. } => {
                 return Err(ViperLowerError::NotYetImplemented {
                     msg: "lower_type(Function)".to_string(),
                     def: self.body.def(),
@@ -301,7 +297,7 @@ impl<'a> BodyLower<'a> {
                     span: None,
                 })
             }
-            TDK::Range(_inner) => VTy::Domain {
+            TypeData::Range(_inner) => VTy::Domain {
                 domain_name: "Range".to_string(),
                 partial_typ_vars_map: Default::default(),
             }
@@ -354,7 +350,7 @@ impl BodyLower<'_> {
     ) -> Result<Exp<VExprId>> {
         Ok(match &*self.body[fid] {
             mir::FunctionData::Named(v) => Exp::new_func_app(
-                self.cx.var_name(*v).to_string(),
+                v.name(self.db).to_string(),
                 args.iter().map(|s| self.operand_to_ref(source, s)).collect::<Result<_>>()?,
             ),
             mir::FunctionData::Index => {
@@ -418,12 +414,12 @@ impl BodyLower<'_> {
     pub(super) fn slot_to_var(&mut self, x: mir::SlotId) -> Result<LocalVar> {
         Ok(match &self.body[x] {
             mir::Slot::Local(var) => LocalVar::new(
-                format!("{}_{}", self.cx.var_name(*var), x.into_raw()),
-                self.lower_type(self.body.slot_ty(x))?.vty,
+                format!("{}_{}", var.name(self.db), x.into_raw()),
+                self.lower_type(self.body.slot_ty(self.db, x))?.vty,
             ),
             _ => LocalVar::new(
                 format!("_{}", x.into_raw()),
-                self.lower_type(self.body.slot_ty(x))?.vty,
+                self.lower_type(self.body.slot_ty(self.db, x))?.vty,
             ),
         })
     }
@@ -465,11 +461,11 @@ impl BodyLower<'_> {
                             let exp = SeqExp::Length { s: base };
                             self.alloc(source, exp)
                         }
-                        Field::AdtField(af) => {
+                        Field::AdtField(adt, af) => {
                             let exp = VField::new(
-                                mangle::mangled_adt_field(self.db, af),
+                                mangle::mangled_adt_field(self.db, adt, af),
                                 // TODO: Should we look at the contraints?
-                                self.lower_type(self.body.ty_ptr(ty))?.vty,
+                                self.lower_type(ty)?.vty,
                             )
                             .access_exp(base);
                             self.alloc(source, exp)
@@ -553,7 +549,7 @@ impl BodyLower<'_> {
         &mut self,
         source: impl Into<BlockOrInstruction> + Copy,
         place: VExprId,
-        ty: TypePtr<impl TypeProvider>,
+        ty: Type,
     ) -> Result<(Option<VExprId>, Option<VExprId>)> {
         let ty = self.lower_type(ty)?;
         if let Some(st) = ty.adt {

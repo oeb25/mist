@@ -6,8 +6,6 @@ use petgraph::{stable_graph::NodeIndex, Graph};
 
 pub use petgraph;
 
-use crate::hir;
-
 use super::{serialize, BlockId, Body, MExpr, Operand, Place, SlotId};
 
 pub mod cfg;

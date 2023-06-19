@@ -2,14 +2,14 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     def::{self, Def, DefKind},
-    hir::{self, ExprIdx},
+    hir::{self, ExprIdx, Param, VariableIdx},
     types::{TypeId, TypeProvider, TDK},
 };
 
 use super::{
-    exprs::ExprPtr,
+    exprs::{ExprPtr, VariablePtr},
     types::{Adt, AdtField, FunctionType, Type, TypeData},
-    Function, Item, ItemKind, MonoSourceMap, Monomorphized,
+    Condition, Function, Item, ItemKind, MonoSourceMap, Monomorphized,
 };
 
 pub(super) struct MonoLower<'db> {
@@ -28,17 +28,15 @@ impl<'db> MonoLower<'db> {
 
         for adt_inst in cx.ty_table().adt_instantiations() {
             let adt = mdl.lower_adt(adt_inst.adt);
-            self.items.insert(Item::new(ItemKind::Adt(adt)));
+            self.items.insert(Item::new(self.db, ItemKind::Adt(adt)));
         }
 
         match def.kind(self.db) {
             DefKind::Function(f) => {
                 let fun = mdl.lower_fn(f);
-                self.items.insert(Item::new(ItemKind::Function(fun)));
+                self.items.insert(Item::new(self.db, ItemKind::Function(fun)));
             }
-            DefKind::TypeInvariant(ty_inv) => {
-                cx.self_invariants();
-            }
+            DefKind::TypeInvariant(_ty_inv) => {}
             // NOTE: we do nothing for these, as we only look at instantiated types
             DefKind::Struct(_) | DefKind::StructField(_) => {}
         }
@@ -59,6 +57,10 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
     pub(super) fn new(db: &'db dyn crate::Db, cx: &'a hir::ItemContext) -> MonoDefLower<'db, 'a> {
         MonoDefLower { db, cx, adt_cache: Default::default(), ty_cache: Default::default() }
     }
+    pub(super) fn lower_var(&mut self, var: VariableIdx) -> VariablePtr {
+        let ty = self.cx.var_ty(self.db, var);
+        VariablePtr { def: self.cx.def(), id: var, ty: self.lower_ty(ty.id()) }
+    }
     pub(super) fn lower_expr(&mut self, expr: ExprIdx) -> ExprPtr {
         let ty = self.cx.expr_ty(expr);
         ExprPtr { def: self.cx.def(), id: expr, ty: self.lower_ty(ty.id()) }
@@ -70,15 +72,34 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
             .cx
             .params()
             .iter()
-            .map(|param| param.map_ty(|ty| self.lower_ty(ty.ty(self.db))))
+            .map(|param| {
+                let ty = self.lower_ty(param.ty.ty(self.db));
+                Param {
+                    is_ghost: param.is_ghost,
+                    name: VariablePtr { def: Def::new(self.db, f.into()), id: param.name, ty },
+                    ty,
+                }
+            })
             .collect();
         let return_ty = self
             .cx
             .return_ty(self.db)
             .map(|ty| self.lower_ty(ty))
             .unwrap_or_else(|| Type::new(self.db, false, TypeData::Void));
-        let body = self.cx.body_expr();
-        Function::new(self.db, attrs, name, params, return_ty, body)
+        let conditions = self
+            .cx
+            .conditions()
+            .map(|cond| match cond {
+                hir::Condition::Requires(exprs) => {
+                    Condition::Requires(exprs.iter().map(|expr| self.lower_expr(*expr)).collect())
+                }
+                hir::Condition::Ensures(exprs) => {
+                    Condition::Ensures(exprs.iter().map(|expr| self.lower_expr(*expr)).collect())
+                }
+            })
+            .collect();
+        let body = self.cx.body_expr().map(|expr| self.lower_expr(expr));
+        Function::new(self.db, attrs, name, params, return_ty, conditions, body)
     }
     pub(super) fn lower_adt(&mut self, adt: crate::types::Adt) -> Adt {
         if let Some(adt) = self.adt_cache.get(&adt).copied() {
@@ -91,11 +112,13 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
             .into_iter()
             .map(|af| {
                 let ty = self.lower_ty(self.cx.field_ty(af.into()));
-                AdtField { name: af.name(self.db), ty }
+                AdtField::new(self.db, af.name(self.db), ty)
             })
             .collect();
 
-        let new_adt = Adt::new(self.db, adt.kind(), fields);
+        // TODO: invariants
+
+        let new_adt = Adt::new(self.db, adt.kind(), fields, vec![]);
         self.adt_cache.insert(adt, new_adt);
         new_adt
     }

@@ -313,7 +313,7 @@ impl BodyLower<'_> {
             mir::Instruction::NewAdt(_, _, _) => {
                 return Err(ViperLowerError::NotYetImplemented {
                     msg: "struct initialization in pure context".to_string(),
-                    def: self.cx.def(),
+                    def: self.body.def(),
                     block_or_inst: Some(inst.into()),
                     span: None,
                 });
@@ -328,7 +328,7 @@ impl BodyLower<'_> {
                     }
                     _ => return Ok(acc),
                 };
-                if let Some(s) = self.body.place_ty(unfolding_place).ty_adt() {
+                if let Some(s) = self.body.place_ty(self.db, unfolding_place).ty_adt(self.db) {
                     acc.try_map_exp(|exp| {
                         let place_ref = self.place_to_ref(inst, unfolding_place)?;
                         let pred_acc = PredicateAccessPredicate::new(
@@ -339,7 +339,10 @@ impl BodyLower<'_> {
                         Ok(self.alloc(inst, Exp::new_unfolding(pred_acc, exp)))
                     })?
                 } else {
-                    warn!("no struct found for {:?}", self.body.place_ty(unfolding_place).data());
+                    warn!(
+                        "no struct found for '{}'",
+                        self.body.place_ty(self.db, unfolding_place).display(self.db)
+                    );
                     acc
                 }
             }

@@ -163,7 +163,12 @@ impl Adt {
         self.generic_args.args(db).iter().copied()
     }
     pub fn name(&self, db: &dyn crate::Db) -> Name {
-        match self.kind {
+        self.kind.name(db)
+    }
+}
+impl AdtKind {
+    pub fn name(&self, db: &dyn crate::Db) -> Name {
+        match self {
             AdtKind::Struct(s) => s.name(db),
         }
     }
@@ -200,7 +205,7 @@ impl<T> TypeData<T> {
             TDK::Ref { is_mut, inner } => TDK::Ref { is_mut: *is_mut, inner: f(inner) },
             TDK::List(it) => TDK::List(f(it)),
             TDK::Optional(it) => TDK::Optional(f(it)),
-            TDK::Primitive(it) => TDK::Primitive(it.clone()),
+            TDK::Primitive(it) => TDK::Primitive(*it),
             TDK::Adt(it) => TDK::Adt(*it),
             TDK::Null => TDK::Null,
             TDK::Function { attrs, name, params, return_ty } => TDK::Function {

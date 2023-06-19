@@ -39,13 +39,15 @@ pub struct Jar(
     // mono
     crate::mono::types::Type,
     crate::mono::types::Adt,
+    crate::mono::types::AdtField,
     crate::mono::types::FunctionType,
     crate::mono::Function,
     crate::mono::monomorphized_items,
     crate::mono::Monomorphized,
+    crate::mono::Item,
     // mir
     crate::mir::MirErrors,
-    crate::mir::DefinitionMir,
+    crate::mir::ItemMir,
     crate::mir::lower_item,
 );
 

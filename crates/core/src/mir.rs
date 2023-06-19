@@ -3,7 +3,7 @@ mod lower;
 pub mod pass;
 pub mod serialize;
 
-use std::{fmt, sync::Arc};
+use std::{collections::HashMap, fmt};
 
 use derive_more::{Display, From};
 use derive_new::new;
@@ -17,10 +17,11 @@ use mist_syntax::{
 use tracing::debug;
 
 use crate::{
-    def::Def,
-    hir::{self, AssertionKind, Literal, Quantifier, VariableIdx},
-    types::{
-        builtin::error, Adt, AdtField, Field, TypeData, TypeId, TypeProvider, TypePtr, TypeTable,
+    hir::{AssertionKind, Literal, Quantifier},
+    mono::{
+        exprs::{ExprPtr, Field, VariablePtr},
+        types::{Adt, AdtField, Type},
+        Item,
     },
     util::{impl_idx, IdxArena, IdxMap, IdxWrap},
 };
@@ -28,7 +29,7 @@ use crate::{
 pub use self::lower::lower_item;
 
 #[salsa::tracked]
-pub struct DefinitionMir {
+pub struct ItemMir {
     #[return_ref]
     pub body: Body,
     #[return_ref]
@@ -268,9 +269,9 @@ pub enum Slot {
     #[default]
     Temp,
     Self_,
-    Param(VariableIdx),
-    Local(VariableIdx),
-    Quantified(VariableIdx),
+    Param(VariablePtr),
+    Local(VariablePtr),
+    Quantified(VariablePtr),
     Result,
 }
 impl Slot {
@@ -308,8 +309,8 @@ impl From<SlotId> for Place {
 impl_idx!(ProjectionList, Vec<Projection>, default_debug);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Projection {
-    Field(Field, TypeId),
-    Index(SlotId, TypeId),
+    Field(Field, Type),
+    Index(SlotId, Type),
 }
 impl Projection {
     /// Construct an empty [`ProjectionList`]
@@ -351,7 +352,7 @@ pub struct Function {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FunctionData {
-    Named(VariableIdx),
+    Named(VariablePtr),
     Index,
     RangeIndex,
     Range(RangeKind),
@@ -384,9 +385,8 @@ pub enum RangeKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Body {
-    def: Def,
+    item: Item,
 
-    ty_table: Arc<TypeTable>,
     self_slot: SlotId,
 
     blocks: IdxArena<BlockId>,
@@ -398,7 +398,7 @@ pub struct Body {
     params: Vec<SlotId>,
 
     block_invariants: IdxMap<BlockId, Vec<BlockId>>,
-    slot_type: IdxMap<SlotId, TypeId>,
+    slot_type: IdxMap<SlotId, Type>,
 
     requires: Vec<BlockId>,
     ensures: Vec<BlockId>,
@@ -410,18 +410,15 @@ pub struct Body {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct BodySourceMap {
-    pub expr_instr_map: IdxMap<hir::ExprIdx, Vec<InstructionId>>,
-    expr_instr_map_back: IdxMap<InstructionId, hir::ExprIdx>,
-    pub expr_block_map: IdxMap<hir::ExprIdx, BlockId>,
-    expr_block_map_back: IdxMap<BlockId, hir::ExprIdx>,
-    pub var_map: IdxMap<VariableIdx, SlotId>,
+    pub expr_instr_map: HashMap<ExprPtr, Vec<InstructionId>>,
+    expr_instr_map_back: IdxMap<InstructionId, ExprPtr>,
+    pub expr_block_map: HashMap<ExprPtr, BlockId>,
+    expr_block_map_back: IdxMap<BlockId, ExprPtr>,
+    pub var_map: HashMap<VariablePtr, SlotId>,
 }
 
 impl BodySourceMap {
-    pub fn trace_expr(
-        &self,
-        instr_or_block: impl Into<BlockOrInstruction>,
-    ) -> Option<hir::ExprIdx> {
+    pub fn trace_expr(&self, instr_or_block: impl Into<BlockOrInstruction>) -> Option<ExprPtr> {
         match instr_or_block.into() {
             BlockOrInstruction::Block(b) => self.expr_block_map_back.get(b).copied(),
             BlockOrInstruction::Instruction(b) => self.expr_instr_map_back.get(b).copied(),
@@ -435,24 +432,14 @@ pub enum BlockOrInstruction {
     Instruction(InstructionId),
 }
 
-impl TypeProvider for Body {
-    fn ty_data(&self, ty: TypeId) -> TypeData {
-        self.ty_table.ty_data(ty)
-    }
-    fn fields_of(&self, adt: Adt) -> Vec<AdtField> {
-        self.ty_table.fields_of(adt)
-    }
-}
-
 impl Body {
-    fn new(def: Def, ty_table: Arc<TypeTable>) -> Body {
+    fn new(item: Item) -> Body {
         let mut slots: IdxArena<_> = Default::default();
         let self_slot = slots.alloc(Slot::Self_);
 
         Body {
-            def,
+            item,
 
-            ty_table,
             self_slot,
 
             blocks: Default::default(),
@@ -569,23 +556,22 @@ impl Body {
         self.params.as_ref()
     }
 
-    pub fn slot_ty(&self, slot: SlotId) -> TypePtr<Self> {
-        self.slot_type.get(slot).copied().unwrap_or_else(error).wrap(self)
+    pub fn slot_ty(&self, db: &dyn crate::Db, slot: SlotId) -> Type {
+        self.slot_type.get(slot).copied().unwrap_or_else(|| Type::error(db))
     }
 
-    pub fn place_ty(&self, place: Place) -> TypePtr<Self> {
+    pub fn place_ty(&self, db: &dyn crate::Db, place: Place) -> Type {
         if self[place.projection].is_empty() {
-            self.slot_ty(place.slot)
+            self.slot_ty(db, place.slot)
         } else {
             match self[place.projection].last().unwrap() {
-                Projection::Field(_, ty) => ty.wrap(self),
-                Projection::Index(_, ty) => ty.wrap(self),
+                Projection::Field(_, ty) | Projection::Index(_, ty) => *ty,
             }
         }
     }
 
-    pub fn def(&self) -> Def {
-        self.def
+    pub fn def(&self) -> Item {
+        self.item
     }
 
     pub fn block_invariants(&self, block: BlockId) -> &[BlockId] {
@@ -913,27 +899,24 @@ pub enum MirError {
     #[error("not yet implemented: {msg}")]
     NotYetImplemented {
         msg: String,
-        def: Def,
-        expr: hir::ExprIdx,
+        expr: ExprPtr,
         #[label]
         span: Option<SourceSpan>,
     },
     #[error("variable used before its slot was allocated")]
     SlotUseBeforeAlloc {
-        def: Def,
-        var: VariableIdx,
+        var: VariablePtr,
         #[label]
         span: Option<SourceSpan>,
     },
     #[error("result seen in function without return slot set")]
     ResultWithoutReturnSlot {
-        def: Def,
-        expr: hir::ExprIdx,
+        expr: ExprPtr,
         #[label]
         span: Option<SourceSpan>,
     },
     #[error("`self` was used in a context where self is not defined")]
-    SelfInItemWithout { def: Def, expr: hir::ExprIdx, span: Option<SourceSpan> },
+    SelfInItemWithout { expr: ExprPtr, span: Option<SourceSpan> },
 }
 
 #[salsa::accumulator]
@@ -942,14 +925,14 @@ pub struct MirErrors(MirError);
 impl MirError {
     pub fn populate_spans(
         &mut self,
-        expr_f: impl Fn(Def, hir::ExprIdx) -> Option<SourceSpan>,
-        var_f: impl Fn(Def, hir::VariableIdx) -> Option<SourceSpan>,
+        expr_f: impl Fn(ExprPtr) -> Option<SourceSpan>,
+        var_f: impl Fn(VariablePtr) -> Option<SourceSpan>,
     ) {
         match self {
-            MirError::NotYetImplemented { msg: _, def, expr, span } => *span = expr_f(*def, *expr),
-            MirError::SlotUseBeforeAlloc { def, var, span } => *span = var_f(*def, *var),
-            MirError::ResultWithoutReturnSlot { def, expr, span } => *span = expr_f(*def, *expr),
-            MirError::SelfInItemWithout { def, expr, span } => *span = expr_f(*def, *expr),
+            MirError::NotYetImplemented { msg: _, expr, span } => *span = expr_f(*expr),
+            MirError::SlotUseBeforeAlloc { var, span } => *span = var_f(*var),
+            MirError::ResultWithoutReturnSlot { expr, span } => *span = expr_f(*expr),
+            MirError::SelfInItemWithout { expr, span } => *span = expr_f(*expr),
         }
     }
 }

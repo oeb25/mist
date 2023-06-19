@@ -179,7 +179,7 @@ pub trait MonotoneFramework {
         terminator: &mir::Terminator,
         prev: &mut Self::Domain,
     );
-    fn initial(&self, body: &mir::Body) -> Self::Domain;
+    fn initial(&self, db: &dyn crate::Db, body: &mir::Body) -> Self::Domain;
     fn debug(&self, item: &Self::Domain) {
         let _ = item;
     }
@@ -231,6 +231,7 @@ impl Worklist for LiFo {
 }
 
 pub fn mono_analysis<A: MonotoneFramework, W: Worklist>(
+    db: &dyn crate::Db,
     a: A,
     body: &mir::Body,
 ) -> AnalysisResults<A> {
@@ -241,7 +242,7 @@ pub fn mono_analysis<A: MonotoneFramework, W: Worklist>(
         worklist.insert(bid);
     }
 
-    let initial = a.initial(body);
+    let initial = a.initial(db, body);
     A::Direction::initial_blocks(body, |bid| {
         let mut called = false;
         let mut prev = initial.clone();

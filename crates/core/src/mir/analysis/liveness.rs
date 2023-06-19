@@ -1,6 +1,6 @@
 use folding_tree::RequireType;
 
-use crate::{mir, types::TDK, util::IdxSet};
+use crate::{mir, mono::types::TypeData, util::IdxSet};
 
 use super::{
     folding_tree::FoldingTree,
@@ -10,8 +10,8 @@ use super::{
 pub type Liveness = monotone::AnalysisResults<LivenessAnalysis>;
 
 impl Liveness {
-    pub fn compute(body: &mir::Body) -> Self {
-        mono_analysis::<_, monotone::FiFo>(LivenessAnalysis, body)
+    pub fn compute(db: &dyn crate::Db, body: &mir::Body) -> Self {
+        mono_analysis::<_, monotone::FiFo>(db, LivenessAnalysis, body)
     }
 }
 
@@ -50,7 +50,7 @@ impl MonotoneFramework for LivenessAnalysis {
         }
     }
 
-    fn initial(&self, _body: &mir::Body) -> Self::Domain {
+    fn initial(&self, _db: &dyn crate::Db, _body: &mir::Body) -> Self::Domain {
         Default::default()
     }
 }
@@ -58,8 +58,8 @@ impl MonotoneFramework for LivenessAnalysis {
 pub type FoldingAnalysisResults = monotone::AnalysisResults<FoldingAnalysis>;
 
 impl FoldingAnalysisResults {
-    pub fn compute(body: &mir::Body) -> Self {
-        mono_analysis::<_, monotone::FiFo>(FoldingAnalysis, body)
+    pub fn compute(db: &dyn crate::Db, body: &mir::Body) -> Self {
+        mono_analysis::<_, monotone::FiFo>(db, FoldingAnalysis, body)
     }
 }
 
@@ -88,12 +88,12 @@ impl MonotoneFramework for FoldingAnalysis {
         prev.backwards_terminator_transition(body, terminator)
     }
 
-    fn initial(&self, body: &mir::Body) -> Self::Domain {
+    fn initial(&self, db: &dyn crate::Db, body: &mir::Body) -> Self::Domain {
         // TODO: We should look at params, return type, and post-conditions, to
         // see which slots should be folded at the exit
         let mut t = FoldingTree::default();
         for &param in body.params() {
-            if let TDK::Ref { .. } = body.slot_ty(param).kind() {
+            if let TypeData::Ref { .. } = body.slot_ty(db, param).kind(db) {
                 t.require(body, None, RequireType::Folded, param.into());
             }
         }
@@ -107,30 +107,30 @@ mod tests {
     use salsa::ParallelDatabase;
     use tracing::{info, Level};
 
-    use crate::{db::Database, hir, mir};
+    use crate::{db::Database, hir, mir, mono};
 
     fn generate_annotated_mir(src: &str) -> String {
         let db = Database::default();
         let file = hir::SourceFile::new(&db, src.to_string());
-        file.definitions(&db)
-            .into_iter()
-            .filter_map(|def| {
-                info!("{}", def.display(&db));
-                let span = tracing::span!(Level::DEBUG, "dump", def = def.display(&db));
+        mono::monomorphized_items(&db, file)
+            .items(&db)
+            .iter()
+            .filter_map(|&item| {
+                info!("{}", item.name(&db));
+                let span = tracing::span!(Level::DEBUG, "dump", item = item.name(&db).to_string());
                 let _enter = span.enter();
 
-                let mir = def.mir(&db)?.body(&db);
+                let mir = mir::lower_item(&db, item)?.body(&db);
 
-                let a = mir::analysis::liveness::FoldingAnalysisResults::compute(mir);
+                let a = mir::analysis::liveness::FoldingAnalysisResults::compute(&db, mir);
                 let db2 = db.snapshot();
                 let mir2 = mir.clone();
                 let serialized = mir.serialize_with_annotation(
                     &db,
-                    None,
                     mir::serialize::Color::No,
                     Box::new(move |loc| {
                         let mut x = a.try_entry(loc)?.clone();
-                        let incomming = x.debug_str(Some(&*db2), &mir2);
+                        let incomming = x.debug_str(&*db2, &mir2);
                         match loc.inner {
                             mir::BlockLocation::Instruction(inst) => {
                                 x.forwards_instruction_transition(&mir2, inst)
@@ -140,7 +140,7 @@ mod tests {
                                 mir2[loc.block].terminator.as_ref()?,
                             ),
                         }
-                        let outgoing = x.debug_str(Some(&*db2), &mir2);
+                        let outgoing = x.debug_str(&*db2, &mir2);
                         Some(format!("{incomming}\n> {outgoing}"))
                     }),
                 );

@@ -6,18 +6,17 @@ use mist_syntax::ast::AttrFlags;
 
 use crate::{
     def::Name,
-    hir::{self, ExprIdx, Param, SourceFile, VariableIdx},
+    hir::{Param, SourceFile},
     mono::lower::MonoLower,
-    util::IdxMap,
 };
 
 use self::{
-    exprs::ExprPtr,
+    exprs::{ExprPtr, VariablePtr},
     types::{Adt, Type},
 };
 
 /// A monomorphized item
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[salsa::interned]
 pub struct Item {
     pub kind: ItemKind,
 }
@@ -50,15 +49,24 @@ pub struct MonoSourceMap {}
 
 #[salsa::interned]
 pub struct Function {
-    attrs: AttrFlags,
-    name: Name,
-    params: Vec<Param<VariableIdx, Type>>,
-    return_ty: Type,
-    body: Option<ExprIdx>,
+    pub attrs: AttrFlags,
+    pub name: Name,
+    pub params: Vec<Param<VariablePtr, Type>>,
+    pub return_ty: Type,
+    pub conditions: Vec<Condition>,
+    pub body: Option<ExprPtr>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Condition {
+    Requires(Vec<ExprPtr>),
+    Ensures(Vec<ExprPtr>),
 }
 
 impl Item {
-    pub fn new(kind: ItemKind) -> Self {
-        Self { kind }
+    pub fn name(&self, db: &dyn crate::Db) -> Name {
+        match self.kind(db) {
+            ItemKind::Adt(adt) => adt.kind(db).name(db),
+            ItemKind::Function(fun) => fun.name(db),
+        }
     }
 }

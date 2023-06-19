@@ -11,8 +11,8 @@ use super::Pass;
 pub struct MentionPass;
 
 impl Pass for MentionPass {
-    fn run(_db: &dyn crate::Db, body: &mut crate::mir::Body) {
-        let liveness = liveness::Liveness::compute(body);
+    fn run(db: &dyn crate::Db, body: &mut crate::mir::Body) {
+        let liveness = liveness::Liveness::compute(db, body);
 
         let cfg = Cfg::compute(body);
 

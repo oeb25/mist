@@ -3,82 +3,89 @@ use mist_syntax::ast::operators::{ArithOp, BinaryOp, CmpOp};
 use tracing::debug;
 
 use crate::{
-    def::Def,
-    hir::{
-        self, pretty, AssertionKind, ExprData, ExprIdx, IfExpr, ItemContext, Let, StatementData,
-        StatementId, VariableIdx,
-    },
+    hir::{self, AssertionKind},
     mir::{MirError, MirErrors, Operand},
-    types::{
-        builtin::{bool, error, int},
-        Field, ListField, Primitive, TypeDataKind as TDK, TypeId,
+    mono::{
+        exprs::{
+            Block as MonoBlock, BuiltinExpr, Decreases, ExprData, ExprPtr, Field, ForExpr, IfExpr,
+            Let, QuantifierOver, StatementData, StatementPtr, VariablePtr, WhileExpr,
+        },
+        types::{Type, TypeData},
+        Condition, Item, ItemKind,
     },
+    types::{ListField, Primitive},
 };
 
 use super::{
-    BlockId, Body, BodySourceMap, BorrowKind, DefinitionMir, Function, FunctionData, FunctionId,
-    Instruction, InstructionId, MExpr, Place, Projection, RangeKind, Slot, SlotId, SwitchTargets,
+    BlockId, Body, BodySourceMap, BorrowKind, Function, FunctionData, FunctionId, Instruction,
+    InstructionId, ItemMir, MExpr, Place, Projection, RangeKind, Slot, SlotId, SwitchTargets,
     Terminator,
 };
 
 #[salsa::tracked]
-pub fn lower_item(db: &dyn crate::Db, def: Def) -> Option<DefinitionMir> {
-    let cx = def.hir(db)?.cx(db);
-    let span = cx.function_var().map(|fvar| {
-        tracing::span!(tracing::Level::DEBUG, "mir::lower_item", "{}", cx.var_name(fvar))
-    });
-    let _enter = span.as_ref().map(|span| span.enter());
+pub fn lower_item(db: &dyn crate::Db, item: Item) -> Option<ItemMir> {
+    lower_item_internal(db, item)
+}
+fn lower_item_internal(db: &dyn crate::Db, item: Item) -> Option<ItemMir> {
+    let span = tracing::span!(tracing::Level::DEBUG, "mir::lower_item", "{}", item.name(db));
+    let _enter = span.enter();
 
-    let mut lower = MirLower::new(db, cx);
+    let mut lower = MirLower::new(db, item);
 
-    lower.body.params = cx
-        .params()
-        .iter()
-        .map(|param| lower.alloc_slot(Slot::Param(param.name), param.ty.ty(db)))
-        .collect();
+    match item.kind(db) {
+        ItemKind::Adt(adt) => {
+            let self_ty = Type::new(db, false, TypeData::Adt(adt));
+            lower.body.slot_type.insert(lower.body.self_slot, self_ty);
 
-    lower.body.result_slot = cx.return_ty(db).map(|ret_ty| lower.alloc_slot(Slot::Result, ret_ty));
-
-    if let Some(self_ty) = cx.self_ty(db) {
-        lower.body.slot_type.insert(lower.body.self_slot, self_ty);
-    }
-
-    for cond in cx.conditions() {
-        match cond {
-            hir::Condition::Requires(es) => {
-                for &e in es {
-                    let slot = lower.alloc_place_for_expr(e);
-                    let entry_bid = lower.alloc_block(Some(e));
-                    lower.expr(e, entry_bid, None, Placement::Assign(slot));
-                    lower.body.requires.push(entry_bid);
-                }
-            }
-            hir::Condition::Ensures(es) => {
-                for &e in es {
-                    let slot = lower.alloc_place_for_expr(e);
-                    let entry_bid = lower.alloc_block(Some(e));
-                    lower.expr(e, entry_bid, None, Placement::Assign(slot));
-                    lower.body.ensures.push(entry_bid);
-                }
+            for ty_inv in adt.invariants(db) {
+                let slot = lower.alloc_place_for_expr(ty_inv);
+                let entry_bid = lower.alloc_block(Some(ty_inv));
+                lower.expr(ty_inv, entry_bid, None, Placement::Assign(slot));
+                lower.body.invariants.push(entry_bid);
             }
         }
-    }
+        ItemKind::Function(fun) => {
+            lower.body.params = fun
+                .params(db)
+                .iter()
+                .map(|param| lower.alloc_slot(Slot::Param(param.name), param.ty))
+                .collect();
 
-    for &ty_inv in cx.self_invariants() {
-        let slot = lower.alloc_place_for_expr(ty_inv);
-        let entry_bid = lower.alloc_block(Some(ty_inv));
-        lower.expr(ty_inv, entry_bid, None, Placement::Assign(slot));
-        lower.body.invariants.push(entry_bid);
-    }
+            if !fun.return_ty(db).is_void(db) {
+                lower.body.result_slot = Some(lower.alloc_slot(Slot::Result, fun.return_ty(db)));
+            }
 
-    if let Some(body) = cx.body_expr() {
-        let placement = match lower.body.result_slot() {
-            Some(slot) => Placement::Assign(slot.into()),
-            None => Placement::Ignore,
-        };
-        let body_bid = lower.alloc_block(Some(body));
-        lower.expr(body, body_bid, None, placement);
-        lower.body.body_block = Some(body_bid);
+            for cond in fun.conditions(db) {
+                match cond {
+                    Condition::Requires(es) => {
+                        for e in es {
+                            let slot = lower.alloc_place_for_expr(e);
+                            let entry_bid = lower.alloc_block(Some(e));
+                            lower.expr(e, entry_bid, None, Placement::Assign(slot));
+                            lower.body.requires.push(entry_bid);
+                        }
+                    }
+                    Condition::Ensures(es) => {
+                        for e in es {
+                            let slot = lower.alloc_place_for_expr(e);
+                            let entry_bid = lower.alloc_block(Some(e));
+                            lower.expr(e, entry_bid, None, Placement::Assign(slot));
+                            lower.body.ensures.push(entry_bid);
+                        }
+                    }
+                }
+            }
+
+            if let Some(body) = fun.body(db) {
+                let placement = match lower.body.result_slot() {
+                    Some(slot) => Placement::Assign(slot.into()),
+                    None => Placement::Ignore,
+                };
+                let body_bid = lower.alloc_block(Some(body));
+                lower.expr(body, body_bid, None, placement);
+                lower.body.body_block = Some(body_bid);
+            }
+        }
     }
 
     Some(lower.finish())
@@ -86,34 +93,32 @@ pub fn lower_item(db: &dyn crate::Db, def: Def) -> Option<DefinitionMir> {
 
 struct MirLower<'a> {
     db: &'a dyn crate::Db,
-    cx: &'a ItemContext,
-
     body: Body,
     source_map: BodySourceMap,
 }
 
 impl<'a> MirLower<'a> {
-    fn new(db: &'a dyn crate::Db, cx: &'a ItemContext) -> Self {
-        let body = Body::new(cx.def(), cx.ty_table());
-        Self { db, cx, body, source_map: Default::default() }
+    fn new(db: &'a dyn crate::Db, item: Item) -> Self {
+        let body = Body::new(item);
+        Self { db, body, source_map: Default::default() }
     }
 
-    fn alloc_tmp(&mut self, ty: impl Into<TypeId>) -> Place {
+    fn alloc_tmp(&mut self, ty: Type) -> Place {
         self.alloc_place(Slot::default(), ty)
     }
-    fn alloc_place_for_expr(&mut self, expr: ExprIdx) -> Place {
-        self.alloc_tmp(self.cx.expr_ty(expr))
+    fn alloc_place_for_expr(&mut self, expr: ExprPtr) -> Place {
+        self.alloc_tmp(expr.ty())
     }
-    fn alloc_place(&mut self, slot: Slot, ty: impl Into<TypeId>) -> Place {
+    fn alloc_place(&mut self, slot: Slot, ty: Type) -> Place {
         self.alloc_slot(slot, ty).into()
     }
-    fn alloc_quantified(&mut self, var: VariableIdx) -> SlotId {
-        self.alloc_slot(Slot::Quantified(var), self.cx.var_ty(self.db, var))
+    fn alloc_quantified(&mut self, var: VariablePtr) -> SlotId {
+        self.alloc_slot(Slot::Quantified(var), var.ty())
     }
-    fn alloc_local(&mut self, var: VariableIdx) -> SlotId {
-        self.alloc_slot(Slot::Local(var), self.cx.var_ty(self.db, var))
+    fn alloc_local(&mut self, var: VariablePtr) -> SlotId {
+        self.alloc_slot(Slot::Local(var), var.ty())
     }
-    fn alloc_slot(&mut self, slot: Slot, ty: impl Into<TypeId>) -> SlotId {
+    fn alloc_slot(&mut self, slot: Slot, ty: Type) -> SlotId {
         let id = match &slot {
             Slot::Temp => self.body.slots.alloc(slot),
             Slot::Param(var) | Slot::Local(var) | Slot::Quantified(var) => {
@@ -127,19 +132,18 @@ impl<'a> MirLower<'a> {
                 *self.body.result_slot.get_or_insert_with(|| self.body.slots.alloc(slot))
             }
         };
-        let ty = ty.into();
         if let Some(old_ty) = self.body.slot_type.insert(id, ty) {
             debug!(
                 "replaced a type. old was '{}' and new was '{}'",
-                pretty::ty(self.cx, self.db, false, old_ty),
-                pretty::ty(self.cx, self.db, false, ty)
+                old_ty.display(self.db),
+                ty.display(self.db),
             );
         }
         id
     }
     fn alloc_instruction(
         &mut self,
-        expr: Option<ExprIdx>,
+        expr: Option<ExprPtr>,
         bid: BlockId,
         instruction: Instruction,
     ) -> InstructionId {
@@ -151,7 +155,7 @@ impl<'a> MirLower<'a> {
         }
         id
     }
-    fn alloc_block(&mut self, expr: Option<ExprIdx>) -> BlockId {
+    fn alloc_block(&mut self, expr: Option<ExprPtr>) -> BlockId {
         let id = self.body.blocks.alloc(Default::default());
         if let Some(expr) = expr {
             self.source_map.expr_block_map.insert(expr, id);
@@ -159,7 +163,7 @@ impl<'a> MirLower<'a> {
         }
         id
     }
-    fn hint_block_source(&mut self, source: ExprIdx, bid: BlockId) {
+    fn hint_block_source(&mut self, source: ExprPtr, bid: BlockId) {
         if !self.source_map.expr_block_map_back.contains_idx(bid) {
             self.source_map.expr_block_map.insert(source, bid);
             self.source_map.expr_block_map_back.insert(bid, source);
@@ -171,22 +175,19 @@ impl<'a> MirLower<'a> {
     fn self_slot(&self) -> SlotId {
         self.body.self_slot
     }
-    fn self_ty(&self) -> Option<TypeId> {
+    fn self_ty(&self) -> Option<Type> {
         self.body.slot_type.get(self.self_slot()).copied()
     }
-    fn var_place(&mut self, var: VariableIdx) -> Place {
-        if let Some(&slot) = self.source_map.var_map.get(var) {
+    fn var_place(&mut self, var: VariablePtr) -> Place {
+        if let Some(&slot) = self.source_map.var_map.get(&var) {
             slot.into()
         } else {
-            MirErrors::push(
-                self.db,
-                MirError::SlotUseBeforeAlloc { def: self.cx.def(), var, span: None },
-            );
-            self.alloc_tmp(self.cx.var_ty(self.db, var))
+            MirErrors::push(self.db, MirError::SlotUseBeforeAlloc { var, span: None });
+            self.alloc_tmp(var.ty())
         }
     }
-    fn finish(self) -> DefinitionMir {
-        DefinitionMir::new(self.db, self.body, self.source_map)
+    fn finish(self) -> ItemMir {
+        ItemMir::new(self.db, self.body, self.source_map)
     }
 
     fn project_deeper(&mut self, mut place: Place, projection: &[Projection]) -> Place {
@@ -209,13 +210,13 @@ impl<'a> MirLower<'a> {
 enum Placement<'a> {
     Ignore,
     Assign(Place),
-    IntoOperand(TypeId, &'a mut Option<Operand>),
+    IntoOperand(Type, &'a mut Option<Operand>),
     Assertion(AssertionKind),
-    IntoPlace(TypeId, &'a mut Option<Place>),
+    IntoPlace(Type, &'a mut Option<Place>),
 }
 
 impl MirLower<'_> {
-    fn put(&mut self, bid: BlockId, dest: Placement, source: Option<ExprIdx>, expr: MExpr) {
+    fn put(&mut self, bid: BlockId, dest: Placement, source: Option<ExprPtr>, expr: MExpr) {
         match dest {
             Placement::Ignore => {}
             Placement::Assign(slot) => {
@@ -255,7 +256,7 @@ impl MirLower<'_> {
 
     fn put_call(
         &mut self,
-        expr: ExprIdx,
+        expr: ExprPtr,
         func: FunctionId,
         args: Vec<Operand>,
         dest: Placement,
@@ -310,7 +311,7 @@ impl MirLower<'_> {
 
     fn block(
         &mut self,
-        block: &hir::Block,
+        block: &MonoBlock,
         mut bid: BlockId,
         target: Option<BlockId>,
         dest: Placement,
@@ -324,16 +325,16 @@ impl MirLower<'_> {
             bid
         }
     }
-    fn stmt(&mut self, mut bid: BlockId, target: Option<BlockId>, stmt: StatementId) -> BlockId {
-        match &self.cx[stmt].data {
-            StatementData::Expr(expr) => self.expr(*expr, bid, target, Placement::Ignore),
+    fn stmt(&mut self, mut bid: BlockId, target: Option<BlockId>, stmt: StatementPtr) -> BlockId {
+        match stmt.data(self.db) {
+            StatementData::Expr(expr) => self.expr(expr, bid, target, Placement::Ignore),
             StatementData::Let(Let { variable, initializer }) => {
-                let dest = self.alloc_local(*variable);
-                self.expr(*initializer, bid, target, Placement::Assign(dest.into()))
+                let dest = self.alloc_local(variable);
+                self.expr(initializer, bid, target, Placement::Assign(dest.into()))
             }
             StatementData::Assertion { kind, exprs } => {
-                for &expr in exprs {
-                    bid = self.expr(expr, bid, None, Placement::Assertion(*kind));
+                for expr in exprs {
+                    bid = self.expr(expr, bid, None, Placement::Assertion(kind));
                 }
                 bid
             }
@@ -343,7 +344,7 @@ impl MirLower<'_> {
     fn emit_decreases_assertion(
         &mut self,
         initial_variant: Place,
-        variant: ExprIdx,
+        variant: ExprPtr,
         bid: &mut BlockId,
     ) {
         let last_variant_operand = self.expr_into_operand(variant, bid, None);
@@ -353,17 +354,20 @@ impl MirLower<'_> {
         let a = || last_variant_operand.clone();
         let b = || Operand::Move(initial_variant);
 
-        let variant_ty = self.cx.expr_ty(variant);
-        match variant_ty.kind() {
-            TDK::Error => {}
-            TDK::Void => {}
-            TDK::Ref { .. } => todo!(),
+        let variant_ty = variant.ty();
+        match variant_ty.kind(self.db) {
+            TypeData::Error => {}
+            TypeData::Void => {}
+            TypeData::Ref { .. } => todo!(),
             // a <_ b <==> |a| < |b|
-            TDK::List(_) => {
+            TypeData::List(_) => {
                 let mut len = |o| match o {
                     Operand::Copy(p) | Operand::Move(p) => self.project_deeper(
                         p,
-                        &[Projection::Field(Field::List(variant_ty.id(), ListField::Len), int())],
+                        &[Projection::Field(
+                            Field::List(variant_ty, ListField::Len),
+                            Type::int(self.db),
+                        )],
                     ),
                     Operand::Literal(_) => todo!(),
                 };
@@ -375,7 +379,7 @@ impl MirLower<'_> {
                 ));
             }
             // a <_ b <==> a == null && b != null
-            TDK::Optional(_) => {
+            TypeData::Optional(_) => {
                 assertions.push(MExpr::BinaryOp(
                     BinaryOp::eq(),
                     a(),
@@ -388,7 +392,7 @@ impl MirLower<'_> {
                 ));
             }
             // a <_ b <==> a < b && 0 <= b
-            TDK::Primitive(Primitive::Int) => {
+            TypeData::Primitive(Primitive::Int) => {
                 assertions.push(MExpr::BinaryOp(BinaryOp::lt(), a(), b()));
                 assertions.push(MExpr::BinaryOp(
                     BinaryOp::le(),
@@ -397,7 +401,7 @@ impl MirLower<'_> {
                 ));
             }
             // a <_ b <==> a == false && b == true
-            TDK::Primitive(Primitive::Bool) => {
+            TypeData::Primitive(Primitive::Bool) => {
                 assertions.push(MExpr::BinaryOp(
                     BinaryOp::eq(),
                     a(),
@@ -409,11 +413,11 @@ impl MirLower<'_> {
                     Operand::Literal(hir::Literal::Bool(true)),
                 ));
             }
-            TDK::Adt(_) => todo!(),
-            TDK::Function { .. } => todo!(),
-            TDK::Range(_) => todo!(),
-            TDK::Generic(_) => todo!(),
-            TDK::Null | TDK::Free => {
+            TypeData::Adt(_) => todo!(),
+            TypeData::Function { .. } => todo!(),
+            TypeData::Range(_) => todo!(),
+            TypeData::Generic(_) => todo!(),
+            TypeData::Null => {
                 assertions.push(MExpr::Use(Operand::Literal(hir::Literal::Bool(false))))
             }
         }
@@ -426,36 +430,34 @@ impl MirLower<'_> {
             );
         }
     }
-    fn assign(&mut self, bid: BlockId, source: Option<ExprIdx>, dest: Place, expr: MExpr) -> Place {
+    fn assign(&mut self, bid: BlockId, source: Option<ExprPtr>, dest: Place, expr: MExpr) -> Place {
         self.alloc_instruction(source, bid, Instruction::Assign(dest, expr));
         dest
     }
     fn lhs_expr(
         &mut self,
-        expr: ExprIdx,
+        expr: ExprPtr,
         bid: BlockId,
         _target: Option<BlockId>,
     ) -> (BlockId, Place) {
-        let expr_data = self.cx.expr(expr);
-        match &expr_data.data {
+        match expr.data(self.db) {
             ExprData::Literal(_) => todo!(),
             ExprData::Self_ => todo!(),
-            ExprData::Ident(x) => (bid, self.var_place(*x)),
+            ExprData::Ident(x) => (bid, self.var_place(x)),
             ExprData::Block(_) => todo!(),
             ExprData::NotNull(_) => todo!(),
             ExprData::Field { expr: base, field, .. } => {
-                let (bid, place) = self.lhs_expr(*base, bid, None);
+                let (bid, place) = self.lhs_expr(base, bid, None);
                 match field {
-                    Field::AdtField(_) | Field::List(_, _) => {
-                        let f_ty = expr_data.ty;
-                        (bid, self.project_deeper(place, &[Projection::Field(*field, f_ty)]))
+                    Field::AdtField(_, _) | Field::List(_, _) => {
+                        let f_ty = expr.ty();
+                        (bid, self.project_deeper(place, &[Projection::Field(field, f_ty)]))
                     }
                     Field::Undefined => {
                         MirErrors::push(
                             self.db,
                             MirError::NotYetImplemented {
                                 msg: "lhs_expr of field access".to_string(),
-                                def: self.cx.def(),
                                 expr,
                                 span: None,
                             },
@@ -466,7 +468,7 @@ impl MirLower<'_> {
                 }
             }
             ExprData::Adt { .. } => todo!(),
-            ExprData::Missing => (bid, self.alloc_tmp(error())),
+            ExprData::Missing => (bid, self.alloc_tmp(Type::error(self.db))),
             ExprData::If(_) => todo!(),
             ExprData::For { .. } => todo!(),
             ExprData::While { .. } => todo!(),
@@ -475,10 +477,10 @@ impl MirLower<'_> {
             ExprData::Bin { .. } => todo!(),
             ExprData::Ref { .. } => todo!(),
             ExprData::Index { base, index } => {
-                let idx = self.alloc_tmp(self.cx.expr_ty(*index));
-                let bid = self.expr(*index, bid, None, Placement::Assign(idx));
-                let (bid, place) = self.lhs_expr(*base, bid, None);
-                (bid, self.project_deeper(place, &[Projection::Index(idx.slot, expr_data.ty)]))
+                let idx = self.alloc_tmp(index.ty());
+                let bid = self.expr(index, bid, None, Placement::Assign(idx));
+                let (bid, place) = self.lhs_expr(base, bid, None);
+                (bid, self.project_deeper(place, &[Projection::Index(idx.slot, expr.ty())]))
             }
             ExprData::List { .. } => todo!(),
             ExprData::Quantifier { .. } => todo!(),
@@ -490,55 +492,44 @@ impl MirLower<'_> {
     }
     fn expr_into_operand(
         &mut self,
-        expr: ExprIdx,
+        expr: ExprPtr,
         bid: &mut BlockId,
         target: Option<BlockId>,
     ) -> Operand {
         let mut tmp = None;
-        *bid = self.expr(
-            expr,
-            *bid,
-            target,
-            Placement::IntoOperand(self.cx.expr_ty(expr).id(), &mut tmp),
-        );
+        *bid = self.expr(expr, *bid, target, Placement::IntoOperand(expr.ty(), &mut tmp));
         tmp.unwrap_or_else(|| Operand::Move(self.alloc_place_for_expr(expr)))
     }
 
     fn expr_into_place(
         &mut self,
-        expr: ExprIdx,
+        expr: ExprPtr,
         bid: &mut BlockId,
         target: Option<BlockId>,
     ) -> Place {
         let mut tmp = None;
-        *bid = self.expr(
-            expr,
-            *bid,
-            target,
-            Placement::IntoPlace(self.cx.expr_ty(expr).id(), &mut tmp),
-        );
+        *bid = self.expr(expr, *bid, target, Placement::IntoPlace(expr.ty(), &mut tmp));
         tmp.unwrap_or_else(|| {
-            let ty = self.cx.expr_ty(expr);
+            let ty = expr.ty();
             self.alloc_place(Slot::Temp, ty)
         })
     }
     fn expr(
         &mut self,
-        expr: ExprIdx,
+        expr: ExprPtr,
         mut bid: BlockId,
         target: Option<BlockId>,
         dest: Placement,
     ) -> BlockId {
         self.hint_block_source(expr, bid);
 
-        let expr_data = self.cx.expr(expr);
-        match &expr_data.data {
+        match expr.data(self.db) {
             ExprData::Literal(l) => {
-                self.put(bid, dest, Some(expr), MExpr::Use(Operand::Literal(l.clone())));
+                self.put(bid, dest, Some(expr), MExpr::Use(Operand::Literal(l)));
                 bid
             }
             ExprData::Self_ => {
-                if let Some(self_ty) = self.self_ty() {
+                if let Some(_self_ty) = self.self_ty() {
                     self.put(
                         bid,
                         dest,
@@ -546,15 +537,12 @@ impl MirLower<'_> {
                         MExpr::Use(Operand::Move(self.self_slot().into())),
                     );
                 } else {
-                    MirErrors::push(
-                        self.db,
-                        MirError::SelfInItemWithout { def: self.cx.def(), expr, span: None },
-                    )
+                    MirErrors::push(self.db, MirError::SelfInItemWithout { expr, span: None })
                 }
                 bid
             }
             ExprData::Ident(var) => {
-                let var_place = self.var_place(*var);
+                let var_place = self.var_place(var);
                 self.put(bid, dest, Some(expr), MExpr::Use(Operand::Move(var_place)));
                 bid
             }
@@ -562,15 +550,15 @@ impl MirLower<'_> {
                 let next_bid = self.alloc_block(None);
                 assert_ne!(bid, next_bid);
                 self.body.blocks[bid].set_terminator(Terminator::Goto(next_bid));
-                self.block(block, next_bid, target, dest)
+                self.block(&block, next_bid, target, dest)
             }
             ExprData::Field { expr: base, field } => match field {
-                Field::AdtField(_) | Field::List(_, _) => {
-                    let tmp = self.expr_into_operand(*base, &mut bid, None);
+                Field::AdtField(_, _) | Field::List(_, _) => {
+                    let tmp = self.expr_into_operand(base, &mut bid, None);
                     if let Some(place) = tmp.place() {
-                        let f_ty = expr_data.ty;
+                        let f_ty = expr.ty();
                         let field_projection =
-                            self.project_deeper(place, &[Projection::Field(*field, f_ty)]);
+                            self.project_deeper(place, &[Projection::Field(field, f_ty)]);
                         self.put(
                             bid,
                             dest,
@@ -583,11 +571,10 @@ impl MirLower<'_> {
                     }
                 }
                 Field::Undefined => {
-                    if !self.cx.expr_ty(*base).data().is_error() {
+                    if !base.ty().is_error(self.db) {
                         MirErrors::push(
                             self.db,
                             MirError::NotYetImplemented {
-                                def: self.cx.def(),
                                 msg: "missing field".to_string(),
                                 expr,
                                 span: None,
@@ -599,18 +586,18 @@ impl MirLower<'_> {
             },
             ExprData::NotNull(it) => {
                 // NOTE: It the MIR level `!` is a noop
-                self.expr(*it, bid, target, dest)
+                self.expr(it, bid, target, dest)
             }
             ExprData::Adt { adt, fields } => {
                 let mut operands = vec![];
 
-                for f in fields {
-                    let tmp = self.expr_into_operand(f.value, &mut bid, None);
-                    operands.push((f.decl, tmp));
+                for (decl, value) in fields {
+                    let tmp = self.expr_into_operand(value, &mut bid, None);
+                    operands.push((decl, tmp));
                 }
 
                 let dest = match dest {
-                    Placement::Ignore => self.alloc_tmp(expr_data.ty),
+                    Placement::Ignore => self.alloc_tmp(expr.ty()),
                     Placement::Assign(p) => p,
                     Placement::IntoOperand(ty, o) => {
                         let tmp = self.alloc_tmp(ty);
@@ -627,19 +614,19 @@ impl MirLower<'_> {
                     }
                 };
 
-                let inst = Instruction::NewAdt(dest, *adt, operands);
+                let inst = Instruction::NewAdt(dest, adt, operands);
                 self.alloc_instruction(Some(expr), bid, inst);
 
                 bid
             }
             ExprData::Missing => bid,
-            ExprData::If(it) => self.if_expr(it, bid, target, dest, expr),
-            ExprData::While(it) => self.while_expr(it, bid),
-            ExprData::For(it) => self.for_expr(it, bid, expr),
+            ExprData::If(it) => self.if_expr(&it, bid, target, dest, expr),
+            ExprData::While(it) => self.while_expr(&it, bid),
+            ExprData::For(it) => self.for_expr(&it, bid, expr),
             ExprData::Call { expr: f_expr, args: input_args } => {
-                let (func, mut args) = self.expr_to_function(*f_expr);
+                let (func, mut args) = self.expr_to_function(f_expr);
 
-                for &arg in input_args {
+                for arg in input_args {
                     let tmp = self.expr_into_operand(arg, &mut bid, None);
                     args.push(tmp);
                 }
@@ -647,11 +634,11 @@ impl MirLower<'_> {
                 self.put_call(expr, func, args, dest, bid, target)
             }
             ExprData::Unary { op, inner } => {
-                let tmp = self.expr_into_operand(*inner, &mut bid, None);
-                self.put(bid, dest, Some(expr), MExpr::UnaryOp(*op, tmp));
+                let tmp = self.expr_into_operand(inner, &mut bid, None);
+                self.put(bid, dest, Some(expr), MExpr::UnaryOp(op, tmp));
                 bid
             }
-            &ExprData::Bin { lhs, op, rhs } => {
+            ExprData::Bin { lhs, op, rhs } => {
                 match op {
                     BinaryOp::Assignment => {
                         let (mut bid, left) = self.lhs_expr(lhs, bid, None);
@@ -662,7 +649,7 @@ impl MirLower<'_> {
                         bid
                     }
                     BinaryOp::ArithOp(ArithOp::Add)
-                        if matches!(self.cx.expr_ty(lhs).kind(), TDK::List(_),) =>
+                        if matches!(lhs.ty().kind(self.db), TypeData::List(_),) =>
                     {
                         let left = self.expr_into_operand(lhs, &mut bid, None);
                         let right = self.expr_into_operand(rhs, &mut bid, None);
@@ -678,16 +665,16 @@ impl MirLower<'_> {
                 }
             }
             ExprData::Ref { is_mut, expr: inner } => {
-                let bk = if *is_mut { BorrowKind::Mutable } else { BorrowKind::Shared };
-                let p = self.expr_into_place(*inner, &mut bid, None);
+                let bk = if is_mut { BorrowKind::Mutable } else { BorrowKind::Shared };
+                let p = self.expr_into_place(inner, &mut bid, None);
                 self.put(bid, dest, Some(expr), MExpr::Ref(bk, p));
                 bid
             }
-            &ExprData::Index { base, index } => {
-                let f = match self.cx.expr_ty(index).kind() {
-                    TDK::Range(_) => FunctionData::RangeIndex,
-                    TDK::Primitive(Primitive::Int) => FunctionData::Index,
-                    TDK::Error => FunctionData::Index,
+            ExprData::Index { base, index } => {
+                let f = match index.ty().kind(self.db) {
+                    TypeData::Range(_) => FunctionData::RangeIndex,
+                    TypeData::Primitive(Primitive::Int) => FunctionData::Index,
+                    TypeData::Error => FunctionData::Index,
                     ty => todo!("tried to index with {ty:?}"),
                 };
                 let base_s = self.expr_into_operand(base, &mut bid, None);
@@ -705,8 +692,8 @@ impl MirLower<'_> {
             }
             ExprData::Quantifier { quantifier, over, expr: q_expr } => {
                 let vars = match over {
-                    hir::QuantifierOver::Vars(vars) => vars,
-                    hir::QuantifierOver::In(_, _) => {
+                    QuantifierOver::Vars(vars) => vars,
+                    QuantifierOver::In(_, _) => {
                         unreachable!("we should desugar quantifier-in in hir")
                     }
                 };
@@ -715,15 +702,12 @@ impl MirLower<'_> {
                 let vars = vars.iter().map(|var| self.alloc_quantified(*var)).collect();
 
                 let mut q_end = q_body;
-                let q_dest = self.expr_into_operand(*q_expr, &mut q_end, None);
+                let q_dest = self.expr_into_operand(q_expr, &mut q_end, None);
                 let next_bid = target.unwrap_or_else(|| self.alloc_block(None));
                 assert_ne!(bid, next_bid);
 
-                self.body.blocks[bid].set_terminator(Terminator::Quantify(
-                    *quantifier,
-                    vars,
-                    q_body,
-                ));
+                self.body.blocks[bid]
+                    .set_terminator(Terminator::Quantify(quantifier, vars, q_body));
                 self.body.blocks[q_end].set_terminator(Terminator::QuantifyEnd(next_bid));
 
                 next_bid
@@ -734,7 +718,7 @@ impl MirLower<'_> {
                 } else {
                     MirErrors::push(
                         self.db,
-                        MirError::ResultWithoutReturnSlot { def: self.cx.def(), expr, span: None },
+                        MirError::ResultWithoutReturnSlot { expr, span: None },
                     );
                     todo!();
                     // self.alloc_slot(Slot::Result, expr_ty)
@@ -753,72 +737,62 @@ impl MirLower<'_> {
                 let args = [lhs, rhs]
                     .into_iter()
                     .flatten()
-                    .map(|&a| self.expr_into_operand(a, &mut bid, None))
+                    .map(|a| self.expr_into_operand(a, &mut bid, None))
                     .collect();
 
                 self.put_call(expr, func, args, dest, bid, target)
             }
             ExprData::Return(it) => {
-                match it {
-                    Some(inner) => {
-                        let result_slot = if let Some(result_slot) = self.body.result_slot() {
-                            result_slot
-                        } else {
-                            MirErrors::push(
-                                self.db,
-                                MirError::ResultWithoutReturnSlot {
-                                    def: self.cx.def(),
-                                    expr,
-                                    span: None,
-                                },
-                            );
-                            todo!()
-                            // self.alloc_slot(Slot::Result, expr_ty)
-                        };
-                        let result_operand = self.expr_into_operand(*inner, &mut bid, None);
-                        self.assign(
-                            bid,
-                            Some(expr),
-                            result_slot.into(),
-                            MExpr::Use(result_operand),
+                if let Some(inner) = it {
+                    let result_slot = if let Some(result_slot) = self.body.result_slot() {
+                        result_slot
+                    } else {
+                        MirErrors::push(
+                            self.db,
+                            MirError::ResultWithoutReturnSlot { expr, span: None },
                         );
-                        // TODO: dest is unused?
-                    }
-                    None => {}
+                        todo!()
+                        // self.alloc_slot(Slot::Result, expr_ty)
+                    };
+                    let result_operand = self.expr_into_operand(inner, &mut bid, None);
+                    self.assign(bid, Some(expr), result_slot.into(), MExpr::Use(result_operand));
+                    // TODO: dest is unused?
                 }
                 self.body.blocks[bid].set_terminator(Terminator::Return);
                 target.unwrap_or_else(|| self.alloc_block(None))
             }
             ExprData::Builtin(b) => match b {
-                hir::BuiltinExpr::RangeMin(r) => {
-                    let r = self.expr_into_operand(*r, &mut bid, None);
+                BuiltinExpr::RangeMin(r) => {
+                    let r = self.expr_into_operand(r, &mut bid, None);
                     let func = self.alloc_function(Function::new(FunctionData::RangeMin));
                     self.put_call(expr, func, vec![r], dest, bid, target)
                 }
-                hir::BuiltinExpr::RangeMax(r) => {
-                    let r = self.expr_into_operand(*r, &mut bid, None);
+                BuiltinExpr::RangeMax(r) => {
+                    let r = self.expr_into_operand(r, &mut bid, None);
                     let func = self.alloc_function(Function::new(FunctionData::RangeMax));
                     self.put_call(expr, func, vec![r], dest, bid, target)
                 }
-                hir::BuiltinExpr::InRange(idx, r) => {
-                    let idx = self.expr_into_operand(*idx, &mut bid, None);
-                    let r = self.expr_into_operand(*r, &mut bid, None);
+                BuiltinExpr::InRange(idx, r) => {
+                    let idx = self.expr_into_operand(idx, &mut bid, None);
+                    let r = self.expr_into_operand(r, &mut bid, None);
                     let func = self.alloc_function(Function::new(FunctionData::InRange));
                     self.put_call(expr, func, vec![idx, r], dest, bid, target)
                 }
             },
         }
     }
-    fn expr_to_function(&mut self, expr: ExprIdx) -> (FunctionId, Vec<Operand>) {
-        match &self.cx.expr(expr).data {
+    fn expr_to_function(&mut self, expr: ExprPtr) -> (FunctionId, Vec<Operand>) {
+        match expr.data(self.db) {
             ExprData::Ident(var) => {
-                let id = self.alloc_function(Function::new(FunctionData::Named(*var)));
+                let id = self.alloc_function(Function::new(FunctionData::Named(var)));
                 (id, vec![])
             }
             ExprData::Field { .. } => {
-                todo!("trying to call a field: {}", pretty::expr(self.cx, self.db, expr))
+                todo!("trying to call a field: {:?}", expr)
+                // todo!("trying to call a field: {}", pretty::expr(self.cx, self.db, expr))
             }
-            _ => todo!("trying to call {}", pretty::expr(self.cx, self.db, expr)),
+            _ => todo!("trying to call {:?}", expr),
+            // _ => todo!("trying to call {}", pretty::expr(self.cx, self.db, expr)),
         }
     }
     fn if_expr(
@@ -827,7 +801,7 @@ impl MirLower<'_> {
         mut bid: BlockId,
         target: Option<BlockId>,
         dest: Placement,
-        _expr_for_source_span: ExprIdx,
+        _expr_for_source_span: ExprPtr,
     ) -> BlockId {
         let cond = self.expr_into_operand(it.condition, &mut bid, None);
         let then_block = self.alloc_block(Some(it.then_branch));
@@ -871,22 +845,22 @@ impl MirLower<'_> {
     }
 
     // TODO: perhaps remove this, since for-loops should be desugared into while loops
-    fn for_expr(&mut self, _it: &hir::ForExpr, bid: BlockId, _expr: ExprIdx) -> BlockId {
+    fn for_expr(&mut self, _it: &ForExpr, bid: BlockId, _expr: ExprPtr) -> BlockId {
         bid
     }
 
-    fn while_expr(&mut self, it: &hir::WhileExpr, mut bid: BlockId) -> BlockId {
+    fn while_expr(&mut self, it: &WhileExpr, mut bid: BlockId) -> BlockId {
         let cond_block = self.alloc_block(None);
         assert_ne!(bid, cond_block);
         self.body.blocks[bid].set_terminator(Terminator::Goto(cond_block));
         bid = cond_block;
-        let cond_place = self.alloc_tmp(bool());
+        let cond_place = self.alloc_tmp(Type::bool(self.db));
         bid = self.expr(it.expr, bid, None, Placement::Assign(cond_place));
         let cond_inv_bid = {
             let cond_inv_bid = self.alloc_block(None);
             let mut end_bid = cond_inv_bid;
             let inv_result = self.expr_into_operand(it.expr, &mut end_bid, None);
-            let some_place = self.alloc_place(Slot::Temp, bool());
+            let some_place = self.alloc_place(Slot::Temp, Type::bool(self.db));
             self.alloc_instruction(
                 Some(it.expr),
                 end_bid,
@@ -918,16 +892,16 @@ impl MirLower<'_> {
         let body_bid = self.alloc_block(None);
         let mut next_bid = body_bid;
         let variant_slot = match it.decreases {
-            hir::Decreases::Unspecified => None,
-            hir::Decreases::Expr(variant) => {
-                let variant_slot = self.alloc_tmp(self.cx.expr_ty(variant));
+            Decreases::Unspecified => None,
+            Decreases::Expr(variant) => {
+                let variant_slot = self.alloc_tmp(variant.ty());
                 next_bid = self.expr(variant, next_bid, None, Placement::Assign(variant_slot));
                 Some(variant_slot)
             }
-            hir::Decreases::Inferred => None,
+            Decreases::Inferred => None,
         };
         let mut body_bid_last = self.expr(it.body, next_bid, None, Placement::Ignore);
-        if let (hir::Decreases::Expr(variant), Some(variant_slot)) = (it.decreases, variant_slot) {
+        if let (Decreases::Expr(variant), Some(variant_slot)) = (it.decreases, variant_slot) {
             self.emit_decreases_assertion(variant_slot, variant, &mut body_bid_last);
         }
         let exit_bid = self.alloc_block(None);

@@ -1,14 +1,12 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Write,
-};
+use std::{collections::HashMap, fmt::Write};
 
 use derive_more::From;
 use derive_new::new;
 use itertools::Itertools;
 use mist_core::{
-    def, hir,
+    hir,
     mir::{self, pass::Pass},
+    mono,
     util::{impl_idx, IdxMap, IdxWrap},
 };
 use mist_syntax::SourceSpan;
@@ -36,11 +34,11 @@ pub fn viper_file(
 
     let mut lowerer = ViperLowerer::new();
 
-    for def in hir::file_definitions(db, file) {
-        let Some((cx, mir)) = def.hir_mir(db) else { return Err(ViperLowerError::EmptyBody) };
-        let mut mir = mir.clone();
-        mir::pass::FullDefaultPass::run(db, &mut mir);
-        match internal_viper_item(db, cx, &mut lowerer, def, &mir) {
+    for item in mono::monomorphized_items(db, file).items(db) {
+        let Some(mir) = mir::lower_item(db, item) else { return Err(ViperLowerError::EmptyBody) };
+        let mut body = mir.body(db).clone();
+        mir::pass::FullDefaultPass::run(db, &mut body);
+        match internal_viper_item(db, &mut lowerer, item, &body) {
             Ok(items) => {
                 for item in items {
                     match item {
@@ -69,47 +67,33 @@ pub fn viper_file(
 #[salsa::tracked]
 pub fn viper_item(
     db: &dyn crate::Db,
-    def: def::Def,
+    item: mono::Item,
 ) -> Result<(Vec<ViperItem<VExprId>>, ViperBody, ViperSourceMap)> {
-    let Some((cx, body)) = def.hir_mir(db) else { return Err(ViperLowerError::EmptyBody) };
-    let mut body = body.clone();
+    let Some(mir) = mir::lower_item(db, item) else { return Err(ViperLowerError::EmptyBody) };
+    let mut body = mir.body(db).clone();
     mir::pass::FullDefaultPass::run(db, &mut body);
     let mut lowerer = ViperLowerer::new();
-    let items = internal_viper_item(db, cx, &mut lowerer, def, &body)?;
+    let items = internal_viper_item(db, &mut lowerer, item, &body)?;
     let (viper_body, viper_source_map) = lowerer.finish();
     Ok((items, viper_body, viper_source_map))
 }
 fn internal_viper_item(
     db: &dyn crate::Db,
-    cx: &hir::ItemContext,
     lowerer: &mut ViperLowerer,
-    def: def::Def,
+    item: mono::Item,
     mir: &mir::Body,
 ) -> Result<Vec<ViperItem<VExprId>>> {
-    match def.kind(db) {
-        def::DefKind::Struct(_s) => {
+    match item.kind(db) {
+        mono::ItemKind::Adt(adt) => {
             // TODO: we should lower the actual instantications of structs, not
             // those found in the file necessarily.
-            Ok(vec![])
-            // let mut lower = lowerer.body_lower(db, cx, mir, false);
-            // lower.adt_lower(s, mir.invariants().iter().copied())
+            let mut lower = lowerer.body_lower(db, mir, false);
+            lower.adt_lower(adt, mir.invariants().iter().copied())
         }
-        def::DefKind::StructField(_) => {
-            // TODO: We should perhaps emit the field here instead of in struct?
-            Ok(vec![])
-        }
-        def::DefKind::TypeInvariant(_) => Ok(vec![]),
-        def::DefKind::Function(function) => {
+        mono::ItemKind::Function(function) => {
             let is_method = !function.attrs(db).is_pure();
 
-            let mut lower = lowerer.body_lower(db, cx, mir, is_method);
-
-            let items = cx
-                .ty_table()
-                .adts()
-                .map(|adt| lower.adt_lower(adt, []))
-                .collect::<Result<Vec<_>>>()?;
-            let mut items = items.into_iter().flatten().collect_vec();
+            let mut lower = lowerer.body_lower(db, mir, is_method);
 
             let mut pres = vec![];
             let mut posts = vec![];
@@ -122,7 +106,7 @@ fn internal_viper_item(
                     let bid = mir::BlockId::from_raw(0.into());
 
                     let refe = lower.place_to_ref(bid, s.into())?;
-                    let conds = lower.ty_to_condition(bid, refe, mir.slot_ty(s))?;
+                    let conds = lower.ty_to_condition(bid, refe, mir.slot_ty(db, s))?;
                     if let Some(cond) = conds.0 {
                         pres.push(cond);
                     }
@@ -143,7 +127,7 @@ fn internal_viper_item(
                     let bid = mir::BlockId::from_raw(0.into());
 
                     let refe = lower.place_to_ref(bid, s.into())?;
-                    let conds = lower.ty_to_condition(bid, refe, mir.slot_ty(s))?;
+                    let conds = lower.ty_to_condition(bid, refe, mir.slot_ty(db, s))?;
                     if is_method {
                         if let Some(cond) = conds.0 {
                             posts.push(cond);
@@ -175,7 +159,7 @@ fn internal_viper_item(
                     typ: return_ty
                         .ok_or_else(|| ViperLowerError::NotYetImplemented {
                             msg: "function had no return type".to_owned(),
-                            def: cx.def(),
+                            def: mir.def(),
                             block_or_inst: None,
                             span: None,
                             // TODO: find a way to pass the span here
@@ -187,7 +171,7 @@ fn internal_viper_item(
                     body,
                 };
 
-                items.push(func.into());
+                Ok(vec![func.into()])
             } else {
                 let formal_returns = return_ty.map(|ret| vec![ret]).unwrap_or_default();
 
@@ -200,10 +184,8 @@ fn internal_viper_item(
                     body: mir.body_block().map(|body| lower.method_lower(body)).transpose()?,
                 };
 
-                items.push(method.into());
+                Ok(vec![method.into()])
             }
-
-            Ok(items)
         }
     }
 }
