@@ -3,9 +3,9 @@ use std::ops::ControlFlow;
 use derive_new::new;
 use itertools::Either;
 use mist_core::{
+    def::StructField,
     hir::{self, SourceFile, TypeRefKind, VariableIdx},
     salsa,
-    types::Field,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
     VariableDeclarationKind,
 };
@@ -58,14 +58,14 @@ pub fn find_references(
         .into_iter()
         .flat_map(|def| Some((def, def.hir(db)?)))
         .flat_map(|(def, hir)| {
-            let var = match named {
-                hir::Named::Variable(var) => hir.cx(db).decl(*var),
-            };
-            match var.kind() {
-                VariableDeclarationKind::Function => {}
-                VariableDeclarationKind::Let | VariableDeclarationKind::Parameter
-                    if def == named_def => {}
-                _ => return Either::Right([].into_iter()),
+            match named {
+                hir::Named::Variable(var) => match hir.cx(db).decl(*var).kind() {
+                    VariableDeclarationKind::Function => {}
+                    VariableDeclarationKind::Let | VariableDeclarationKind::Parameter
+                        if def == named_def => {}
+                    _ => return Either::Right([].into_iter()),
+                },
+                hir::Named::StructField(_field) => {}
             }
             Either::Left(hir.source_map(db).named_references(named).map(|n| n.span()))
         })
@@ -80,25 +80,16 @@ struct DeclarationFinder<'a> {
 
 impl Visitor for DeclarationFinder<'_> {
     type Item = Option<DeclarationSpans>;
-    fn visit_field(
+    fn visit_struct_field(
         &mut self,
         _: &VisitContext,
-        field: Field,
+        field: StructField,
         reference: &ast::NameOrNameRef,
     ) -> ControlFlow<Option<DeclarationSpans>> {
         if reference.contains_pos(self.byte_offset) {
             let original_span = reference.span();
-            match field {
-                Field::AdtField(af) => {
-                    // TODO: determine span of ADT field
-                    // let target_span = af.ast_node(self.db).name().unwrap().span();
-                    // return ControlFlow::Break(Some(DeclarationSpans {
-                    //     original_span,
-                    //     target_span,
-                    // }));
-                }
-                Field::List(_, _) | Field::Undefined => {}
-            }
+            let target_span = field.ast_node(self.db).name().unwrap().span();
+            return ControlFlow::Break(Some(DeclarationSpans { original_span, target_span }));
         }
         ControlFlow::Continue(())
     }

@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use itertools::Itertools;
-use mist_syntax::ast::{self, HasName, Spanned};
+use mist_syntax::{
+    ast::{self, HasName, Spanned},
+    ptr::AstPtr,
+};
 
 use crate::{
     def::{Function, Name},
@@ -17,7 +20,7 @@ use crate::{
     TypeCheckError, TypeCheckErrors,
 };
 
-use super::typecheck::TypingMut;
+use super::{typecheck::TypingMut, Named};
 
 #[salsa::tracked]
 pub(crate) fn initialize_file_context(
@@ -112,7 +115,16 @@ fn initialize_file_context_inner(
 
                 let fields = s
                     .fields(db)
-                    .map(|f| (f, b.expect_find_type_src(&f.ast_node(db).ty()).ty(db)))
+                    .map(|f| {
+                        let ast = f.ast_node(db);
+                        let ty = b.expect_find_type_src(&ast.ty()).ty(db);
+                        if let Some(name) = ast.name() {
+                            b.source_map
+                                .register_name(AstPtr::new(&name.into()), Named::StructField(f))
+                                .unwrap();
+                        }
+                        (f, ty)
+                    })
                     .collect();
                 b.create_adt_prototype(
                     AdtKind::Struct(s),

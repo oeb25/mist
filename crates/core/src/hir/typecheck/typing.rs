@@ -1,5 +1,4 @@
 use mist_syntax::ast::{self, HasName, Spanned};
-use tracing::debug;
 
 use crate::{
     def::Name,

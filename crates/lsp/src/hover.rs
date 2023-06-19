@@ -2,7 +2,7 @@ use std::ops::ControlFlow;
 
 use derive_new::new;
 use mist_core::{
-    def::{Def, DefKind},
+    def::{Def, DefKind, StructField},
     hir::{pretty, ExprData, ExprIdx, SourceFile, TypeRefKind, TypeSrc, VariableIdx},
     salsa,
     types::{AdtKind, Field, ListField, TypeProvider},
@@ -88,6 +88,30 @@ impl<'a> Visitor for HoverFinder<'a> {
                 }
                 Field::Undefined => break_code(["?undefined".to_string()], Some(reference.span())),
             }
+        } else {
+            ControlFlow::Continue(())
+        }
+    }
+    fn visit_struct_field(
+        &mut self,
+        _vcx: &VisitContext,
+        field: StructField,
+        reference: &ast::NameOrNameRef,
+    ) -> ControlFlow<Option<HoverResult>> {
+        if reference.contains_pos(self.byte_offset) {
+            let ast = field.ast_node(self.db);
+            let ty = if let Some(ty) = ast.ty() {
+                ty.syntax().text().to_string()
+            } else {
+                String::new()
+            };
+            break_code(
+                [
+                    format!("struct {}", field.parent_struct(self.db).name(self.db)),
+                    format!("{}: {ty}", field.name(self.db)),
+                ],
+                Some(reference.span()),
+            )
         } else {
             ControlFlow::Continue(())
         }

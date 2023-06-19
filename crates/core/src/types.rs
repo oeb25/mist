@@ -5,8 +5,8 @@ mod table;
 mod unification;
 
 pub use data::{
-    Adt, AdtField, AdtKind, AdtPrototype, Field, Generic, GenericArgs, ListField, Primitive,
-    StructPrototype, TypeData, TypeDataIdx, TypeDataKind, TypeDataKind as TDK,
+    Adt, AdtField, AdtFieldKind, AdtKind, AdtPrototype, Field, Generic, GenericArgs, ListField,
+    Primitive, StructPrototype, TypeData, TypeDataIdx, TypeDataKind, TypeDataKind as TDK,
 };
 pub use provider::TypeProvider;
 pub use ptr::{TypeDataPtr, TypePtr};
