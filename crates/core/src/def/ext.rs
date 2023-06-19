@@ -55,8 +55,8 @@ impl Def {
             DefKind::TypeInvariant(it) => format!(
                 "invariant {}",
                 it.ast_node(db)
-                    .name_ref()
-                    .and_then(|s| Some(s.ident_token()?.text().to_string()))
+                    .ty()
+                    .map(|ty| ty.syntax().text().to_string())
                     .unwrap_or_else(|| "?missing".to_string())
             ),
         }
@@ -65,19 +65,6 @@ impl Def {
     pub fn hir(&self, db: &dyn crate::Db) -> Option<hir::DefinitionHir> {
         hir::lower_def(db, *self)
     }
-    // pub fn mir(&self, db: &dyn crate::Db) -> Option<mir::ItemMir> {
-    //     mir::lower_item(db, *self)
-    // }
-
-    // pub fn hir_mir(self, db: &dyn crate::Db) -> Option<(&hir::ItemContext, &mir::Body)> {
-    //     Some((self.hir(db)?.cx(db), self.mir(db)?.body(db)))
-    // }
-    // pub fn hir_mir_source_map(
-    //     self,
-    //     db: &dyn crate::Db,
-    // ) -> Option<(&hir::ItemSourceMap, &mir::BodySourceMap)> {
-    //     Some((self.hir(db)?.source_map(db), self.mir(db)?.source_map(db)))
-    // }
 }
 
 impl Function {
@@ -139,7 +126,7 @@ impl TypeInvariant {
     pub fn ast_node(&self, db: &dyn crate::Db) -> ast::TypeInvariant {
         self.id(db).to_node(db)
     }
-    pub fn name(&self, db: &dyn crate::Db) -> Name {
-        self.id(db).to_node(db).name_ref().unwrap().into()
+    pub fn ty(&self, db: &dyn crate::Db) -> Option<ast::Type> {
+        self.id(db).to_node(db).ty()
     }
 }

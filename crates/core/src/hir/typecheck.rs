@@ -291,18 +291,8 @@ impl<'a> TypeChecker<'a> {
 
         checker.cx.self_ty = match def.kind(db) {
             hir::DefKind::TypeInvariant(ty_inv) => {
-                // TODO: use an actual type in ty_inv instead of a NameRef
                 // TODO: make work with generics
-                ty_inv.ast_node(db).name_ref().map(|name| {
-                    match checker.find_adt_kind(name.span(), name.into()) {
-                        Ok(adt_kind) => {
-                            let adt = checker.typer.instantiate_adt(db, adt_kind, Vec::new());
-                            let ty = checker.typer.adt_ty(adt);
-                            checker.unsourced_ty(ty)
-                        }
-                        Err(err_ty) => checker.unsourced_ty(err_ty),
-                    }
-                })
+                Some(checker.expect_find_type_src(&ty_inv.ty(db)))
             }
             hir::DefKind::Struct(s) => {
                 // TODO: make work with generics

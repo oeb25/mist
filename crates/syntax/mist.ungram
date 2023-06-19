@@ -61,7 +61,7 @@ Struct =
 StructField = Attrs Name ':' Type ','?
 
 TypeInvariant =
-  'invariant' GenericParamList?  NameRef GenericArgList? BlockExpr
+  'invariant' GenericParamList? Type GenericArgList? BlockExpr
 
 Macro =
   'macro' Name ParamList BlockExpr

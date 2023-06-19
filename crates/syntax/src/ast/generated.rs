@@ -1130,7 +1130,7 @@ impl TypeInvariant {
     pub fn generic_param_list(&self) -> Option<GenericParamList> {
         support::child(&self.syntax)
     }
-    pub fn name_ref(&self) -> Option<NameRef> {
+    pub fn ty(&self) -> Option<Type> {
         support::child(&self.syntax)
     }
     pub fn generic_arg_list(&self) -> Option<GenericArgList> {

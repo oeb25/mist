@@ -6,13 +6,12 @@ mod item_context;
 pub mod pretty;
 pub mod typecheck;
 
-use itertools::Itertools;
-use mist_syntax::ast::{self, HasName, Spanned};
+use mist_syntax::ast::{HasName, Spanned};
 
 use crate::{
     def::{Def, DefKind},
     hir::typecheck::{Typed, TypingMutExt},
-    types::{builtin::*, TypeProvider, TDK},
+    types::builtin::*,
 };
 
 pub use def::*;
@@ -50,45 +49,17 @@ pub(crate) fn lower_def(db: &dyn crate::Db, def: Def) -> Option<DefinitionHir> {
 
     match def.kind(db) {
         DefKind::Struct(_) => {
-            let mut checker = TypeChecker::init(db, def);
-
-            if let Some(self_ty) = checker.cx.self_ty(db) {
-                if let TDK::Adt(adt) = checker.ty_data(self_ty).kind {
-                    let related_invs = file_definitions(db, def.file(db))
-                        .into_iter()
-                        .filter_map(|def| def.kind(db).to_type_invariant())
-                        .filter(|inv| {
-                            checker.find_adt_kind(&inv.ast_node(db), inv.name(db)) == Ok(adt.kind())
-                        })
-                        .collect_vec();
-
-                    for ty_inv in related_invs {
-                        let ty_inv_ast = ty_inv.ast_node(db);
-                        if let Some(ast_body) = ty_inv_ast.block_expr() {
-                            let body = checker.check_block(&ast_body, |f| f);
-                            let ret = ghost_bool();
-                            let name_span = ty_inv_ast.name_ref().unwrap().span();
-                            checker.expect_ty(name_span, ret, body.return_ty);
-                            let body_expr = checker.alloc_expr(
-                                ExprData::Block(body).typed(ret),
-                                &ast::Expr::from(ast_body),
-                            );
-                            checker.cx.self_invariants.push(body_expr);
-                        }
-                    }
-                }
-            }
-
+            let checker = TypeChecker::init(db, def);
             Some(DefinitionHir::from_tc(db, checker))
         }
         DefKind::StructField(_) => None,
         DefKind::TypeInvariant(ty_inv) => {
             let mut checker = TypeChecker::init(db, def);
             let ty_inv_ast = ty_inv.ast_node(db);
+            let for_ty_span = ty_inv_ast.ty().map_or(ty_inv_ast.span().set_len(0), |ty| ty.span());
             if let Some(ast_body) = ty_inv_ast.block_expr() {
                 let body = checker.check_block(&ast_body, |f| f);
-                let name_span = ty_inv_ast.name_ref().unwrap().span();
-                let ret = checker.expect_ty(name_span, ghost_bool(), body.return_ty);
+                let ret = checker.expect_ty(for_ty_span, ghost_bool(), body.return_ty);
                 let ret_ty = checker.unsourced_ty(ret);
                 checker.set_return_ty(ret_ty);
                 checker.set_body_expr_from_block(body, ast_body);
