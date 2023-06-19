@@ -95,10 +95,10 @@ impl Type {
     }
 
     pub fn ty_adt(&self, db: &dyn crate::Db) -> Option<Adt> {
-        if let TypeData::Adt(adt) = self.kind(db) {
-            Some(adt)
-        } else {
-            None
+        match self.kind(db) {
+            TypeData::Adt(adt) => Some(adt),
+            TypeData::Optional(inner) | TypeData::Ref { inner, .. } => inner.ty_adt(db),
+            _ => None,
         }
     }
 
