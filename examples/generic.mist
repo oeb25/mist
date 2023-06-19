@@ -2,6 +2,20 @@ struct Box[T] {
     inner: T,
 }
 
+invariant Box[int] {
+    self.inner == 12
+}
+
+fn f(b: &mut Box[int]) -> int
+    ens result == 12
+{
+    b.inner
+}
+
+fn g(b: &mut Box[bool]) -> bool {
+    b.inner
+}
+
 // invariant[T] Box[T] {
 //     true
 // }

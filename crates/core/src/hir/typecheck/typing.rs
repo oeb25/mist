@@ -12,11 +12,16 @@ use crate::{
 
 use super::Typed;
 
+pub enum NamedType {
+    TypeId(TypeId),
+    AdtKind(AdtKind),
+}
+
 pub(crate) trait TypingMut: TypeProvider {
     fn push_error(&self, err: TypeCheckError);
     fn db(&self) -> &dyn crate::Db;
 
-    fn lookup_adt_kind(&self, name: Name) -> Option<AdtKind>;
+    fn lookup_named_ty(&self, name: Name) -> Option<NamedType>;
     fn new_free(&mut self) -> TypeId;
     fn new_generic(&mut self, generic: Generic) -> TypeId;
 
@@ -53,8 +58,8 @@ pub(crate) trait TypingMutExt: TypingMut + Sized {
         error()
     }
 
-    fn find_adt_kind(&self, span: impl Spanned, name: Name) -> Result<AdtKind, TypeId> {
-        self.lookup_adt_kind(name.clone()).ok_or_else(|| {
+    fn find_named_type(&self, span: impl Spanned, name: Name) -> Result<NamedType, TypeId> {
+        self.lookup_named_ty(name.clone()).ok_or_else(|| {
             self.ty_error(span, None, None, TypeCheckErrorKind::UndefinedType(name.to_string()))
         })
     }
@@ -93,9 +98,9 @@ fn lower_type_inner(tc: &mut impl TypingMut, ast_ty: &ast::Type) -> (TypeRefKind
     let (td, ty) = match ast_ty {
         ast::Type::NamedType(ast_name) => {
             let name = ast_name.name().unwrap();
-            match tc.find_adt_kind(ast_name, name.into()) {
-                Ok(adt_kind) => match adt_kind {
-                    AdtKind::Struct(s) => {
+            match tc.find_named_type(ast_name, name.clone().into()) {
+                Ok(named) => match named {
+                    NamedType::AdtKind(adt_kind @ AdtKind::Struct(s)) => {
                         if let Some(args) = ast_name.generic_arg_list() {
                             // TODO: put `type_ref_args` on the type ref
                             let (_type_ref_args, type_args): (Vec<_>, Vec<_>) = args
@@ -113,6 +118,7 @@ fn lower_type_inner(tc: &mut impl TypingMut, ast_ty: &ast::Type) -> (TypeRefKind
                             (TypeRefKind::Path(Path::Struct(s)), ty)
                         }
                     }
+                    NamedType::TypeId(ty) => (TypeRefKind::Path(Path::Name(name.into())), ty),
                 },
                 Err(err_ty) => (TypeRefKind::Error, err_ty),
             }

@@ -20,7 +20,10 @@ use crate::{
     TypeCheckError, TypeCheckErrors,
 };
 
-use super::{typecheck::TypingMut, Named};
+use super::{
+    typecheck::{NamedType, TypingMut},
+    Named,
+};
 
 #[salsa::tracked]
 pub(crate) fn initialize_file_context(
@@ -37,6 +40,7 @@ fn initialize_file_context_inner(
         db,
         typer: Typer::new(),
         fc: FileContext::default(),
+        generics: Default::default(),
         source_map: Default::default(),
     };
 
@@ -102,15 +106,16 @@ fn initialize_file_context_inner(
                 }
             }
             hir::DefKind::Struct(s) => {
-                // TODO: register the generic names so they can be referenced in
-                // the struct fields
-
                 let generics = s
                     .ast_node(db)
                     .generic_param_list()
                     .into_iter()
                     .flat_map(|generic_params| generic_params.generic_params())
-                    .map(|_arg| b.new_generic(Generic::default()))
+                    .map(|arg| {
+                        let ty = b.new_generic(Generic::default());
+                        b.generics.insert(arg.name().unwrap().into(), ty);
+                        ty
+                    })
                     .collect();
 
                 let fields = s
@@ -176,6 +181,7 @@ struct FileContextBuilder<'a> {
     typer: Typer,
     fc: FileContext,
     source_map: ItemSourceMap,
+    generics: HashMap<Name, TypeId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -205,8 +211,12 @@ impl<'a> TypingMut for FileContextBuilder<'a> {
         TypeCheckErrors::push(self.db, err);
     }
 
-    fn lookup_adt_kind(&self, name: Name) -> Option<AdtKind> {
-        self.fc.adts.get(&name).copied()
+    fn lookup_named_ty(&self, name: Name) -> Option<NamedType> {
+        if let Some(ty) = self.generics.get(&name) {
+            Some(NamedType::TypeId(*ty))
+        } else {
+            self.fc.adts.get(&name).copied().map(NamedType::AdtKind)
+        }
     }
 
     fn new_free(&mut self) -> TypeId {

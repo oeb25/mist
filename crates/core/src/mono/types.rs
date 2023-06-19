@@ -40,6 +40,7 @@ pub struct FunctionType {
 #[salsa::interned]
 pub struct Adt {
     pub kind: AdtKind,
+    pub generic_args: Vec<Type>,
     #[return_ref]
     raw_fields: Vec<(crate::types::AdtField, crate::types::TypeId)>,
 }
@@ -72,6 +73,9 @@ impl Adt {
             }
         }
     }
+    pub fn ty(&self, db: &dyn crate::Db) -> Type {
+        Type::new(db, false, TypeData::Adt(*self))
+    }
     pub fn invariants(&self, db: &dyn crate::Db) -> Vec<ExprPtr> {
         match self.kind(db) {
             AdtKind::Struct(s) => {
@@ -82,8 +86,14 @@ impl Adt {
                         DefKind::TypeInvariant(_) => {
                             let hir = def.hir(db)?;
                             let cx = hir.cx(db);
+
                             let mut inner_mdl = MonoDefLower::new(db, cx);
-                            inner_mdl.lower_ty(cx.invariant_ty(db)?);
+                            let inv_ty = inner_mdl.lower_ty(cx.invariant_ty(db)?);
+
+                            if inv_ty != self.ty(db) {
+                                return None;
+                            }
+
                             Some(inner_mdl.lower_expr(cx.body_expr()?))
                         }
                         _ => None,

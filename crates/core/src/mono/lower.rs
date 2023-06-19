@@ -106,6 +106,7 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
             return adt;
         }
 
+        let generic_args = adt.generic_args(self.db).map(|g| self.lower_ty(g)).collect();
         let fields = self
             .cx
             .fields_of(adt)
@@ -113,7 +114,7 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
             .map(|af| (af, self.cx.field_ty(af.into())))
             .collect();
 
-        let new_adt = Adt::new(self.db, adt.kind(), fields);
+        let new_adt = Adt::new(self.db, adt.kind(), generic_args, fields);
         self.adt_cache.insert(adt, new_adt);
         new_adt
     }

@@ -22,7 +22,9 @@ use crate::{
     VariableDeclaration,
 };
 
-use super::{ScopeFlags, TypeCheckErrorKind, TypeChecker, Typed, TypingMut, TypingMutExt};
+use super::{
+    NamedType, ScopeFlags, TypeCheckErrorKind, TypeChecker, Typed, TypingMut, TypingMutExt,
+};
 
 pub(super) fn check_opt(
     tc: &mut TypeChecker,
@@ -534,13 +536,13 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
         }
         ast::Expr::StructExpr(it) => {
             let name_ref = if let Some(name_ref) = it.name_ref() { name_ref } else { todo!() };
-            let adt_kind = tc.find_adt_kind(&name_ref, (&name_ref).into());
-            let adt = match adt_kind {
-                Ok(kind) => {
+            let named_type = tc.find_named_type(&name_ref, (&name_ref).into());
+            let adt = match named_type {
+                Ok(NamedType::AdtKind(kind)) => {
                     // TODO: instantiate new struct type instance
                     tc.instantiate_adt(kind, [])
                 }
-                Err(_) => {
+                Ok(NamedType::TypeId(_)) | Err(_) => {
                     // NOTE: Still check the types of the fields
                     for f in it.fields() {
                         let _ = check_inner(tc, &f);
