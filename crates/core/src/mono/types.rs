@@ -83,7 +83,7 @@ impl Adt {
                             let hir = def.hir(db)?;
                             let cx = hir.cx(db);
                             let mut inner_mdl = MonoDefLower::new(db, cx);
-                            inner_mdl.lower_ty(cx.self_ty(db)?);
+                            inner_mdl.lower_ty(cx.invariant_ty(db)?);
                             Some(inner_mdl.lower_expr(cx.body_expr()?))
                         }
                         _ => None,
