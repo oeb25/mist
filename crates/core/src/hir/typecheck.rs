@@ -289,26 +289,14 @@ impl<'a> TypeChecker<'a> {
             }
         }
 
-        checker.cx.self_ty = match def.kind(db) {
+        checker.cx.invariant_ty = match def.kind(db) {
             hir::DefKind::TypeInvariant(ty_inv) => {
                 // TODO: make work with generics
                 Some(checker.expect_find_type_src(&ty_inv.ty(db)))
             }
-            hir::DefKind::Struct(s) => {
-                // TODO: make work with generics
-                s.ast_node(db).name().map(|name| {
-                    match checker.find_adt_kind(name.span(), name.into()) {
-                        Ok(adt_kind) => {
-                            let adt = checker.typer.instantiate_adt(db, adt_kind, Vec::new());
-                            let ty = checker.typer.adt_ty(db, adt);
-                            checker.unsourced_ty(ty)
-                        }
-                        Err(err_ty) => checker.unsourced_ty(err_ty),
-                    }
-                })
+            hir::DefKind::Struct(_) | hir::DefKind::StructField(_) | hir::DefKind::Function(_) => {
+                None
             }
-            hir::DefKind::StructField(_) => None,
-            hir::DefKind::Function(_) => None,
         };
 
         checker
@@ -551,7 +539,7 @@ impl<'a> TypeChecker<'a> {
     }
 
     fn self_ty(&self) -> Option<TypeId> {
-        self.cx.self_ty.map(|ty| ty.ty(self.db))
+        self.cx.invariant_ty.map(|ty| ty.ty(self.db))
     }
 }
 

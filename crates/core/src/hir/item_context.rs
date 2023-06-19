@@ -44,7 +44,7 @@ pub struct ItemContext {
     #[new(default)]
     pub(super) return_ty: Option<TypeSrc>,
     #[new(default)]
-    pub(super) self_ty: Option<TypeSrc>,
+    pub(super) invariant_ty: Option<TypeSrc>,
 
     #[new(default)]
     pub(super) desugared: IdxMap<ExprIdx, ExprIdx>,
@@ -93,8 +93,8 @@ impl ItemContext {
     pub fn return_ty(&self, db: &dyn crate::Db) -> Option<TypeId> {
         self.return_ty.map(|ts| ts.ty(db))
     }
-    pub fn self_ty(&self, db: &dyn crate::Db) -> Option<TypeId> {
-        self.self_ty.map(|ts| ts.ty(db))
+    pub fn invariant_ty(&self, db: &dyn crate::Db) -> Option<TypeId> {
+        self.invariant_ty.map(|ts| ts.ty(db))
     }
     pub fn body_expr(&self) -> Option<ExprIdx> {
         self.body_expr
