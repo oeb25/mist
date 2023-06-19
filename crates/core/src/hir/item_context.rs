@@ -9,7 +9,7 @@ use mist_syntax::{
 use tracing::info;
 
 use crate::{
-    def::Name,
+    def::{Name, StructField},
     types::{Adt, AdtField, TypeData, TypeId, TypeProvider, TypePtr, TypeTable},
     util::{IdxArena, IdxMap, IdxWrap},
     VariableDeclaration,
@@ -136,6 +136,7 @@ impl ItemContext {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Named {
     Variable(VariableIdx),
+    StructField(StructField),
 }
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ItemSourceMap {

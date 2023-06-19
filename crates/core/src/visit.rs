@@ -7,7 +7,7 @@ use mist_syntax::{
 };
 
 use crate::{
-    def::{Def, DefKind, Function, Struct, TypeInvariant},
+    def::{Def, DefKind, Function, Struct, StructField, TypeInvariant},
     hir::{
         self, Block, Decreases, ExprData, ExprIdx, IfExpr, ItemContext, ItemSourceMap, SourceFile,
         StatementData, StatementId, TypeSrc, VariableIdx, WhileExpr,
@@ -44,18 +44,26 @@ pub trait Walker<'db>: Sized {
 
         for event in def.syntax(db).preorder() {
             match event {
-                WalkEvent::Enter(node) => {
-                    if let Some(n) = ast::NameOrNameRef::cast(node) {
+                WalkEvent::Enter(_) => {}
+                WalkEvent::Leave(node) => {
+                    if let Some(n) = ast::NameOrNameRef::cast(node.clone()) {
                         if let Some(named) = source_map.name_var(&AstPtr::new(&n)) {
                             match named {
                                 hir::Named::Variable(var) => {
-                                    visitor.visit_var(&vcx, var, n.span())?
+                                    visitor.visit_var(&vcx, var, n.span())?;
+                                }
+                                hir::Named::StructField(field) => {
+                                    visitor.visit_struct_field(&vcx, field, &n)?;
                                 }
                             }
                         }
                     }
+                    if let Some(t) = ast::Type::cast(node) {
+                        if let Some(ty) = source_map.ty_ast((&t).into()) {
+                            visitor.visit_ty(&vcx, ty)?;
+                        }
+                    }
                 }
-                WalkEvent::Leave(_) => {}
             }
         }
 
@@ -94,13 +102,18 @@ pub trait Walker<'db>: Sized {
         reference: &ast::NameOrNameRef,
     ) -> ControlFlow<V::Item>;
     #[must_use]
+    fn walk_struct_field<V: Visitor>(
+        &mut self,
+        visitor: &mut V,
+        field: StructField,
+        reference: &ast::NameOrNameRef,
+    ) -> ControlFlow<V::Item>;
+    #[must_use]
     fn walk_function<V: Visitor>(
         &mut self,
         visitor: &mut V,
         function: Function,
     ) -> ControlFlow<V::Item>;
-    #[must_use]
-    fn walk_ty<V: Visitor>(&mut self, visitor: &mut V, ty: TypeSrc) -> ControlFlow<V::Item>;
     #[must_use]
     fn walk_decreases<V: Visitor>(
         &mut self,
@@ -144,6 +157,15 @@ pub trait Visitor {
         &mut self,
         vcx: &VisitContext,
         function: Function,
+    ) -> ControlFlow<Self::Item> {
+        ControlFlow::Continue(())
+    }
+    #[must_use]
+    fn visit_struct_field(
+        &mut self,
+        vcx: &VisitContext,
+        field: StructField,
+        reference: &ast::NameOrNameRef,
     ) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
@@ -258,7 +280,6 @@ where
             visitor.visit_ty_decl(&self.vcx, s)?;
         }
         // TODO
-        // self.walk_ty(visitor, self.vcx.cx.struct_ty_src(s))?;
         // for f in s.fields(self.db) {
         //     let f_ast = f.ast_node(self.db);
         //     if let Some(name) = f_ast.name() {
@@ -278,8 +299,6 @@ where
         _program: SourceFile,
         _ty_inv: TypeInvariant,
     ) -> ControlFlow<V::Item> {
-        // TODO: Walk the name of the invariant
-        // self.walk_ty(visitor, self.vcx.cx.struct_ty(ty_inv.))?;
         if let Some(body_expr) = self.vcx.cx.body_expr() {
             self.walk_expr(visitor, body_expr)?;
         }
@@ -293,17 +312,27 @@ where
         field: Field,
         reference: &ast::NameOrNameRef,
     ) -> ControlFlow<V::Item> {
-        if self.pre() {
-            visitor.visit_field(&self.vcx, field, reference)?;
-        }
-        // TODO
-        // if let Some(ty) = self.vcx.cx.field_ty_src(field) {
-        //     self.walk_ty(visitor, ty)?;
-        // }
-        if self.post() {
-            visitor.visit_field(&self.vcx, field, reference)?;
+        visitor.visit_field(&self.vcx, field, reference)?;
+        match field {
+            Field::AdtField(adt_field) => match adt_field.kind() {
+                crate::types::AdtFieldKind::StructField(sf) => {
+                    self.walk_struct_field(visitor, sf, reference)?;
+                }
+            },
+            Field::List(_, _) => {}
+            Field::Undefined => {}
         }
         ControlFlow::Continue(())
+    }
+
+    #[must_use]
+    fn walk_struct_field<V: Visitor>(
+        &mut self,
+        visitor: &mut V,
+        field: StructField,
+        reference: &ast::NameOrNameRef,
+    ) -> ControlFlow<V::Item> {
+        visitor.visit_struct_field(&self.vcx, field, reference)
     }
 
     #[must_use]
@@ -320,34 +349,8 @@ where
 
         self.walk_decreases(visitor, fx.decreases())?;
 
-        if let Some(ret_ty) = fx.return_ty_src() {
-            self.walk_ty(visitor, ret_ty)?;
-        }
-
         if let Some(body_expr) = self.vcx.cx.body_expr() {
             self.walk_expr(visitor, body_expr)?;
-        }
-
-        ControlFlow::Continue(())
-    }
-
-    #[must_use]
-    fn walk_ty<V: Visitor>(&mut self, visitor: &mut V, ty: TypeSrc) -> ControlFlow<V::Item> {
-        if let Some(ast) = self.vcx.source_map.ty_src(ty).and_then(|ast| ast.into_ptr()) {
-            let walk = ast.syntax_node_ptr().to_node(self.root.syntax()).preorder();
-            for event in walk {
-                match event.map(|it| {
-                    ast::Type::cast(it).and_then(|t| self.vcx.source_map.ty_ast((&t).into()))
-                }) {
-                    WalkEvent::Enter(Some(t)) if self.pre() => {
-                        visitor.visit_ty(&self.vcx, t)?;
-                    }
-                    WalkEvent::Leave(Some(t)) if self.post() => {
-                        visitor.visit_ty(&self.vcx, t)?;
-                    }
-                    _ => {}
-                }
-            }
         }
 
         ControlFlow::Continue(())
@@ -398,12 +401,12 @@ where
             ExprData::Field { expr: inner, field, .. } => {
                 self.walk_expr(visitor, inner)?;
 
-                // TODO: This should be replaces with a try-block when stable
+                // TODO: This should be replaced with a try-block when stable
                 let res: Option<_> = (|| {
                     let src: ast::FieldExpr =
                         expr_src.into_ptr()?.cast()?.to_node(self.root.syntax());
-                    let field_ref = src.field().unwrap().into();
-                    Some(self.walk_field(visitor, field, &field_ref))
+                    let field_ref = src.field()?.into();
+                    Some(visitor.visit_field(&self.vcx, field, &field_ref))
                 })();
                 if let Some(res) = res {
                     res?;
@@ -422,10 +425,9 @@ where
                     .flatten();
 
                 for (f, f_ast) in iter::zip(fields, src_fields) {
-                    // TODO
-                    // if let Some(name) = f_ast.and_then(|f_ast| f_ast.name_ref()) {
-                    //     self.walk_field(visitor, f.decl.into(), &name.into())?;
-                    // }
+                    if let Some(name) = f_ast.and_then(|f_ast| f_ast.name_ref()) {
+                        self.walk_field(visitor, f.decl.into(), &name.into())?;
+                    }
                     self.walk_expr(visitor, f.value)?;
                 }
             }
@@ -543,15 +545,6 @@ where
             match self.vcx.cx[stmt].data.clone() {
                 StatementData::Expr(expr) => self.walk_expr(visitor, expr)?,
                 StatementData::Let(let_stmt) => {
-                    if let Some(ty) = self.vcx.source_map.stmt_ast(stmt).and_then(|ast| {
-                        let_stmt.explicit_ty(
-                            &ast.cast()?.to_node(self.root.syntax()),
-                            &self.vcx.source_map,
-                        )
-                    }) {
-                        self.walk_ty(visitor, ty)?;
-                    }
-
                     self.walk_expr(visitor, let_stmt.initializer)?;
                 }
                 StatementData::Assertion { exprs, .. } => self.walk_exprs(visitor, &exprs)?,
