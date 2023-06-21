@@ -5,7 +5,7 @@ use mist_core::{
     def::{Def, DefKind, Name, StructField},
     hir::{pretty, ExprData, ExprIdx, SourceFile, TypeRefKind, TypeSrc, VariableIdx},
     salsa,
-    types::{AdtKind, BuiltinField, Field, ListField, TypeProvider},
+    types::{AdtKind, BuiltinField, Field, TypeProvider},
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
     VariableDeclarationKind,
 };

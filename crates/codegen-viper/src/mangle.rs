@@ -16,7 +16,7 @@ pub fn mangled_adt(db: &dyn crate::Db, adt: Adt) -> String {
                     .format("")
             )
         }
-        AdtKind::Enum => todo!()
+        AdtKind::Enum => todo!(),
     }
 }
 pub fn mangled_adt_field(db: &dyn crate::Db, adt: Adt, f: AdtField) -> String {
