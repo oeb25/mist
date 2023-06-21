@@ -75,7 +75,10 @@ impl Function {
         self.id(db).to_node(db).attr_flags()
     }
     pub fn name(&self, db: &dyn crate::Db) -> Name {
-        self.ast_node(db).name().unwrap().into()
+        match self.ast_node(db).name() {
+            Some(n) => n.into(),
+            None => Name::new("<?missing>"),
+        }
     }
     pub fn param_list(
         &self,

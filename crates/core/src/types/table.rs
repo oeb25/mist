@@ -40,6 +40,9 @@ impl TypeProvider for TypeTable {
         self.type_data[ty.data_idx()].clone()
     }
     fn fields_of(&self, adt: Adt) -> Vec<AdtField> {
-        self.adt_instantiations[&adt].fields.clone()
+        match adt.kind() {
+            super::AdtKind::Struct(_) => self.adt_instantiations[&adt].fields.clone(),
+            super::AdtKind::Enum => Vec::new(),
+        }
     }
 }

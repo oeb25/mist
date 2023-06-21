@@ -8,7 +8,7 @@ use crate::{
 
 use super::{
     exprs::{ExprPtr, VariablePtr},
-    types::{Adt, FunctionType, Type, TypeData},
+    types::{Adt, BuiltinType, FunctionType, Type, TypeData},
     Condition, Function, Item, ItemKind, MonoSourceMap, Monomorphized,
 };
 
@@ -101,6 +101,15 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
         let body = self.cx.body_expr().map(|expr| self.lower_expr(expr));
         Function::new(self.db, attrs, name, params, return_ty, conditions, body)
     }
+
+    pub(super) fn lower_builtin(
+        &mut self,
+        b: crate::types::BuiltinKind,
+        args: crate::types::GenericArgs,
+    ) -> BuiltinType {
+        let generic_args = args.args(self.db).iter().map(|g| self.lower_ty(*g)).collect();
+        BuiltinType::new(self.db, b, generic_args)
+    }
     pub(super) fn lower_adt(&mut self, adt: crate::types::Adt) -> Adt {
         if let Some(adt) = self.adt_cache.get(&adt).copied() {
             return adt;
@@ -132,6 +141,7 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
             TDK::List(inner) => TypeData::List(inner),
             TDK::Optional(inner) => TypeData::Optional(inner),
             TDK::Primitive(p) => TypeData::Primitive(p),
+            TDK::Builtin(b, gargs) => TypeData::Builtin(self.lower_builtin(b, gargs)),
             TDK::Adt(adt) => TypeData::Adt(self.lower_adt(adt)),
             TDK::Null => TypeData::Null,
             TDK::Function { attrs, name: _, params, return_ty } => {

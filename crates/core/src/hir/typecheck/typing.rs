@@ -5,7 +5,8 @@ use crate::{
     hir::{typecheck::TypeCheckErrorKind, Path, SpanOrAstPtr, TypeRef, TypeRefKind, TypeSrc},
     types::{
         builtin::{bool, error, int},
-        Adt, AdtKind, AdtPrototype, Generic, Primitive, TypeData, TypeId, TypeProvider, TDK,
+        Adt, AdtKind, AdtPrototype, BuiltinKind, Generic, GenericArgs, Primitive, TypeData, TypeId,
+        TypeProvider, TDK,
     },
     TypeCheckError,
 };
@@ -15,6 +16,7 @@ use super::Typed;
 pub enum NamedType {
     TypeId(TypeId),
     AdtKind(AdtKind),
+    Builtin(BuiltinKind),
 }
 
 pub(crate) trait TypingMut: TypeProvider {
@@ -117,6 +119,23 @@ fn lower_type_inner(tc: &mut impl TypingMut, ast_ty: &ast::Type) -> (TypeRefKind
                             let ty = tc.adt_ty(adt);
                             (TypeRefKind::Path(Path::Struct(s)), ty)
                         }
+                    }
+                    NamedType::AdtKind(AdtKind::Enum) => {
+                        todo!()
+                    }
+                    NamedType::Builtin(builtin) => {
+                        let generic_args = if let Some(args) = ast_name.generic_arg_list() {
+                            // TODO: put `type_ref_args` on the type ref
+                            let (_type_ref_args, type_args): (Vec<_>, Vec<_>) = args
+                                .generic_args()
+                                .map(|arg| lower_type_inner_opt(tc, arg.ty()))
+                                .unzip();
+                            GenericArgs::new(tc.db(), type_args)
+                        } else {
+                            GenericArgs::new(tc.db(), Vec::new())
+                        };
+                        let ty = tc.alloc_ty_data(TDK::Builtin(builtin, generic_args).into());
+                        (TypeRefKind::Path(Path::Name(builtin.name())), ty)
                     }
                     NamedType::TypeId(ty) => (TypeRefKind::Path(Path::Name(name.into())), ty),
                 },

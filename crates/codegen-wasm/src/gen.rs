@@ -79,6 +79,8 @@ impl<'a> FunctionLowerer<'a> {
                 layout
             }
             TypeData::Adt(adt) => self.compute_adt_layout(adt).types,
+            // TODO: these should perhaps be ghost, making them okay to exclude
+            TypeData::Builtin(_) => Vec::new(),
             TypeData::Range(_) => Vec::new(),
             TypeData::Error
             | TypeData::Void

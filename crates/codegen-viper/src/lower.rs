@@ -15,7 +15,7 @@ use mist_core::{
         exprs::Field,
         types::{Adt, Type, TypeData},
     },
-    types::{AdtKind, ListField, Primitive},
+    types::{AdtKind, BuiltinKind, ListField, Primitive},
     util::{IdxArena, IdxMap, IdxWrap},
 };
 use mist_syntax::{
@@ -270,9 +270,21 @@ impl<'a> BodyLower<'a> {
                 Primitive::Int => VTy::int().into(),
                 Primitive::Bool => VTy::bool().into(),
             },
-            TypeData::Adt(adt) => match (adt.name(self.db).as_str(), adt.kind(self.db)) {
-                ("Multiset", _) => VTy::Multiset { element_type: Box::new(VTy::int()) }.into(),
-                (_, AdtKind::Struct(_)) => ViperType {
+            TypeData::Builtin(b) => {
+                let gargs = b
+                    .generic_args(self.db)
+                    .iter()
+                    .map(|t| Ok(self.lower_type(*t)?.vty))
+                    .collect::<Result<Vec<_>>>()?;
+                let arg = |idx| Box::new(gargs.get(idx).cloned().unwrap_or_else(VTy::int));
+                match b.kind(self.db) {
+                    BuiltinKind::Set => VTy::Set { element_type: arg(0) }.into(),
+                    BuiltinKind::MultiSet => VTy::Multiset { element_type: arg(0) }.into(),
+                    BuiltinKind::Map => VTy::Map { key_type: arg(0), value_type: arg(1) }.into(),
+                }
+            }
+            TypeData::Adt(adt) => match adt.kind(self.db) {
+                AdtKind::Struct(_) => ViperType {
                     vty: VTy::ref_(),
                     optional: false,
                     is_mut: false,
@@ -280,6 +292,7 @@ impl<'a> BodyLower<'a> {
                     inner: None,
                     adt: Some(adt),
                 },
+                AdtKind::Enum => todo!(),
             },
             TypeData::Null => ViperType {
                 vty: VTy::ref_(),
