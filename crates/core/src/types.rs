@@ -1,13 +1,14 @@
+mod builtin;
 mod data;
 mod provider;
 mod ptr;
 mod table;
 mod unification;
 
+pub use builtin::{BuiltinField, BuiltinKind, ListField, MultiSetField, SetField};
 pub use data::{
-    Adt, AdtField, AdtFieldKind, AdtKind, AdtPrototype, BuiltinKind, Field, Generic, GenericArgs,
-    ListField, Primitive, StructPrototype, TypeData, TypeDataIdx, TypeDataKind,
-    TypeDataKind as TDK,
+    Adt, AdtField, AdtFieldKind, AdtKind, AdtPrototype, Field, Generic, GenericArgs, Primitive,
+    StructPrototype, TypeData, TypeDataIdx, TypeDataKind, TypeDataKind as TDK,
 };
 pub use provider::TypeProvider;
 pub use ptr::{TypeDataPtr, TypePtr};

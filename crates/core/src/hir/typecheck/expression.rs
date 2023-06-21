@@ -17,7 +17,7 @@ use crate::{
     },
     types::{
         primitive::{bool, error, ghost_bool, ghost_int, int, null, void},
-        BuiltinKind, Field, ListField, Primitive, TypeData, TypeId, TypeProvider, TDK,
+        BuiltinField, BuiltinKind, Field, Primitive, TypeData, TypeId, TypeProvider, TDK,
     },
     VariableDeclaration,
 };
@@ -488,21 +488,21 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                         (None, error())
                     }
                 }
-                TDK::Builtin(BuiltinKind::List, _) => match field.as_str() {
-                    "len" => {
-                        let field = Field::List(expr_ty, ListField::Len);
-                        (Some(field), int())
+                TDK::Builtin(kind, _) => {
+                    match BuiltinField::try_create(tc, expr_ty, kind, field.as_str()) {
+                        Some(bf) => (Some(Field::Builtin(bf)), bf.ty()),
+                        None => {
+                            return Left(expr_error(
+                                tc,
+                                it.span(),
+                                TypeCheckErrorKind::NotYetImplemented(format!(
+                                    "unknown field on {} '{field}'",
+                                    kind.name()
+                                )),
+                            ));
+                        }
                     }
-                    _ => {
-                        return Left(expr_error(
-                            tc,
-                            it.span(),
-                            TypeCheckErrorKind::NotYetImplemented(format!(
-                                "unknown field on list '{field}'"
-                            )),
-                        ));
-                    }
-                },
+                }
                 _ => {
                     return Left(expr_error(
                         tc,
