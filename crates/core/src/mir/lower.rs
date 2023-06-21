@@ -13,7 +13,7 @@ use crate::{
         types::{Type, TypeData},
         Condition, Item, ItemKind,
     },
-    types::{ListField, Primitive},
+    types::{BuiltinKind, ListField, Primitive},
 };
 
 use super::{
@@ -363,25 +363,6 @@ impl MirLower<'_> {
             TypeData::Error => {}
             TypeData::Void => {}
             TypeData::Ref { .. } => todo!(),
-            // a <_ b <==> |a| < |b|
-            TypeData::List(_) => {
-                let mut len = |o| match o {
-                    Operand::Copy(p) | Operand::Move(p) => self.project_deeper(
-                        p,
-                        &[Projection::Field(
-                            Field::List(variant_ty, ListField::Len),
-                            Type::int(self.db),
-                        )],
-                    ),
-                    Operand::Literal(_) => todo!(),
-                };
-
-                assertions.push(MExpr::BinaryOp(
-                    BinaryOp::lt(),
-                    Operand::Copy(len(a())),
-                    Operand::Copy(len(b())),
-                ));
-            }
             // a <_ b <==> a == null && b != null
             TypeData::Optional(_) => {
                 assertions.push(MExpr::BinaryOp(
@@ -417,10 +398,33 @@ impl MirLower<'_> {
                     Operand::Literal(hir::Literal::Bool(true)),
                 ));
             }
-            TypeData::Builtin(_) => todo!(),
+            TypeData::Builtin(builtin) => match builtin.kind(self.db) {
+                BuiltinKind::Set => todo!(),
+                BuiltinKind::MultiSet => todo!(),
+                BuiltinKind::Map => todo!(),
+                // a <_ b <==> |a| < |b|
+                BuiltinKind::List => {
+                    let mut len = |o| match o {
+                        Operand::Copy(p) | Operand::Move(p) => self.project_deeper(
+                            p,
+                            &[Projection::Field(
+                                Field::List(variant_ty, ListField::Len),
+                                Type::int(self.db),
+                            )],
+                        ),
+                        Operand::Literal(_) => todo!(),
+                    };
+
+                    assertions.push(MExpr::BinaryOp(
+                        BinaryOp::lt(),
+                        Operand::Copy(len(a())),
+                        Operand::Copy(len(b())),
+                    ));
+                }
+                BuiltinKind::Range => todo!(),
+            },
             TypeData::Adt(_) => todo!(),
             TypeData::Function { .. } => todo!(),
-            TypeData::Range(_) => todo!(),
             TypeData::Generic(_) => todo!(),
             TypeData::Null => {
                 assertions.push(MExpr::Use(Operand::Literal(hir::Literal::Bool(false))))
@@ -653,9 +657,7 @@ impl MirLower<'_> {
                         // TODO: dest is unused? should we do anything?
                         bid
                     }
-                    BinaryOp::ArithOp(ArithOp::Add)
-                        if matches!(lhs.ty().kind(self.db), TypeData::List(_),) =>
-                    {
+                    BinaryOp::ArithOp(ArithOp::Add) if lhs.ty().is_list(self.db) => {
                         let left = self.expr_into_operand(lhs, &mut bid, None);
                         let right = self.expr_into_operand(rhs, &mut bid, None);
                         let func = self.alloc_function(Function::new(FunctionData::ListConcat));
@@ -677,7 +679,9 @@ impl MirLower<'_> {
             }
             ExprData::Index { base, index } => {
                 let f = match index.ty().kind(self.db) {
-                    TypeData::Range(_) => FunctionData::RangeIndex,
+                    TypeData::Builtin(b) if b.kind(self.db) == BuiltinKind::List => {
+                        FunctionData::RangeIndex
+                    }
                     TypeData::Primitive(Primitive::Int) => FunctionData::Index,
                     TypeData::Error => FunctionData::Index,
                     ty => todo!("tried to index with {ty:?}"),

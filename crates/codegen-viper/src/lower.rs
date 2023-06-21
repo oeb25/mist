@@ -259,9 +259,6 @@ impl<'a> BodyLower<'a> {
                 inner: Some(Box::new(self.lower_type(inner)?)),
                 adt: None,
             },
-            TypeData::List(inner) => {
-                VTy::Seq { element_type: Box::new(self.lower_type(inner)?.vty) }.into()
-            }
             TypeData::Optional(inner) => {
                 let vty = self.lower_type(inner)?;
                 ViperType { optional: true, ..vty }
@@ -281,6 +278,12 @@ impl<'a> BodyLower<'a> {
                     BuiltinKind::Set => VTy::Set { element_type: arg(0) }.into(),
                     BuiltinKind::MultiSet => VTy::Multiset { element_type: arg(0) }.into(),
                     BuiltinKind::Map => VTy::Map { key_type: arg(0), value_type: arg(1) }.into(),
+                    BuiltinKind::List => VTy::Seq { element_type: arg(0) }.into(),
+                    BuiltinKind::Range => VTy::Domain {
+                        domain_name: "Range".to_string(),
+                        partial_typ_vars_map: Default::default(),
+                    }
+                    .into(),
                 }
             }
             TypeData::Adt(adt) => match adt.kind(self.db) {
@@ -310,11 +313,6 @@ impl<'a> BodyLower<'a> {
                     span: None,
                 })
             }
-            TypeData::Range(_inner) => VTy::Domain {
-                domain_name: "Range".to_string(),
-                partial_typ_vars_map: Default::default(),
-            }
-            .into(),
         })
     }
 

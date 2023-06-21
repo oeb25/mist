@@ -59,6 +59,8 @@ pub enum BuiltinKind {
     Set,
     MultiSet,
     Map,
+    List,
+    Range,
 }
 
 #[salsa::interned]
@@ -194,6 +196,8 @@ impl BuiltinKind {
             BuiltinKind::Set => Name::new("Set"),
             BuiltinKind::MultiSet => Name::new("MultiSet"),
             BuiltinKind::Map => Name::new("Map"),
+            BuiltinKind::List => Name::new("List"),
+            BuiltinKind::Range => Name::new("Range"),
         }
     }
 
@@ -202,8 +206,20 @@ impl BuiltinKind {
             "Set" => BuiltinKind::Set,
             "MultiSet" => BuiltinKind::MultiSet,
             "Map" => BuiltinKind::Map,
+            "List" => BuiltinKind::Range,
+            "Range" => BuiltinKind::Range,
             _ => return None,
         })
+    }
+
+    pub fn arity(&self) -> usize {
+        match self {
+            BuiltinKind::Set => 1,
+            BuiltinKind::MultiSet => 1,
+            BuiltinKind::Map => 2,
+            BuiltinKind::List => 1,
+            BuiltinKind::Range => 1,
+        }
     }
 }
 impl GenericArgs {
