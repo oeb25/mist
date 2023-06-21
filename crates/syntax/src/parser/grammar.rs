@@ -34,18 +34,18 @@ pub(super) fn attrs(p: &mut Parser) -> Checkpoint {
 }
 
 fn name(p: &mut Parser) {
-    p.start_node(NAME, |p| match p.current() {
-        T![ident] | T![self] => p.bump(),
+    match p.current() {
+        T![ident] | T![self] => p.start_node(NAME, |p| p.bump()),
         EOF => p.unexpected_eof(),
         _ => p.error("expected a name"),
-    });
+    };
 }
 fn name_ref(p: &mut Parser) {
-    p.start_node(NAME_REF, |p| match p.current() {
-        T![ident] | T![self] => p.bump(),
+    match p.current() {
+        T![ident] | T![self] => p.start_node(NAME_REF, |p| p.bump()),
         EOF => p.unexpected_eof(),
         _ => p.error("expected a name"),
-    });
+    };
 }
 
 fn param_list(p: &mut Parser) {
