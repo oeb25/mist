@@ -80,6 +80,12 @@ pub struct Struct {
     id: AstId<ast::Struct>,
 }
 
+// TODO: This is just a stub at the moment of writing
+#[salsa::interned]
+pub struct Enum {
+    // id: AstId<ast::Enum>,
+}
+
 #[salsa::interned]
 pub struct StructField {
     id: AstId<ast::StructField>,

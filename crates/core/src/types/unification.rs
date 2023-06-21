@@ -54,12 +54,33 @@ pub struct AdtInstantiation {
     pub fields: Vec<AdtField>,
 }
 
+#[derive(Debug, Default)]
+struct AdtProtoTypes {
+    data: HashMap<AdtKind, AdtPrototype>,
+}
+
+impl AdtProtoTypes {
+    fn insert(&mut self, kind: AdtKind, prototype: AdtPrototype) -> Option<AdtPrototype> {
+        match kind {
+            AdtKind::Struct(_) => self.data.insert(kind, prototype),
+            AdtKind::Enum => todo!(),
+        }
+    }
+
+    fn get(&self, kind: AdtKind) -> Option<AdtPrototype> {
+        match kind {
+            AdtKind::Struct(_) => self.data.get(&kind).cloned(),
+            AdtKind::Enum => todo!(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Typer {
     ty_table: Mutex<InPlaceUnificationTable<TypeId>>,
     ty_cache: HashMap<TypeData, TypeId>,
     ty_keys: Vec<TypeId>,
-    adt_prototypes: HashMap<AdtKind, AdtPrototype>,
+    adt_prototypes: AdtProtoTypes,
     adt_tys: HashMap<Adt, TypeId>,
     adt_instantiations: HashMap<Adt, AdtInstantiation>,
 }
@@ -181,9 +202,8 @@ impl Typer {
 
         let prototype = self
             .adt_prototypes
-            .get(&kind)
-            .expect("tried to instantiate ADT which did not have a registred prototype")
-            .clone();
+            .get(kind)
+            .expect("tried to instantiate ADT which did not have a registred prototype");
         match prototype {
             AdtPrototype::Delayed => {
                 info!("ADT {} was delayed!", adt.name(db));
@@ -199,7 +219,7 @@ impl Typer {
 
         let ty = self.adt_tys[&adt];
 
-        match self.adt_prototypes.get(&adt.kind()).cloned() {
+        match self.adt_prototypes.get(adt.kind()) {
             Some(AdtPrototype::Delayed) => {
                 info!("ADT {} still delayed...", adt.name(db));
             }
@@ -236,7 +256,12 @@ impl Typer {
         &self.adt_instantiations[&adt].fields
     }
 
-    pub fn unify(&mut self, expected: TypeId, actual: TypeId) -> Option<TypeId> {
+    pub fn unify(
+        &mut self,
+        db: &dyn crate::Db,
+        expected: TypeId,
+        actual: TypeId,
+    ) -> Option<TypeId> {
         if self.probe_type(expected).is_void() && self.probe_type(actual).is_void() {
             return Some(expected);
         }
@@ -254,27 +279,42 @@ impl Typer {
         let res = match (t1.kind, t2.kind) {
             (TDK::Error, _) | (_, TDK::Error) => expected,
             (TDK::Void, TDK::Void) => expected,
+            (TDK::Builtin(t1, args1), TDK::Builtin(t2, args2))
+                if t1 == t2 && args1.len(db) == args2.len(db) =>
+            {
+                for (l, r) in args1.iter(db).zip_eq(args2.iter(db)) {
+                    self.unify(db, l, r)?;
+                }
+                expected
+            }
             (
                 TDK::Ref { is_mut: mut1, inner: inner1 },
                 TDK::Ref { is_mut: mut2, inner: inner2 },
             ) => {
-                let inner = self.unify(inner1, inner2)?;
+                let inner = self.unify(db, inner1, inner2)?;
                 self.ty_id(TDK::Ref { is_mut: mut1 && mut2, inner }.into())
             }
             (TDK::Optional(inner1), TDK::Optional(inner2)) => {
-                self.unify(inner1, inner2)?;
+                self.unify(db, inner1, inner2)?;
                 expected
             }
             (TDK::Optional(inner), TDK::Adt(_)) if inner == actual => expected,
             (TDK::Adt(_), TDK::Optional(inner)) if inner == expected => actual,
             (TDK::Range(inner1), TDK::Range(inner2)) => {
-                self.unify(inner1, inner2)?;
+                self.unify(db, inner1, inner2)?;
                 expected
             }
             (TDK::Primitive(p1), TDK::Primitive(p2)) if p1 == p2 => expected,
-            (TDK::Adt(s1), TDK::Adt(s2)) if s1 == s2 => expected,
+            (TDK::Adt(s1), TDK::Adt(s2))
+                if s1.kind() == s2.kind() && s1.generic_args_len(db) == s2.generic_args_len(db) =>
+            {
+                for (l, r) in s1.generic_args(db).zip_eq(s2.generic_args(db)) {
+                    self.unify(db, l, r)?;
+                }
+                expected
+            }
             (TDK::List(s1), TDK::List(s2)) => {
-                self.unify(s1, s2)?;
+                self.unify(db, s1, s2)?;
                 expected
             }
             (TDK::Null, TDK::Null) => expected,

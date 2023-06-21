@@ -14,8 +14,8 @@ use crate::{
         ItemSourceMap, Param, SpanOrAstPtr, TypeSrc,
     },
     types::{
-        builtin::void, Adt, AdtField, AdtKind, AdtPrototype, Generic, StructPrototype, TypeData,
-        TypeId, TypeProvider, Typer, TDK,
+        builtin::void, Adt, AdtField, AdtKind, AdtPrototype, BuiltinKind, Generic, StructPrototype,
+        TypeData, TypeId, TypeProvider, Typer, TDK,
     },
     TypeCheckError, TypeCheckErrors,
 };
@@ -215,7 +215,12 @@ impl<'a> TypingMut for FileContextBuilder<'a> {
         if let Some(ty) = self.generics.get(&name) {
             Some(NamedType::TypeId(*ty))
         } else {
-            self.fc.adts.get(&name).copied().map(NamedType::AdtKind)
+            self.fc
+                .adts
+                .get(&name)
+                .copied()
+                .map(NamedType::AdtKind)
+                .or_else(|| Some(NamedType::Builtin(BuiltinKind::parse(name.as_str())?)))
         }
     }
 

@@ -21,6 +21,7 @@ pub struct Jar(
     crate::def::Function,
     crate::def::Struct,
     crate::def::StructField,
+    crate::def::Enum,
     crate::def::TypeInvariant,
     // types
     crate::types::GenericArgs,
@@ -38,6 +39,7 @@ pub struct Jar(
     crate::hir::typecheck::TypeCheckErrors,
     // mono
     crate::mono::types::Type,
+    crate::mono::types::BuiltinType,
     crate::mono::types::Adt,
     crate::mono::types::AdtField,
     crate::mono::types::FunctionType,

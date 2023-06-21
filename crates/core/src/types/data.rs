@@ -28,6 +28,7 @@ pub enum TypeDataKind<T> {
     Optional(T),
     Primitive(Primitive),
     Adt(Adt),
+    Builtin(BuiltinKind, GenericArgs),
     Null,
     Function {
         attrs: AttrFlags,
@@ -50,6 +51,14 @@ pub struct Adt {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AdtKind {
     Struct(Struct),
+    Enum,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BuiltinKind {
+    Set,
+    MultiSet,
+    Map,
 }
 
 #[salsa::interned]
@@ -155,10 +164,14 @@ impl Adt {
     pub fn struct_(&self) -> Option<Struct> {
         match self.kind {
             AdtKind::Struct(s) => Some(s),
+            AdtKind::Enum => todo!(),
         }
     }
     pub fn kind(&self) -> AdtKind {
         self.kind
+    }
+    pub fn generic_args_len(&self, db: &dyn crate::Db) -> usize {
+        self.generic_args.args(db).len()
     }
     pub fn generic_args<'db>(&self, db: &'db dyn crate::Db) -> impl Iterator<Item = TypeId> + 'db {
         self.generic_args.args(db).iter().copied()
@@ -171,7 +184,34 @@ impl AdtKind {
     pub fn name(&self, db: &dyn crate::Db) -> Name {
         match self {
             AdtKind::Struct(s) => s.name(db),
+            AdtKind::Enum => todo!(),
         }
+    }
+}
+impl BuiltinKind {
+    pub fn name(&self) -> Name {
+        match self {
+            BuiltinKind::Set => Name::new("Set"),
+            BuiltinKind::MultiSet => Name::new("MultiSet"),
+            BuiltinKind::Map => Name::new("Map"),
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<BuiltinKind> {
+        Some(match name {
+            "Set" => BuiltinKind::Set,
+            "MultiSet" => BuiltinKind::MultiSet,
+            "Map" => BuiltinKind::Map,
+            _ => return None,
+        })
+    }
+}
+impl GenericArgs {
+    pub fn len(self, db: &dyn crate::Db) -> usize {
+        self.args(db).len()
+    }
+    pub fn iter(self, db: &dyn crate::Db) -> impl Iterator<Item = TypeId> + '_ {
+        self.args(db).iter().copied()
     }
 }
 
@@ -208,6 +248,7 @@ impl<T> TypeData<T> {
             TDK::Optional(it) => TDK::Optional(f(it)),
             TDK::Primitive(it) => TDK::Primitive(*it),
             TDK::Adt(it) => TDK::Adt(*it),
+            TDK::Builtin(it, args) => TDK::Builtin(*it, *args),
             TDK::Null => TDK::Null,
             TDK::Function { attrs, name, params, return_ty } => TDK::Function {
                 attrs: *attrs,

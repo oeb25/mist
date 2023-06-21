@@ -192,7 +192,7 @@ impl Statement {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Let {
-    pub variable: VariableIdx,
+    pub variable: Option<VariableIdx>,
     pub initializer: ExprIdx,
 }
 

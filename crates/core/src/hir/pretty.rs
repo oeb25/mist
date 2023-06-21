@@ -48,6 +48,13 @@ pub fn ty(pp: &impl PrettyPrint, db: &dyn crate::Db, strip_ghost: bool, ty: Type
         TDK::Optional(inner) => format!("?{}", pp_ty(pp, db, false, inner)),
         TDK::Primitive(t) => format!("{t:?}").to_lowercase(),
         TDK::Adt(s) => s.name(db).to_string(),
+        TDK::Builtin(b, args) => {
+            format!(
+                "{}[{}]",
+                b.name().to_string(),
+                args.args(db).iter().map(|arg| pp_ty(pp, db, false, *arg)).format(", ")
+            )
+        }
         TDK::Null => "null".to_string(),
         TDK::Function { attrs, name, params, return_ty } => {
             let is_ghost = attrs.is_ghost();

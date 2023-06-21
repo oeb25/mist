@@ -123,7 +123,7 @@ pub enum StatementData {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Let {
-    pub variable: VariablePtr,
+    pub variable: Option<VariablePtr>,
     pub initializer: ExprPtr,
 }
 
@@ -282,7 +282,7 @@ impl StatementPtr {
         match &cx[self.id].data {
             hir::StatementData::Expr(expr) => StatementData::Expr(mdl.lower_expr(*expr)),
             hir::StatementData::Let(it) => StatementData::Let(Let {
-                variable: mdl.lower_var(it.variable),
+                variable: it.variable.map(|var| mdl.lower_var(var)),
                 initializer: mdl.lower_expr(it.initializer),
             }),
             hir::StatementData::Assertion { kind, exprs } => StatementData::Assertion {

@@ -3,7 +3,7 @@ use mist_syntax::ast::AttrFlags;
 
 use crate::{
     def::{Def, DefKind, Name},
-    types::{AdtKind, Generic, Primitive},
+    types::{AdtKind, BuiltinKind, Generic, Primitive},
 };
 
 use super::{exprs::ExprPtr, lower::MonoDefLower};
@@ -23,6 +23,7 @@ pub enum TypeData {
     Optional(Type),
     Primitive(Primitive),
     Adt(Adt),
+    Builtin(BuiltinType),
     Null,
     Generic(Generic),
     Function(FunctionType),
@@ -38,6 +39,12 @@ pub struct FunctionType {
 }
 
 #[salsa::interned]
+pub struct BuiltinType {
+    pub kind: BuiltinKind,
+    pub generic_args: Vec<Type>,
+}
+
+#[salsa::interned]
 pub struct Adt {
     pub kind: AdtKind,
     pub generic_args: Vec<Type>,
@@ -49,6 +56,12 @@ pub struct Adt {
 pub struct AdtField {
     pub name: Name,
     pub ty: Type,
+}
+
+impl BuiltinType {
+    pub fn name(&self, db: &dyn crate::Db) -> Name {
+        self.kind(db).name()
+    }
 }
 
 impl Adt {
@@ -71,6 +84,7 @@ impl Adt {
                     })
                     .collect()
             }
+            AdtKind::Enum => todo!(),
         }
     }
     pub fn ty(&self, db: &dyn crate::Db) -> Type {
@@ -100,6 +114,7 @@ impl Adt {
                     })
                     .collect()
             }
+            AdtKind::Enum => vec![],
         }
     }
 }
@@ -147,6 +162,11 @@ impl Type {
             Optional(inner) => format!("?{}", inner.display(db)),
             Primitive(p) => format!("{p:?}").to_lowercase(),
             Adt(adt) => format!("{}", adt.name(db)),
+            Builtin(b) => format!(
+                "{}[{}]",
+                b.name(db),
+                b.generic_args(db).iter().map(|arg| arg.display(db)).format(", ")
+            ),
             Null => "null".to_string(),
             Generic(_) => "<generic>".to_string(),
             Function(f) => {

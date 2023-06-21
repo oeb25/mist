@@ -329,7 +329,11 @@ impl MirLower<'_> {
         match stmt.data(self.db) {
             StatementData::Expr(expr) => self.expr(expr, bid, target, Placement::Ignore),
             StatementData::Let(Let { variable, initializer }) => {
-                let dest = self.alloc_local(variable);
+                let dest = if let Some(var) = variable {
+                    self.alloc_local(var)
+                } else {
+                    self.alloc_tmp(initializer.ty()).slot
+                };
                 self.expr(initializer, bid, target, Placement::Assign(dest.into()))
             }
             StatementData::Assertion { kind, exprs } => {
@@ -413,6 +417,7 @@ impl MirLower<'_> {
                     Operand::Literal(hir::Literal::Bool(true)),
                 ));
             }
+            TypeData::Builtin(_) => todo!(),
             TypeData::Adt(_) => todo!(),
             TypeData::Function { .. } => todo!(),
             TypeData::Range(_) => todo!(),

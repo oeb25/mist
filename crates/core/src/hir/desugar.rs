@@ -70,7 +70,7 @@ pub fn desugar(db: &dyn crate::Db, cx: &mut ItemContext) {
                 let var_max_expr =
                     alloc_expr!(ExprData::Builtin(BuiltinExpr::RangeMax(it.in_expr)), int());
                 let let_var_stmt = cx.stmt_arena.alloc(Statement::new(StatementData::Let(Let {
-                    variable: it.variable,
+                    variable: Some(it.variable),
                     initializer: var_min_expr,
                 })));
                 let var_expr =

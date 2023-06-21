@@ -542,7 +542,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                     // TODO: instantiate new struct type instance
                     tc.instantiate_adt(kind, [])
                 }
-                Ok(NamedType::TypeId(_)) | Err(_) => {
+                Ok(NamedType::Builtin(_)) | Ok(NamedType::TypeId(_)) | Err(_) => {
                     // NOTE: Still check the types of the fields
                     for f in it.fields() {
                         let _ = check_inner(tc, &f);

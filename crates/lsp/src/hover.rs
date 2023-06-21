@@ -2,7 +2,7 @@ use std::ops::ControlFlow;
 
 use derive_new::new;
 use mist_core::{
-    def::{Def, DefKind, StructField},
+    def::{Def, DefKind, Name, StructField},
     hir::{pretty, ExprData, ExprIdx, SourceFile, TypeRefKind, TypeSrc, VariableIdx},
     salsa,
     types::{AdtKind, Field, ListField, TypeProvider},
@@ -72,7 +72,8 @@ impl<'a> Visitor for HoverFinder<'a> {
                             format!(
                                 "{} {}",
                                 match af.adt().kind() {
-                                    AdtKind::Struct(_) => "struct",
+                                    AdtKind::Struct(_) => Name::new("struct"),
+                                    AdtKind::Enum => todo!()
                                 },
                                 af.adt().name(self.db)
                             ),

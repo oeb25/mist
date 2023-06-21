@@ -23,8 +23,8 @@ use crate::{
     },
     types::{
         builtin::{error, ghost_bool, void},
-        Adt, AdtField, AdtKind, AdtPrototype, Generic, TypeData, TypeId, TypeProvider, TypeTable,
-        Typer,
+        Adt, AdtField, AdtKind, AdtPrototype, BuiltinKind, Generic, TypeData, TypeId, TypeProvider,
+        TypeTable, Typer,
     },
 };
 
@@ -372,7 +372,7 @@ impl<'a> TypeChecker<'a> {
         }
     }
     fn unify_inner(&mut self, expected: TypeId, actual: TypeId) -> Option<TypeId> {
-        self.typer.unify(expected, actual)
+        self.typer.unify(self.db, expected, actual)
     }
     fn expr_error(
         &mut self,
@@ -438,7 +438,6 @@ impl<'a> TypeChecker<'a> {
         let ptr = AstPtr::new(&stmt);
         let data = match stmt {
             ast::Stmt::LetStmt(it) => {
-                let name = it.name().unwrap();
                 let explicit_ty = it.ty().map(|ty| self.lower_type(&ty));
                 let initializer = self.check(&it, it.initializer());
 
@@ -452,16 +451,20 @@ impl<'a> TypeChecker<'a> {
                 }
                 .with_ghost(self, self.scope.is_ghost());
 
-                let var_span = name.span();
                 let var_ty = explicit_ty.unwrap_or_else(|| self.unsourced_ty(ty));
-                let variable = self.declare_variable(
-                    VariableDeclaration::new_let(name),
-                    var_ty,
-                    match it.ty() {
-                        Some(ty) => SpanOrAstPtr::from(&ty),
-                        None => SpanOrAstPtr::from(var_span),
-                    },
-                );
+                let variable = if let Some(name) = it.name() {
+                    let var_span = name.span();
+                    Some(self.declare_variable(
+                        VariableDeclaration::new_let(name),
+                        var_ty,
+                        match it.ty() {
+                            Some(ty) => SpanOrAstPtr::from(&ty),
+                            None => SpanOrAstPtr::from(var_span),
+                        },
+                    ))
+                } else {
+                    None
+                };
 
                 StatementData::Let(Let { variable, initializer })
             }
@@ -575,7 +578,13 @@ impl<'a> TypingMut for TypeChecker<'a> {
         if let Some(ts) = self.scope.get_ty(&name) {
             Some(NamedType::TypeId(ts))
         } else {
-            self.cx.file_context.adts.get(&name).copied().map(NamedType::AdtKind)
+            self.cx
+                .file_context
+                .adts
+                .get(&name)
+                .copied()
+                .map(NamedType::AdtKind)
+                .or_else(|| Some(NamedType::Builtin(BuiltinKind::parse(name.as_str())?)))
         }
     }
 
