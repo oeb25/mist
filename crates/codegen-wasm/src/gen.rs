@@ -5,7 +5,7 @@ use mist_core::{
         self,
         types::{Adt, Type, TypeData},
     },
-    types::Primitive,
+    types::{BuiltinKind, Primitive},
     util::IdxMap,
 };
 
@@ -81,10 +81,8 @@ impl<'a> FunctionLowerer<'a> {
             TypeData::Adt(adt) => self.compute_adt_layout(adt).types,
             // TODO: these should perhaps be ghost, making them okay to exclude
             TypeData::Builtin(_) => Vec::new(),
-            TypeData::Range(_) => Vec::new(),
             TypeData::Error
             | TypeData::Void
-            | TypeData::List(_)
             | TypeData::Null
             | TypeData::Function { .. }
             | TypeData::Generic(_) => Vec::new(),

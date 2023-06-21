@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     def::{self, Def, DefKind},
     hir::{self, ExprIdx, Param, VariableIdx},
-    types::{TypeId, TypeProvider, TDK},
+    types::{BuiltinKind, TypeId, TypeProvider, TDK},
 };
 
 use super::{
@@ -104,7 +104,7 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
 
     pub(super) fn lower_builtin(
         &mut self,
-        b: crate::types::BuiltinKind,
+        b: BuiltinKind,
         args: crate::types::GenericArgs,
     ) -> BuiltinType {
         let generic_args = args.args(self.db).iter().map(|g| self.lower_ty(*g)).collect();
@@ -138,7 +138,9 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
             TDK::Error => TypeData::Error,
             TDK::Void => TypeData::Void,
             TDK::Ref { is_mut, inner } => TypeData::Ref { is_mut, inner },
-            TDK::List(inner) => TypeData::List(inner),
+            TDK::List(inner) => {
+                TypeData::Builtin(BuiltinType::new(self.db, BuiltinKind::List, vec![inner]))
+            }
             TDK::Optional(inner) => TypeData::Optional(inner),
             TDK::Primitive(p) => TypeData::Primitive(p),
             TDK::Builtin(b, gargs) => TypeData::Builtin(self.lower_builtin(b, gargs)),
@@ -152,7 +154,9 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
                     return_ty,
                 ))
             }
-            TDK::Range(inner) => TypeData::Range(inner),
+            TDK::Range(inner) => {
+                TypeData::Builtin(BuiltinType::new(self.db, BuiltinKind::Range, vec![inner]))
+            }
             // TODO: this should not be an error i think
             TDK::Generic(_) => TypeData::Error,
             TDK::Free => TypeData::Error,

@@ -19,7 +19,6 @@ pub enum TypeData {
     Error,
     Void,
     Ref { is_mut: bool, inner: Type },
-    List(Type),
     Optional(Type),
     Primitive(Primitive),
     Adt(Adt),
@@ -27,7 +26,6 @@ pub enum TypeData {
     Null,
     Generic(Generic),
     Function(FunctionType),
-    Range(Type),
 }
 
 #[salsa::interned]
@@ -137,6 +135,17 @@ impl Type {
         matches!(self.kind(db), TypeData::Void)
     }
 
+    pub fn is_list(&self, db: &dyn crate::Db) -> bool {
+        matches!(self.builtin(db), Some(b) if b.kind(db) == BuiltinKind::List)
+    }
+
+    pub fn builtin(&self, db: &dyn crate::Db) -> Option<BuiltinType> {
+        match self.kind(db) {
+            TypeData::Builtin(b) => Some(b),
+            _ => None,
+        }
+    }
+
     pub fn ty_adt(&self, db: &dyn crate::Db) -> Option<Adt> {
         match self.kind(db) {
             TypeData::Adt(adt) => Some(adt),
@@ -158,7 +167,6 @@ impl Type {
                     format!("&{}", inner.display(db))
                 }
             }
-            List(inner) => format!("[{}]", inner.display(db)),
             Optional(inner) => format!("?{}", inner.display(db)),
             Primitive(p) => format!("{p:?}").to_lowercase(),
             Adt(adt) => format!("{}", adt.name(db)),
@@ -188,7 +196,6 @@ impl Type {
 
                 format!("{attrs}fn{name}{params}{ret}")
             }
-            Range(r) => format!("range {}", r.display(db)),
         }
     }
 }
