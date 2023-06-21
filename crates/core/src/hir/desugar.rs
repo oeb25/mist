@@ -2,7 +2,7 @@ use mist_syntax::ast::operators::{ArithOp, BinaryOp, LogicOp};
 
 use crate::{
     hir::{IfExpr, Let},
-    types::builtin::{bool, int, void},
+    types::primitive::{bool, int, void},
 };
 
 use super::{

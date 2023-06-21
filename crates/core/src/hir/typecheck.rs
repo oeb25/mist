@@ -22,7 +22,7 @@ use crate::{
         Statement, StatementData, Variable, VariableIdx,
     },
     types::{
-        builtin::{error, ghost_bool, void},
+        primitive::{error, ghost_bool, void},
         Adt, AdtField, AdtKind, AdtPrototype, BuiltinKind, Generic, TypeData, TypeId, TypeProvider,
         TypeTable, Typer,
     },

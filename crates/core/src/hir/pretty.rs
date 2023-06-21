@@ -43,8 +43,6 @@ pub fn ty(pp: &impl PrettyPrint, db: &dyn crate::Db, strip_ghost: bool, ty: Type
         TDK::Ref { is_mut, inner } => {
             format!("&{}{}", if is_mut { "mut " } else { "" }, pp_ty(pp, db, false, inner))
         }
-        TDK::Range(inner) => format!("range {}", pp_ty(pp, db, false, inner)),
-        TDK::List(inner) => format!("[{}]", pp_ty(pp, db, false, inner)),
         TDK::Optional(inner) => format!("?{}", pp_ty(pp, db, false, inner)),
         TDK::Primitive(t) => format!("{t:?}").to_lowercase(),
         TDK::Adt(s) => s.name(db).to_string(),

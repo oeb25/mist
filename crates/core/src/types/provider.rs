@@ -1,5 +1,5 @@
 use super::{
-    builtin, Adt, AdtField, Field, ListField, TypeData, TypeDataPtr, TypeId, TypePtr, TDK,
+    primitive, Adt, AdtField, Field, ListField, TypeData, TypeDataPtr, TypeId, TypePtr, TDK,
 };
 
 pub trait TypeProvider: Sized {
@@ -9,8 +9,8 @@ pub trait TypeProvider: Sized {
     fn field_ty(&self, f: Field) -> TypeId {
         match f {
             Field::AdtField(af) => af.ty(),
-            Field::List(_, ListField::Len) => builtin::int(),
-            Field::Undefined => builtin::error(),
+            Field::List(_, ListField::Len) => primitive::int(),
+            Field::Undefined => primitive::error(),
         }
     }
     fn field_ty_ptr(&self, f: Field) -> TypePtr<Self> {

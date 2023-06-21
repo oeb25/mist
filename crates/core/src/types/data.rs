@@ -9,7 +9,7 @@ use derive_more::From;
 use mist_syntax::ast::AttrFlags;
 use tracing::error;
 
-use super::TypeId;
+use super::{primitive::error, TypeId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TypeData<T = TypeId> {
@@ -24,7 +24,6 @@ pub enum TypeDataKind<T> {
         is_mut: bool,
         inner: T,
     },
-    List(T),
     Optional(T),
     Primitive(Primitive),
     Adt(Adt),
@@ -36,7 +35,6 @@ pub enum TypeDataKind<T> {
         params: Vec<Param<Name, TypeSrc>>,
         return_ty: T,
     },
-    Range(T),
     Generic(Generic),
     Free,
 }
@@ -226,6 +224,9 @@ impl GenericArgs {
     pub fn len(self, db: &dyn crate::Db) -> usize {
         self.args(db).len()
     }
+    pub fn get(self, db: &dyn crate::Db, index: usize) -> TypeId {
+        self.args(db).get(index).copied().unwrap_or_else(error)
+    }
     pub fn iter(self, db: &dyn crate::Db) -> impl Iterator<Item = TypeId> + '_ {
         self.args(db).iter().copied()
     }
@@ -260,7 +261,6 @@ impl<T> TypeData<T> {
             TDK::Error => TDK::Error,
             TDK::Void => TDK::Void,
             TDK::Ref { is_mut, inner } => TDK::Ref { is_mut: *is_mut, inner: f(inner) },
-            TDK::List(it) => TDK::List(f(it)),
             TDK::Optional(it) => TDK::Optional(f(it)),
             TDK::Primitive(it) => TDK::Primitive(*it),
             TDK::Adt(it) => TDK::Adt(*it),
@@ -272,7 +272,6 @@ impl<T> TypeData<T> {
                 params: params.clone(),
                 return_ty: f(return_ty),
             },
-            TDK::Range(it) => TDK::Range(f(it)),
             TDK::Generic(g) => TDK::Generic(*g),
             TDK::Free => TDK::Free,
         };
@@ -287,6 +286,45 @@ impl<T> TypeData<T> {
     }
     pub fn is_error(&self) -> bool {
         matches!(self.kind, TDK::Error)
+    }
+}
+impl TypeData<TypeId> {
+    pub fn map_ty(
+        &self,
+        db: &dyn crate::Db,
+        mut f: impl FnMut(TypeId) -> TypeId,
+    ) -> TypeData<TypeId> {
+        let kind = match &self.kind {
+            TDK::Error => TDK::Error,
+            TDK::Void => TDK::Void,
+            TDK::Ref { is_mut, inner } => TDK::Ref { is_mut: *is_mut, inner: f(*inner) },
+            TDK::Optional(it) => TDK::Optional(f(*it)),
+            TDK::Primitive(it) => TDK::Primitive(*it),
+            TDK::Adt(it) => TDK::Adt(Adt::new(db, it.kind(), it.generic_args(db).map(f).collect())),
+            TDK::Builtin(it, args) => {
+                TDK::Builtin(*it, GenericArgs::new(db, args.iter(db).map(f).collect()))
+            }
+            TDK::Null => TDK::Null,
+            TDK::Function { attrs, name, params, return_ty } => TDK::Function {
+                attrs: *attrs,
+                name: name.clone(),
+                params: params.clone(),
+                return_ty: f(*return_ty),
+            },
+            TDK::Generic(g) => TDK::Generic(*g),
+            TDK::Free => TDK::Free,
+        };
+        TypeData { is_ghost: self.is_ghost, kind }
+    }
+
+    pub(crate) fn builtin(db: &dyn crate::Db, kind: BuiltinKind, tys: &[TypeId]) -> TypeData {
+        TDK::Builtin(kind, GenericArgs::new(db, tys.to_vec())).into()
+    }
+    pub(crate) fn list(db: &dyn crate::Db, ty: TypeId) -> TypeData {
+        Self::builtin(db, BuiltinKind::List, &[ty])
+    }
+    pub(crate) fn range(db: &dyn crate::Db, ty: TypeId) -> TypeData {
+        Self::builtin(db, BuiltinKind::Range, &[ty])
     }
 }
 impl<T> From<TDK<T>> for TypeData<T> {

@@ -16,8 +16,8 @@ use crate::{
         SpanOrAstPtr, StructExprField, WhileExpr,
     },
     types::{
-        builtin::{bool, error, ghost_bool, ghost_int, int, null, void},
-        Field, ListField, Primitive, TypeId, TypeProvider, TDK,
+        primitive::{bool, error, ghost_bool, ghost_int, int, null, void},
+        BuiltinKind, Field, ListField, Primitive, TypeData, TypeId, TypeProvider, TDK,
     },
     VariableDeclaration,
 };
@@ -127,7 +127,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
 
             let in_expr = check_opt(tc, it.span(), it.expr());
             let in_expr_ty = tc.expr_ty(in_expr).strip_ghost(tc);
-            let in_ty = tc.alloc_ty_data(TDK::Range(int()).into());
+            let in_ty = tc.alloc_ty_data(TypeData::range(tc.db, int()));
             tc.expect_ty((it.expr().as_ref(), it.span()), in_ty, in_expr_ty);
 
             let invariants =
@@ -164,7 +164,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 }
                 ast::operators::UnaryOp::RangeMin | ast::operators::UnaryOp::RangeMax => {
                     let range_over = tc.new_free();
-                    let range_ty = tc.alloc_ty_data(TDK::Range(range_over).into());
+                    let range_ty = tc.alloc_ty_data(TypeData::range(tc.db, range_over));
                     tc.expect_ty(inner_span, range_ty, inner_ty);
                     range_over
                 }
@@ -250,7 +250,9 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                         TDK::Primitive(Primitive::Int) => {
                             tc.expect_ty(tc.expr_span(rhs), lhs_ty, rhs_ty)
                         }
-                        TDK::List(_) => tc.expect_ty(tc.expr_span(rhs), lhs_ty, rhs_ty),
+                        TDK::Builtin(BuiltinKind::List, _) => {
+                            tc.expect_ty(tc.expr_span(rhs), lhs_ty, rhs_ty)
+                        }
                         _ => tc.ty_error(
                             it,
                             None,
@@ -352,7 +354,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 }
             };
 
-            ExprData::Range { lhs, rhs }.typed(tc.alloc_ty_data(TDK::Range(ty).into()))
+            ExprData::Range { lhs, rhs }.typed(tc.alloc_ty_data(TypeData::range(tc.db, ty)))
         }
         ast::Expr::IndexExpr(it) => {
             let base = check_opt(tc, it, it.base());
@@ -365,7 +367,8 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
 
             let is_range = match tc.ty_kind(index_ty) {
                 TDK::Primitive(Primitive::Int) => false,
-                TDK::Range(idx) => {
+                TDK::Builtin(BuiltinKind::Range, gargs) => {
+                    let idx = gargs.get(tc.db, 0);
                     tc.expect_ty(it, ghost_int(), idx);
                     true
                 }
@@ -376,7 +379,8 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             };
 
             match tc.ty_kind(base_ty) {
-                TDK::List(elem_ty) => {
+                TDK::Builtin(BuiltinKind::List, gargs) => {
+                    let elem_ty = gargs.get(tc.db, 0);
                     if is_range {
                         ExprData::Index { base, index }.typed(base_ty.with_ghost(tc, is_ghost))
                     } else {
@@ -414,12 +418,12 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 let inner_ty_no_ghost = ty.strip_ghost(tc);
 
                 ExprData::List { elems }.typed(
-                    tc.alloc_ty_data(TDK::List(inner_ty_no_ghost).into())
+                    tc.alloc_ty_data(TypeData::list(tc.db, inner_ty_no_ghost))
                         .with_ghost(tc, ty.is_ghost(tc)),
                 )
             } else {
                 let elem_ty = tc.new_free();
-                ExprData::List { elems }.typed(tc.alloc_ty_data(TDK::List(elem_ty).into()))
+                ExprData::List { elems }.typed(tc.alloc_ty_data(TypeData::list(tc.db, elem_ty)))
             }
         }
         ast::Expr::FieldExpr(it) => {
@@ -484,7 +488,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                         (None, error())
                     }
                 }
-                TDK::List(_) => match field.as_str() {
+                TDK::Builtin(BuiltinKind::List, _) => match field.as_str() {
                     "len" => {
                         let field = Field::List(expr_ty, ListField::Len);
                         (Some(field), int())
@@ -676,7 +680,8 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                     let var_decl =
                         tc.declare_variable(VariableDeclaration::new_let(name), ty, name_span);
                     let over_expr = check_opt(tc, it.span(), it.expr());
-                    let range_ty = tc.alloc_ty_data(TDK::Range(ty.ty(tc.db)).ghost());
+                    let range_ty =
+                        tc.alloc_ty_data(TypeData::range(tc.db, ty.ty(tc.db)).kind.ghost());
                     tc.expect_ty((it.expr().as_ref(), name_span), range_ty, tc.expr_ty(over_expr));
                     QuantifierOver::In(var_decl, over_expr)
                 }

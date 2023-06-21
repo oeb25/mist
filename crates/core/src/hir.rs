@@ -11,7 +11,7 @@ use mist_syntax::ast::{HasName, Spanned};
 use crate::{
     def::{Def, DefKind},
     hir::typecheck::{Typed, TypingMutExt},
-    types::builtin::*,
+    types::primitive::*,
 };
 
 pub use def::*;
