@@ -237,7 +237,6 @@ impl<'a> TypeChecker<'a> {
 
         if let hir::DefKind::Function(f) = def.kind(db) {
             let f_ast = f.ast_node(db);
-            let function_var = functions[&f.name(db)];
 
             checker.cx.params = f
                 .param_list(db)
@@ -276,12 +275,13 @@ impl<'a> TypeChecker<'a> {
 
             let decreases = checker.check_decreases(f_ast.decreases());
 
-            checker.cx.function_context = Some(FunctionContext {
-                function_var,
-                conditions,
-                decreases,
-                return_ty_src: checker.cx.return_ty,
-            });
+            checker.cx.function_context =
+                functions.get(&f.name(db)).map(|&function_var| FunctionContext {
+                    function_var,
+                    conditions,
+                    decreases,
+                    return_ty_src: checker.cx.return_ty,
+                });
 
             if !f_ast.is_ghost() && f_ast.body().is_none() {
                 checker.ty_error(
