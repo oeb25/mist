@@ -356,25 +356,25 @@ impl BodyLower<'_> {
     fn function(
         &mut self,
         source: impl Into<BlockOrInstruction> + Copy,
-        fid: mir::FunctionId,
+        f: mir::Function,
         args: &[mir::Operand],
     ) -> Result<Exp<VExprId>> {
-        Ok(match &*self.body[fid] {
-            mir::FunctionData::Named(v) => Exp::new_func_app(
+        Ok(match f {
+            mir::Function::Named(v) => Exp::new_func_app(
                 v.name(self.db).to_string(),
                 args.iter().map(|s| self.operand_to_ref(source, s)).collect::<Result<_>>()?,
             ),
-            mir::FunctionData::Index => {
+            mir::Function::Index => {
                 let base = self.operand_to_ref(source, &args[0])?;
                 let index = self.operand_to_ref(source, &args[1])?;
                 SeqExp::new_index(base, index).into()
             }
-            mir::FunctionData::RangeIndex => {
+            mir::Function::RangeIndex => {
                 let base = self.operand_to_ref(source, &args[0])?;
                 let index = self.operand_to_ref(source, &args[1])?;
                 Exp::new_func_app("range_index".to_string(), vec![base, index])
             }
-            mir::FunctionData::Range(op) => {
+            mir::Function::Range(op) => {
                 let (f, args) = match op {
                     mir::RangeKind::FromTo => (
                         "range_from_to",
@@ -393,25 +393,25 @@ impl BodyLower<'_> {
                 };
                 Exp::new_func_app(f.to_string(), args)
             }
-            mir::FunctionData::List => SeqExp::new_explicit(
+            mir::Function::List => SeqExp::new_explicit(
                 args.iter().map(|s| self.operand_to_ref(source, s)).collect::<Result<_>>()?,
             )
             .into(),
-            mir::FunctionData::ListConcat => SeqExp::new_append(
+            mir::Function::ListConcat => SeqExp::new_append(
                 self.operand_to_ref(source, &args[0])?,
                 self.operand_to_ref(source, &args[1])?,
             )
             .into(),
-            mir::FunctionData::InRange => {
+            mir::Function::InRange => {
                 let idx = self.operand_to_ref(source, &args[0])?;
                 let r = self.operand_to_ref(source, &args[1])?;
                 Exp::new_func_app("in_range".to_string(), vec![idx, r])
             }
-            mir::FunctionData::RangeMin => {
+            mir::Function::RangeMin => {
                 let r = self.operand_to_ref(source, &args[0])?;
                 Exp::new_func_app("range_min".to_string(), vec![r])
             }
-            mir::FunctionData::RangeMax => {
+            mir::Function::RangeMax => {
                 let r = self.operand_to_ref(source, &args[0])?;
                 Exp::new_func_app("range_max".to_string(), vec![r])
             }
