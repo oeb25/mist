@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt};
+use std::collections::HashMap;
 
 use crate::{
     def::{Name, Struct, StructField},
@@ -9,7 +9,7 @@ use derive_more::From;
 use mist_syntax::ast::AttrFlags;
 use tracing::error;
 
-use super::{primitive::error, TypeId};
+use super::{builtin::BuiltinField, primitive::error, BuiltinKind, TypeId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TypeData<T = TypeId> {
@@ -50,15 +50,6 @@ pub struct Adt {
 pub enum AdtKind {
     Struct(Struct),
     Enum,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum BuiltinKind {
-    Set,
-    MultiSet,
-    Map,
-    List,
-    Range,
 }
 
 #[salsa::interned]
@@ -104,27 +95,22 @@ pub enum AdtFieldKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, From)]
 pub enum Field {
     AdtField(AdtField),
-    List(TypeId, ListField),
+    Builtin(BuiltinField<TypeId>),
     Undefined,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, From)]
-pub enum ListField {
-    Len,
 }
 
 impl Field {
     pub fn name(&self, db: &dyn crate::Db) -> Name {
         match self {
             Field::AdtField(af) => af.name(db),
-            Field::List(_, lf) => Name::new(&lf.to_string()),
+            Field::Builtin(bf) => bf.name(),
             Field::Undefined => Name::new("?undefined"),
         }
     }
     pub fn is_ghost(&self, db: &dyn crate::Db) -> bool {
         match self {
             Field::AdtField(af) => af.is_ghost(db),
-            Field::List(_, _) => false,
+            Field::Builtin(bf) => bf.is_ghost(),
             Field::Undefined => false,
         }
     }
@@ -188,38 +174,7 @@ impl AdtKind {
         }
     }
 }
-impl BuiltinKind {
-    pub fn name(&self) -> Name {
-        match self {
-            BuiltinKind::Set => Name::new("Set"),
-            BuiltinKind::MultiSet => Name::new("MultiSet"),
-            BuiltinKind::Map => Name::new("Map"),
-            BuiltinKind::List => Name::new("List"),
-            BuiltinKind::Range => Name::new("Range"),
-        }
-    }
 
-    pub fn parse(name: &str) -> Option<BuiltinKind> {
-        Some(match name {
-            "Set" => BuiltinKind::Set,
-            "MultiSet" => BuiltinKind::MultiSet,
-            "Map" => BuiltinKind::Map,
-            "List" => BuiltinKind::Range,
-            "Range" => BuiltinKind::Range,
-            _ => return None,
-        })
-    }
-
-    pub fn arity(&self) -> usize {
-        match self {
-            BuiltinKind::Set => 1,
-            BuiltinKind::MultiSet => 1,
-            BuiltinKind::Map => 2,
-            BuiltinKind::List => 1,
-            BuiltinKind::Range => 1,
-        }
-    }
-}
 impl GenericArgs {
     pub fn len(self, db: &dyn crate::Db) -> usize {
         self.args(db).len()
@@ -229,14 +184,6 @@ impl GenericArgs {
     }
     pub fn iter(self, db: &dyn crate::Db) -> impl Iterator<Item = TypeId> + '_ {
         self.args(db).iter().copied()
-    }
-}
-
-impl fmt::Display for ListField {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ListField::Len => write!(f, "len"),
-        }
     }
 }
 

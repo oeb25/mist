@@ -1,6 +1,4 @@
-use super::{
-    primitive, Adt, AdtField, Field, ListField, TypeData, TypeDataPtr, TypeId, TypePtr, TDK,
-};
+use super::{primitive, Adt, AdtField, Field, TypeData, TypeDataPtr, TypeId, TypePtr, TDK};
 
 pub trait TypeProvider: Sized {
     fn ty_data(&self, ty: TypeId) -> TypeData;
@@ -9,7 +7,7 @@ pub trait TypeProvider: Sized {
     fn field_ty(&self, f: Field) -> TypeId {
         match f {
             Field::AdtField(af) => af.ty(),
-            Field::List(_, ListField::Len) => primitive::int(),
+            Field::Builtin(bf) => bf.ty(),
             Field::Undefined => primitive::error(),
         }
     }

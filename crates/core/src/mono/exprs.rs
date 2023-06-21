@@ -8,7 +8,7 @@ use crate::{
     hir::{
         self, AssertionKind, ExprIdx, Literal, Quantifier, SpanOrAstPtr, StatementId, VariableIdx,
     },
-    types::ListField,
+    types::BuiltinField,
 };
 
 use super::{
@@ -66,7 +66,7 @@ pub enum ExprData {
 pub enum Field {
     Undefined,
     AdtField(Adt, AdtField),
-    List(Type, ListField),
+    Builtin(BuiltinField<Type>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -163,7 +163,9 @@ impl ExprPtr {
                         mdl.lower_adt(adt_field.adt()),
                         AdtField::new(db, adt_field.name(db), mdl.lower_ty(adt_field.ty())),
                     ),
-                    crate::types::Field::List(ty, f) => Field::List(mdl.lower_ty(*ty), *f),
+                    crate::types::Field::Builtin(bf) => {
+                        Field::Builtin(bf.map(|ty| mdl.lower_ty(*ty)))
+                    }
                     crate::types::Field::Undefined => Field::Undefined,
                 },
             },
@@ -298,9 +300,7 @@ impl Field {
         match self {
             Field::Undefined => Name::new("<undefined field>"),
             Field::AdtField(_, f) => f.name(db),
-            Field::List(_, l) => match l {
-                ListField::Len => Name::new("len"),
-            },
+            Field::Builtin(bf) => bf.name(),
         }
     }
 }

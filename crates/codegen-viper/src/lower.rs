@@ -15,7 +15,7 @@ use mist_core::{
         exprs::Field,
         types::{Adt, Type, TypeData},
     },
-    types::{AdtKind, BuiltinKind, ListField, Primitive},
+    types::{AdtKind, BuiltinField, BuiltinKind, ListField, MultiSetField, Primitive, SetField},
     util::{IdxArena, IdxMap, IdxWrap},
 };
 use mist_syntax::{
@@ -24,8 +24,8 @@ use mist_syntax::{
 };
 use silvers::{
     expression::{
-        AbstractLocalVar, AccessPredicate, BinOp, Exp, LocalVar, PermExp, PredicateAccess,
-        PredicateAccessPredicate, SeqExp, UnOp,
+        AbstractLocalVar, AccessPredicate, BinOp, Exp, LocalVar, MultisetExp, PermExp,
+        PredicateAccess, PredicateAccessPredicate, SeqExp, SetExp, UnOp,
     },
     program::{Field as VField, LocalVarDecl},
     typ::Type as VTy,
@@ -468,10 +468,20 @@ impl BodyLower<'_> {
             Ok(match proj {
                 mir::Projection::Field(f, ty) => {
                     match f {
-                        Field::List(_, ListField::Len) => {
-                            let exp = SeqExp::Length { s: base };
-                            self.alloc(source, exp)
-                        }
+                        Field::Builtin(bf) => match bf {
+                            BuiltinField::List(_, ListField::Len) => {
+                                let exp = SeqExp::Length { s: base };
+                                self.alloc(source, exp)
+                            }
+                            BuiltinField::Set(_, SetField::Cardinality) => {
+                                let exp = SetExp::Cardinality { s: base };
+                                self.alloc(source, exp)
+                            }
+                            BuiltinField::MultiSet(_, MultiSetField::Cardinality) => {
+                                let exp = MultisetExp::Cardinality { s: base };
+                                self.alloc(source, exp)
+                            }
+                        },
                         Field::AdtField(adt, af) => {
                             let exp = VField::new(
                                 mangle::mangled_adt_field(self.db, adt, af),

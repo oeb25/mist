@@ -241,7 +241,7 @@ impl BodyLower<'_> {
                                 ),
                                 rhs,
                             }),
-                            Field::List(_, _) | Field::Undefined => {}
+                            Field::Builtin(_) | Field::Undefined => {}
                         };
                     }
                     [mir::Projection::Index(index, _)] => {
@@ -269,7 +269,7 @@ impl BodyLower<'_> {
                                 );
                                 insts.push(Stmt::FieldAssign { lhs, rhs: new_rhs });
                             }
-                            Field::List(_, _) | Field::Undefined => {}
+                            Field::Builtin(_) | Field::Undefined => {}
                         }
                     }
                     _ => todo!(),

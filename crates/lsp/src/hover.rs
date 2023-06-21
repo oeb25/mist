@@ -5,7 +5,7 @@ use mist_core::{
     def::{Def, DefKind, Name, StructField},
     hir::{pretty, ExprData, ExprIdx, SourceFile, TypeRefKind, TypeSrc, VariableIdx},
     salsa,
-    types::{AdtKind, Field, ListField, TypeProvider},
+    types::{AdtKind, BuiltinField, Field, ListField, TypeProvider},
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
     VariableDeclarationKind,
 };
@@ -73,7 +73,7 @@ impl<'a> Visitor for HoverFinder<'a> {
                                 "{} {}",
                                 match af.adt().kind() {
                                     AdtKind::Struct(_) => Name::new("struct"),
-                                    AdtKind::Enum => todo!()
+                                    AdtKind::Enum => todo!(),
                                 },
                                 af.adt().name(self.db)
                             ),
@@ -82,11 +82,19 @@ impl<'a> Visitor for HoverFinder<'a> {
                         Some(reference.span()),
                     )
                 }
-                Field::List(list_ty, ListField::Len) => {
-                    let list_ty = pretty::ty(&*vcx.cx, self.db, false, list_ty);
-                    let ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx.field_ty_ptr(field).id());
-                    break_code([format!("{list_ty}"), format!("len: {ty}")], Some(reference.span()))
-                }
+                Field::Builtin(bf) => match bf {
+                    BuiltinField::List(list_ty, _)
+                    | BuiltinField::Set(list_ty, _)
+                    | BuiltinField::MultiSet(list_ty, _) => {
+                        let list_ty = pretty::ty(&*vcx.cx, self.db, false, list_ty);
+                        let ty =
+                            pretty::ty(&*vcx.cx, self.db, false, vcx.cx.field_ty_ptr(field).id());
+                        break_code(
+                            [format!("{list_ty}"), format!("{}: {ty}", bf.name())],
+                            Some(reference.span()),
+                        )
+                    }
+                },
                 Field::Undefined => break_code(["?undefined".to_string()], Some(reference.span())),
             }
         } else {

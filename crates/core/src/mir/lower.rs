@@ -13,7 +13,7 @@ use crate::{
         types::{Type, TypeData},
         Condition, Item, ItemKind,
     },
-    types::{BuiltinKind, ListField, Primitive},
+    types::{BuiltinField, BuiltinKind, ListField, Primitive},
 };
 
 use super::{
@@ -404,7 +404,7 @@ impl MirLower<'_> {
                         Operand::Copy(p) | Operand::Move(p) => self.project_deeper(
                             p,
                             &[Projection::Field(
-                                Field::List(variant_ty, ListField::Len),
+                                Field::Builtin(BuiltinField::List(variant_ty, ListField::Len)),
                                 Type::int(self.db),
                             )],
                         ),
@@ -454,7 +454,7 @@ impl MirLower<'_> {
             ExprData::Field { expr: base, field, .. } => {
                 let (bid, place) = self.lhs_expr(base, bid, None);
                 match field {
-                    Field::AdtField(_, _) | Field::List(_, _) => {
+                    Field::AdtField(_, _) | Field::Builtin(_) => {
                         let f_ty = expr.ty();
                         (bid, self.project_deeper(place, &[Projection::Field(field, f_ty)]))
                     }
@@ -558,7 +558,7 @@ impl MirLower<'_> {
                 self.block(&block, next_bid, target, dest)
             }
             ExprData::Field { expr: base, field } => match field {
-                Field::AdtField(_, _) | Field::List(_, _) => {
+                Field::AdtField(_, _) | Field::Builtin(_) => {
                     let tmp = self.expr_into_operand(base, &mut bid, None);
                     if let Some(place) = tmp.place() {
                         let f_ty = expr.ty();

@@ -11,7 +11,9 @@ use mist_core::{
 };
 use mist_syntax::SourceSpan;
 use silvers::{
-    expression::{AbstractLocalVar, Exp, LocationAccess, QuantifierExp, ResourceAccess, SeqExp},
+    expression::{
+        AbstractLocalVar, Exp, LocationAccess, MultisetExp, QuantifierExp, ResourceAccess, SeqExp,
+    },
     program::{Domain, ExtensionMember, Field, Function, Method, Predicate, Program},
     typ::Type,
 };
@@ -296,7 +298,7 @@ mod write_impl {
         ast::Declaration,
         expression::{
             FieldAccess, FieldAccessPredicate, LocalVar, MagicWand, OldExp, PermExp,
-            PredicateAccess, PredicateAccessPredicate,
+            PredicateAccess, PredicateAccessPredicate, SetExp,
         },
         program::{AnyLocalVarDecl, LocalVarDecl, Method, Program},
         statement::{Seqn, Stmt},
@@ -478,8 +480,40 @@ mod write_impl {
                     SeqExp::Update { s, idx, elem } => w!(w, s, "[", idx, " := ", elem, "]"),
                     SeqExp::Length { s } => w!(w, "|", s, "|"),
                 },
-                Exp::Set(_) => w!(w, "// TODO: Set"),
-                Exp::Multiset(_) => w!(w, "// TODO: Multiset"),
+                Exp::Set(s) => match s {
+                    SetExp::Empty { elem_typ } => w!(w, "Set[", elem_typ, "]()"),
+                    SetExp::Explicit { elems } => {
+                        w!(w, "Set(");
+                        let mut first = true;
+                        for e in elems {
+                            if !first {
+                                w!(w, ", ");
+                            }
+                            first = false;
+                            w!(w, e);
+                        }
+                        w!(w, ")");
+                    }
+                    SetExp::Bin { .. } => w!(w, "// TODO: SetExp::Bin"),
+                    SetExp::Cardinality { s } => w!(w, "|", s, "|"),
+                },
+                Exp::Multiset(s) => match s {
+                    MultisetExp::Empty { elem_typ } => w!(w, "Set[", elem_typ, "]()"),
+                    MultisetExp::Explicit { elems } => {
+                        w!(w, "Set(");
+                        let mut first = true;
+                        for e in elems {
+                            if !first {
+                                w!(w, ", ");
+                            }
+                            first = false;
+                            w!(w, e);
+                        }
+                        w!(w, ")");
+                    }
+                    MultisetExp::Bin { .. } => w!(w, "// TODO: MultisetExp::Bin"),
+                    MultisetExp::Cardinality { s } => w!(w, "|", s, "|"),
+                },
                 Exp::Map(_) => w!(w, "// TODO: Map"),
             }
         }

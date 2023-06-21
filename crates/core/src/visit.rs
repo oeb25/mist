@@ -319,7 +319,7 @@ where
                     self.walk_struct_field(visitor, sf, reference)?;
                 }
             },
-            Field::List(_, _) => {}
+            Field::Builtin(_) => {}
             Field::Undefined => {}
         }
         ControlFlow::Continue(())
