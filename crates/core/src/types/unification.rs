@@ -87,7 +87,7 @@ pub struct Typer {
 
 macro_rules! type_prelude {
     ($($id:literal => ($fn_name:ident, $td:expr),)*) => {
-        pub mod builtin {
+        pub mod primitive {
             use super::*;
 
             $(
@@ -96,7 +96,7 @@ macro_rules! type_prelude {
                 }
             )*
         }
-        use builtin::*;
+        use primitive::*;
         fn init_ty_table() -> InPlaceUnificationTable<TypeId> {
             let mut ty_table = InPlaceUnificationTable::default();
 
@@ -240,7 +240,7 @@ impl Typer {
             .fields
             .into_iter()
             .map(|(sf, f)| {
-                let ty = self.substitude(f, &mut |_tc, ty| {
+                let ty = self.substitude(db, f, &mut |_tc, ty| {
                     sp.generics
                         .iter()
                         .zip_eq(adt.generic_args(db))
@@ -300,10 +300,6 @@ impl Typer {
             }
             (TDK::Optional(inner), TDK::Adt(_)) if inner == actual => expected,
             (TDK::Adt(_), TDK::Optional(inner)) if inner == expected => actual,
-            (TDK::Range(inner1), TDK::Range(inner2)) => {
-                self.unify(db, inner1, inner2)?;
-                expected
-            }
             (TDK::Primitive(p1), TDK::Primitive(p2)) if p1 == p2 => expected,
             (TDK::Adt(s1), TDK::Adt(s2))
                 if s1.kind() == s2.kind() && s1.generic_args_len(db) == s2.generic_args_len(db) =>
@@ -311,10 +307,6 @@ impl Typer {
                 for (l, r) in s1.generic_args(db).zip_eq(s2.generic_args(db)) {
                     self.unify(db, l, r)?;
                 }
-                expected
-            }
-            (TDK::List(s1), TDK::List(s2)) => {
-                self.unify(db, s1, s2)?;
                 expected
             }
             (TDK::Null, TDK::Null) => expected,
@@ -333,13 +325,14 @@ impl Typer {
 
     fn substitude(
         &mut self,
+        db: &dyn crate::Db,
         original: TypeId,
         subs: &mut impl FnMut(&mut Self, TypeId) -> TypeId,
     ) -> TypeId {
         let new = subs(self, original);
 
         if new == original {
-            let new_td = self.probe_type(original).map(|id| self.substitude(*id, subs));
+            let new_td = self.probe_type(original).map_ty(db, |id| self.substitude(db, id, subs));
             self.ty_id(new_td)
         } else {
             new

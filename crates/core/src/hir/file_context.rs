@@ -14,8 +14,8 @@ use crate::{
         ItemSourceMap, Param, SpanOrAstPtr, TypeSrc,
     },
     types::{
-        builtin::void, Adt, AdtField, AdtKind, AdtPrototype, BuiltinKind, Generic, StructPrototype,
-        TypeData, TypeId, TypeProvider, Typer, TDK,
+        primitive::void, Adt, AdtField, AdtKind, AdtPrototype, BuiltinKind, Generic,
+        StructPrototype, TypeData, TypeId, TypeProvider, Typer, TDK,
     },
     TypeCheckError, TypeCheckErrors,
 };

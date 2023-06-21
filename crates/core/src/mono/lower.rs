@@ -138,9 +138,6 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
             TDK::Error => TypeData::Error,
             TDK::Void => TypeData::Void,
             TDK::Ref { is_mut, inner } => TypeData::Ref { is_mut, inner },
-            TDK::List(inner) => {
-                TypeData::Builtin(BuiltinType::new(self.db, BuiltinKind::List, vec![inner]))
-            }
             TDK::Optional(inner) => TypeData::Optional(inner),
             TDK::Primitive(p) => TypeData::Primitive(p),
             TDK::Builtin(b, gargs) => TypeData::Builtin(self.lower_builtin(b, gargs)),
@@ -153,9 +150,6 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
                     params.into_iter().map(|param| self.lower_ty(param.ty.ty(self.db))).collect(),
                     return_ty,
                 ))
-            }
-            TDK::Range(inner) => {
-                TypeData::Builtin(BuiltinType::new(self.db, BuiltinKind::Range, vec![inner]))
             }
             // TODO: this should not be an error i think
             TDK::Generic(_) => TypeData::Error,

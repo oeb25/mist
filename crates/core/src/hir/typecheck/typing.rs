@@ -4,7 +4,7 @@ use crate::{
     def::Name,
     hir::{typecheck::TypeCheckErrorKind, Path, SpanOrAstPtr, TypeRef, TypeRefKind, TypeSrc},
     types::{
-        builtin::{bool, error, int},
+        primitive::{bool, error, int},
         Adt, AdtKind, AdtPrototype, BuiltinKind, Generic, GenericArgs, Primitive, TypeData, TypeId,
         TypeProvider, TDK,
     },
@@ -158,7 +158,10 @@ fn lower_type_inner(tc: &mut impl TypingMut, ast_ty: &ast::Type) -> (TypeRefKind
         }
         ast::Type::ListType(it) => {
             let (inner, inner_ty) = lower_type_inner_opt(tc, it.ty());
-            (TypeRefKind::List(Box::new(inner)), tc.alloc_ty_data(TDK::List(inner_ty).into()))
+            (
+                TypeRefKind::List(Box::new(inner)),
+                tc.alloc_ty_data(TypeData::list(tc.db(), inner_ty)),
+            )
         }
         ast::Type::GhostType(it) => {
             let (inner, inner_ty) = lower_type_inner_opt(tc, it.ty());

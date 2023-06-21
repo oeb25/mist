@@ -12,4 +12,4 @@ pub use data::{
 pub use provider::TypeProvider;
 pub use ptr::{TypeDataPtr, TypePtr};
 pub use table::TypeTable;
-pub use unification::{builtin, TypeId, Typer};
+pub use unification::{primitive, TypeId, Typer};

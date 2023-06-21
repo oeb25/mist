@@ -41,12 +41,10 @@ where
 
             TDK::Error
             | TDK::Void
-            | TDK::List(_)
             | TDK::Primitive(_)
             | TDK::Builtin(_, _)
             | TDK::Null
             | TDK::Function { .. }
-            | TDK::Range(_)
             | TDK::Generic(_)
             | TDK::Free => None,
         }
