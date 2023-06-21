@@ -95,7 +95,7 @@ pub enum Terminator {
     Quantify(Quantifier, Vec<SlotId>, BlockId),
     QuantifyEnd(BlockId),
     Switch(Operand, SwitchTargets),
-    Call { func: FunctionId, args: Vec<Operand>, destination: Place, target: Option<BlockId> },
+    Call { func: Function, args: Vec<Operand>, destination: Place, target: Option<BlockId> },
 }
 
 impl Terminator {
@@ -344,14 +344,8 @@ impl MExpr {
     }
 }
 
-impl_idx!(FunctionId, Function, default_debug);
-#[derive(new, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Function {
-    data: FunctionData,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum FunctionData {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Function {
     Named(VariablePtr),
     Index,
     RangeIndex,
@@ -363,15 +357,7 @@ pub enum FunctionData {
     ListConcat,
 }
 
-impl std::ops::Deref for Function {
-    type Target = FunctionData;
-
-    fn deref(&self) -> &Self::Target {
-        &self.data
-    }
-}
-
-#[derive(Debug, Display, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RangeKind {
     #[display(fmt = "from-to")]
     FromTo,
@@ -393,7 +379,6 @@ pub struct Body {
     instructions: IdxArena<InstructionId>,
     slots: IdxArena<SlotId>,
     projections: IdxArena<ProjectionList>,
-    functions: IdxArena<FunctionId>,
 
     params: Vec<SlotId>,
 
@@ -450,7 +435,6 @@ impl Body {
                 arena.alloc(vec![]);
                 arena
             },
-            functions: Default::default(),
 
             params: Default::default(),
 
@@ -794,20 +778,6 @@ impl std::ops::Index<&'_ ProjectionList> for Body {
 
     fn index(&self, index: &'_ ProjectionList) -> &Self::Output {
         &self.projections[*index]
-    }
-}
-impl std::ops::Index<FunctionId> for Body {
-    type Output = Function;
-
-    fn index(&self, index: FunctionId) -> &Self::Output {
-        &self.functions[index]
-    }
-}
-impl std::ops::Index<&'_ FunctionId> for Body {
-    type Output = Function;
-
-    fn index(&self, index: &'_ FunctionId) -> &Self::Output {
-        &self.functions[*index]
     }
 }
 

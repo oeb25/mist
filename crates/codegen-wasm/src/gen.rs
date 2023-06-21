@@ -5,7 +5,7 @@ use mist_core::{
         self,
         types::{Adt, Type, TypeData},
     },
-    types::{BuiltinKind, Primitive},
+    types::Primitive,
     util::IdxMap,
 };
 

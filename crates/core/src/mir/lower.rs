@@ -17,9 +17,8 @@ use crate::{
 };
 
 use super::{
-    BlockId, Body, BodySourceMap, BorrowKind, Function, FunctionData, FunctionId, Instruction,
-    InstructionId, ItemMir, MExpr, Place, Projection, RangeKind, Slot, SlotId, SwitchTargets,
-    Terminator,
+    BlockId, Body, BodySourceMap, BorrowKind, Function, Instruction, InstructionId, ItemMir, MExpr,
+    Place, Projection, RangeKind, Slot, SlotId, SwitchTargets, Terminator,
 };
 
 #[salsa::tracked]
@@ -169,9 +168,6 @@ impl<'a> MirLower<'a> {
             self.source_map.expr_block_map_back.insert(bid, source);
         }
     }
-    fn alloc_function(&mut self, function: Function) -> FunctionId {
-        self.body.functions.alloc(function)
-    }
     fn self_slot(&self) -> SlotId {
         self.body.self_slot
     }
@@ -257,7 +253,7 @@ impl MirLower<'_> {
     fn put_call(
         &mut self,
         expr: ExprPtr,
-        func: FunctionId,
+        func: Function,
         args: Vec<Operand>,
         dest: Placement,
         bid: BlockId,
@@ -660,7 +656,7 @@ impl MirLower<'_> {
                     BinaryOp::ArithOp(ArithOp::Add) if lhs.ty().is_list(self.db) => {
                         let left = self.expr_into_operand(lhs, &mut bid, None);
                         let right = self.expr_into_operand(rhs, &mut bid, None);
-                        let func = self.alloc_function(Function::new(FunctionData::ListConcat));
+                        let func = Function::ListConcat;
                         self.put_call(expr, func, vec![left, right], dest, bid, target)
                     }
                     _ => {
@@ -678,24 +674,23 @@ impl MirLower<'_> {
                 bid
             }
             ExprData::Index { base, index } => {
-                let f = match index.ty().kind(self.db) {
+                let func = match index.ty().kind(self.db) {
                     TypeData::Builtin(b) if b.kind(self.db) == BuiltinKind::List => {
-                        FunctionData::RangeIndex
+                        Function::RangeIndex
                     }
-                    TypeData::Primitive(Primitive::Int) => FunctionData::Index,
-                    TypeData::Error => FunctionData::Index,
+                    TypeData::Primitive(Primitive::Int) => Function::Index,
+                    TypeData::Error => Function::Index,
                     ty => todo!("tried to index with {ty:?}"),
                 };
                 let base_s = self.expr_into_operand(base, &mut bid, None);
                 let index_s = self.expr_into_operand(index, &mut bid, None);
-                let func = self.alloc_function(Function::new(f));
 
                 self.put_call(expr, func, vec![base_s, index_s], dest, bid, target)
             }
             ExprData::List { elems } => {
                 let elems =
                     elems.iter().map(|&e| self.expr_into_operand(e, &mut bid, None)).collect();
-                let func = self.alloc_function(Function::new(FunctionData::List));
+                let func = Function::List;
 
                 self.put_call(expr, func, elems, dest, bid, target)
             }
@@ -741,7 +736,7 @@ impl MirLower<'_> {
                     (Some(_), None) => RangeKind::From,
                     (Some(_), Some(_)) => RangeKind::FromTo,
                 };
-                let func = self.alloc_function(Function::new(FunctionData::Range(kind)));
+                let func = Function::Range(kind);
 
                 let args = [lhs, rhs]
                     .into_iter()
@@ -773,27 +768,27 @@ impl MirLower<'_> {
             ExprData::Builtin(b) => match b {
                 BuiltinExpr::RangeMin(r) => {
                     let r = self.expr_into_operand(r, &mut bid, None);
-                    let func = self.alloc_function(Function::new(FunctionData::RangeMin));
+                    let func = Function::RangeMin;
                     self.put_call(expr, func, vec![r], dest, bid, target)
                 }
                 BuiltinExpr::RangeMax(r) => {
                     let r = self.expr_into_operand(r, &mut bid, None);
-                    let func = self.alloc_function(Function::new(FunctionData::RangeMax));
+                    let func = Function::RangeMax;
                     self.put_call(expr, func, vec![r], dest, bid, target)
                 }
                 BuiltinExpr::InRange(idx, r) => {
                     let idx = self.expr_into_operand(idx, &mut bid, None);
                     let r = self.expr_into_operand(r, &mut bid, None);
-                    let func = self.alloc_function(Function::new(FunctionData::InRange));
+                    let func = Function::InRange;
                     self.put_call(expr, func, vec![idx, r], dest, bid, target)
                 }
             },
         }
     }
-    fn expr_to_function(&mut self, expr: ExprPtr) -> (FunctionId, Vec<Operand>) {
+    fn expr_to_function(&mut self, expr: ExprPtr) -> (Function, Vec<Operand>) {
         match expr.data(self.db) {
             ExprData::Ident(var) => {
-                let id = self.alloc_function(Function::new(FunctionData::Named(var)));
+                let id = Function::Named(var);
                 (id, vec![])
             }
             ExprData::Field { .. } => {

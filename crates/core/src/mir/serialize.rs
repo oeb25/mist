@@ -6,8 +6,8 @@ use owo_colors::{colors::*, OwoColorize};
 use crate::mir::{BlockLocation, Projection, Terminator};
 
 use super::{
-    BlockId, Body, BodyLocation, BorrowKind, Folding, FunctionData, FunctionId, Instruction,
-    InstructionId, MExpr, Operand, Place, Slot, SlotId,
+    BlockId, Body, BodyLocation, BorrowKind, Folding, Function, Instruction, InstructionId, MExpr,
+    Operand, Place, Slot, SlotId,
 };
 
 #[derive(new)]
@@ -276,19 +276,19 @@ impl<'db, A: Fn(BodyLocation) -> Option<String>> Serializer<'db, A> {
         }
     }
 
-    fn function(&mut self, f: FunctionId) {
-        match &self.body.functions[f].data {
-            FunctionData::Named(var) => {
+    fn function(&mut self, f: Function) {
+        match f {
+            Function::Named(var) => {
                 w!(self, Default, "{}", var.name(self.db))
             }
-            FunctionData::List => w!(self, Default, "#list"),
-            FunctionData::ListConcat => w!(self, Default, "#list-concat"),
-            FunctionData::Index => w!(self, Default, "#index"),
-            FunctionData::RangeIndex => w!(self, Default, "#range-index"),
-            FunctionData::Range(kind) => w!(self, Default, "#range[{kind}]"),
-            FunctionData::InRange => w!(self, Default, "#in_range"),
-            FunctionData::RangeMin => w!(self, Default, "#range_min"),
-            FunctionData::RangeMax => w!(self, Default, "#range_max"),
+            Function::List => w!(self, Default, "#list"),
+            Function::ListConcat => w!(self, Default, "#list-concat"),
+            Function::Index => w!(self, Default, "#index"),
+            Function::RangeIndex => w!(self, Default, "#range-index"),
+            Function::Range(kind) => w!(self, Default, "#range[{kind}]"),
+            Function::InRange => w!(self, Default, "#in_range"),
+            Function::RangeMin => w!(self, Default, "#range_min"),
+            Function::RangeMax => w!(self, Default, "#range_max"),
         }
     }
 
