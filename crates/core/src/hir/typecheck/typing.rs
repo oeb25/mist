@@ -28,11 +28,7 @@ pub(crate) trait TypingMut: TypeProvider {
     fn new_generic(&mut self, generic: Generic) -> TypeId;
 
     fn create_adt_prototype(&mut self, kind: AdtKind, prototype: AdtPrototype);
-    fn instantiate_adt(
-        &mut self,
-        kind: AdtKind,
-        generic_args: impl IntoIterator<Item = TypeId>,
-    ) -> Adt;
+    fn instantiate_adt(&mut self, kind: AdtKind, generic_args: GenericArgs) -> Adt;
     fn adt_ty(&mut self, adt: Adt) -> TypeId;
 
     fn alloc_ty_data(&mut self, data: TypeData) -> TypeId;
@@ -101,44 +97,54 @@ fn lower_type_inner(tc: &mut impl TypingMut, ast_ty: &ast::Type) -> (TypeRefKind
         ast::Type::NamedType(ast_name) => {
             let name = ast_name.name().unwrap();
             match tc.find_named_type(ast_name, name.clone().into()) {
-                Ok(named) => match named {
-                    NamedType::AdtKind(adt_kind @ AdtKind::Struct(s)) => {
-                        if let Some(args) = ast_name.generic_arg_list() {
-                            // TODO: put `type_ref_args` on the type ref
-                            let (_type_ref_args, type_args): (Vec<_>, Vec<_>) = args
-                                .generic_args()
-                                .map(|arg| lower_type_inner_opt(tc, arg.ty()))
-                                .unzip();
-
-                            let adt = tc.instantiate_adt(adt_kind, type_args);
-                            let ty = tc.adt_ty(adt);
-
-                            (TypeRefKind::Path(Path::Struct(s)), ty)
-                        } else {
-                            let adt = tc.instantiate_adt(adt_kind, []);
-                            let ty = tc.adt_ty(adt);
-                            (TypeRefKind::Path(Path::Struct(s)), ty)
+                Ok(named) => {
+                    let (path, arity) = match named {
+                        NamedType::AdtKind(adt_kind) => {
+                            (Path::Adt(adt_kind), adt_kind.arity(tc.db()))
                         }
+                        NamedType::Builtin(builtin) => {
+                            (Path::Name(builtin.name()), builtin.arity())
+                        }
+                        NamedType::TypeId(_) => (Path::Name(name.into()), 1),
+                    };
+                    let type_args = if let Some(args) = ast_name.generic_arg_list() {
+                        // TODO: put `type_ref_args` on the type ref
+                        let (_type_ref_args, type_args): (Vec<_>, Vec<_>) = args
+                            .generic_args()
+                            .map(|arg| lower_type_inner_opt(tc, arg.ty()))
+                            .unzip();
+
+                        GenericArgs::new(tc.db(), type_args)
+                    } else {
+                        GenericArgs::none(tc.db())
+                    };
+
+                    if arity != type_args.len(tc.db()) {
+                        let span = Spanned::span((ast_name.generic_arg_list().as_ref(), ast_name));
+                        tc.ty_error(
+                            span,
+                            None,
+                            None,
+                            TypeCheckErrorKind::GenericArityMismatch {
+                                expected: arity,
+                                given: type_args.len(tc.db()),
+                            },
+                        );
                     }
-                    NamedType::AdtKind(AdtKind::Enum) => {
-                        todo!()
-                    }
-                    NamedType::Builtin(builtin) => {
-                        let generic_args = if let Some(args) = ast_name.generic_arg_list() {
-                            // TODO: put `type_ref_args` on the type ref
-                            let (_type_ref_args, type_args): (Vec<_>, Vec<_>) = args
-                                .generic_args()
-                                .map(|arg| lower_type_inner_opt(tc, arg.ty()))
-                                .unzip();
-                            GenericArgs::new(tc.db(), type_args)
-                        } else {
-                            GenericArgs::new(tc.db(), Vec::new())
-                        };
-                        let ty = tc.alloc_ty_data(TDK::Builtin(builtin, generic_args).into());
-                        (TypeRefKind::Path(Path::Name(builtin.name())), ty)
-                    }
-                    NamedType::TypeId(ty) => (TypeRefKind::Path(Path::Name(name.into())), ty),
-                },
+
+                    let ty = match named {
+                        NamedType::TypeId(ty) => ty,
+                        NamedType::AdtKind(adt_kind) => {
+                            let adt = tc.instantiate_adt(adt_kind, type_args);
+                            tc.adt_ty(adt)
+                        }
+                        NamedType::Builtin(builtin) => {
+                            tc.alloc_ty_data(TDK::Builtin(builtin, type_args).into())
+                        }
+                    };
+
+                    (TypeRefKind::Path(path), ty)
+                }
                 Err(err_ty) => (TypeRefKind::Error, err_ty),
             }
         }

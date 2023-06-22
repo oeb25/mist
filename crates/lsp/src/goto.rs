@@ -7,6 +7,7 @@ use mist_core::{
     file::SourceFile,
     hir::{self, TypeRefKind, VariableIdx},
     salsa,
+    types::AdtKind,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
     VariableDeclarationKind,
 };
@@ -109,7 +110,10 @@ impl Visitor for DeclarationFinder<'_> {
                             // TODO
                             return ControlFlow::Continue(());
                         }
-                        hir::Path::Struct(s) => s.ast_node(self.db).name().unwrap().span(),
+                        hir::Path::Adt(AdtKind::Struct(s)) => {
+                            s.ast_node(self.db).name().unwrap().span()
+                        }
+                        hir::Path::Adt(AdtKind::Enum) => todo!(),
                     };
                     ControlFlow::Break(Some(DeclarationSpans { original_span, target_span }))
                 }

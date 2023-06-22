@@ -4,7 +4,7 @@ use derive_new::new;
 use mist_core::{
     def::{Def, DefKind, Name, StructField},
     file::SourceFile,
-    hir::{pretty, ExprData, ExprIdx, TypeRefKind, TypeSrc, VariableIdx},
+    hir::{pretty, ExprData, ExprIdx, Path, TypeRefKind, TypeSrc, VariableIdx},
     salsa,
     types::{AdtKind, BuiltinField, Field, TypeProvider},
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
@@ -177,7 +177,7 @@ impl<'a> Visitor for HoverFinder<'a> {
         let pretty_ty = pretty::ty(&*vcx.cx, self.db, false, ty.ty(self.db));
 
         let s = match ty.type_ref(self.db) {
-            Some(TypeRefKind::Path(_)) => format!("struct {pretty_ty}"),
+            Some(TypeRefKind::Path(Path::Adt(_))) => format!("struct {pretty_ty}"),
             _ => pretty_ty,
         };
 

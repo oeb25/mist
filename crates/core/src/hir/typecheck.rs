@@ -23,8 +23,8 @@ use crate::{
     },
     types::{
         primitive::{error, ghost_bool, void},
-        Adt, AdtField, AdtKind, AdtPrototype, BuiltinKind, Generic, TypeData, TypeId, TypeProvider,
-        TypeTable, Typer,
+        Adt, AdtField, AdtKind, AdtPrototype, BuiltinKind, Generic, GenericArgs, TypeData, TypeId,
+        TypeProvider, TypeTable, Typer,
     },
 };
 
@@ -596,11 +596,7 @@ impl<'a> TypingMut for TypeChecker<'a> {
         self.typer.create_adt_prototype(kind, prototype)
     }
 
-    fn instantiate_adt(
-        &mut self,
-        kind: AdtKind,
-        generic_args: impl IntoIterator<Item = TypeId>,
-    ) -> Adt {
+    fn instantiate_adt(&mut self, kind: AdtKind, generic_args: GenericArgs) -> Adt {
         self.typer.instantiate_adt(self.db, kind, generic_args)
     }
     fn adt_ty(&mut self, adt: Adt) -> TypeId {
@@ -776,4 +772,6 @@ pub enum TypeCheckErrorKind {
     GhostAssignedToNonGhost,
     #[error("invalid left-hand-side of assignment")]
     InvalidLhsOfAssignment,
+    #[error("wrong number of generic args: expected '{expected}' was given '{given}'")]
+    GenericArityMismatch { expected: usize, given: usize },
 }

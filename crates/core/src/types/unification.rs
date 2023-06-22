@@ -8,7 +8,7 @@ use crate::util::IdxWrap;
 
 use super::{
     data::{Generic, Primitive},
-    Adt, AdtField, AdtKind, AdtPrototype, StructPrototype, TypeData, TypeDataIdx, TDK,
+    Adt, AdtField, AdtKind, AdtPrototype, GenericArgs, StructPrototype, TypeData, TypeDataIdx, TDK,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -188,11 +188,11 @@ impl Typer {
         &mut self,
         db: &dyn crate::Db,
         kind: AdtKind,
-        generic_args: impl IntoIterator<Item = TypeId>,
+        generic_args: GenericArgs,
     ) -> Adt {
         debug!(?kind, "instantiating adt");
 
-        let adt = Adt::new(db, kind, generic_args.into_iter().collect());
+        let adt = Adt::new(kind, generic_args);
         if self.adt_instantiations.contains_key(&adt) {
             return adt;
         }

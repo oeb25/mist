@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use itertools::Itertools;
 use mist_syntax::{
     ast::{self, HasName, Spanned},
     ptr::AstPtr,
@@ -14,7 +13,7 @@ use crate::{
         ItemSourceMap, Param, SpanOrAstPtr, TypeSrc,
     },
     types::{
-        primitive::void, Adt, AdtField, AdtKind, AdtPrototype, BuiltinKind, Generic,
+        primitive::void, Adt, AdtField, AdtKind, AdtPrototype, BuiltinKind, Generic, GenericArgs,
         StructPrototype, TypeData, TypeId, TypeProvider, Typer, TDK,
     },
     TypeCheckError, TypeCheckErrors,
@@ -168,7 +167,7 @@ impl FileContext {
                     typer.create_adt_prototype(*kind, prototype.clone());
                 }
                 FileContextBuilderEvent::InstantiateAdt(kind, generic_args) => {
-                    typer.instantiate_adt(db, *kind, generic_args.clone());
+                    typer.instantiate_adt(db, *kind, *generic_args);
                 }
             }
         }
@@ -189,7 +188,7 @@ enum FileContextBuilderEvent {
     AllocTy(TypeData),
     NewFree,
     NewGeneric(Generic),
-    InstantiateAdt(AdtKind, Vec<TypeId>),
+    InstantiateAdt(AdtKind, GenericArgs),
     CreateAdtPrototype(AdtKind, AdtPrototype),
 }
 
@@ -238,13 +237,8 @@ impl<'a> TypingMut for FileContextBuilder<'a> {
         self.fc.events.push(FileContextBuilderEvent::CreateAdtPrototype(kind, prototype.clone()));
         self.typer.create_adt_prototype(kind, prototype)
     }
-    fn instantiate_adt(
-        &mut self,
-        kind: AdtKind,
-        generic_args: impl IntoIterator<Item = TypeId>,
-    ) -> Adt {
-        let generic_args = generic_args.into_iter().collect_vec();
-        self.fc.events.push(FileContextBuilderEvent::InstantiateAdt(kind, generic_args.clone()));
+    fn instantiate_adt(&mut self, kind: AdtKind, generic_args: GenericArgs) -> Adt {
+        self.fc.events.push(FileContextBuilderEvent::InstantiateAdt(kind, generic_args));
         self.typer.instantiate_adt(self.db, kind, generic_args)
     }
     fn adt_ty(&mut self, adt: Adt) -> TypeId {

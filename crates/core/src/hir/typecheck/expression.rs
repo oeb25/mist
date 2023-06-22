@@ -17,7 +17,8 @@ use crate::{
     },
     types::{
         primitive::{bool, error, ghost_bool, ghost_int, int, null, void},
-        BuiltinField, BuiltinKind, Field, Primitive, TypeData, TypeId, TypeProvider, TDK,
+        BuiltinField, BuiltinKind, Field, GenericArgs, Primitive, TypeData, TypeId, TypeProvider,
+        TDK,
     },
     VariableDeclaration,
 };
@@ -545,7 +546,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             let adt = match named_type {
                 Ok(NamedType::AdtKind(kind)) => {
                     // TODO: instantiate new struct type instance
-                    tc.instantiate_adt(kind, [])
+                    tc.instantiate_adt(kind, GenericArgs::none(tc.db))
                 }
                 Ok(NamedType::Builtin(_)) | Ok(NamedType::TypeId(_)) | Err(_) => {
                     // NOTE: Still check the types of the fields

@@ -7,8 +7,8 @@ use mist_syntax::ast::{
 };
 
 use crate::{
-    def::{Name, Struct},
-    types::{Adt, AdtField, Field, Primitive, TypeId},
+    def::Name,
+    types::{Adt, AdtField, AdtKind, Field, Primitive, TypeId},
     util::impl_idx,
 };
 
@@ -218,7 +218,7 @@ pub enum AssertionKind {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Path {
     Name(Name),
-    Struct(Struct),
+    Adt(AdtKind),
 }
 
 /// A unique explicit type with origin in a source file. One of these should be

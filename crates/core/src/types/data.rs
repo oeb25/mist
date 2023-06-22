@@ -144,8 +144,8 @@ impl AdtField {
 }
 
 impl Adt {
-    pub(super) fn new(db: &dyn crate::Db, kind: AdtKind, generic_args: Vec<TypeId>) -> Self {
-        Adt { kind, generic_args: GenericArgs::new(db, generic_args) }
+    pub(super) fn new(kind: AdtKind, generic_args: GenericArgs) -> Self {
+        Adt { kind, generic_args }
     }
     pub fn struct_(&self) -> Option<Struct> {
         match self.kind {
@@ -173,9 +173,20 @@ impl AdtKind {
             AdtKind::Enum => todo!(),
         }
     }
+    pub fn arity(&self, db: &dyn crate::Db) -> usize {
+        match self {
+            AdtKind::Struct(s) => {
+                s.ast_node(db).generic_param_list().map_or(0, |g| g.generic_params().count())
+            }
+            AdtKind::Enum => todo!(),
+        }
+    }
 }
 
 impl GenericArgs {
+    pub fn none(db: &dyn crate::Db) -> GenericArgs {
+        GenericArgs::new(db, Vec::new())
+    }
     pub fn len(self, db: &dyn crate::Db) -> usize {
         self.args(db).len()
     }
@@ -247,7 +258,10 @@ impl TypeData<TypeId> {
             TDK::Ref { is_mut, inner } => TDK::Ref { is_mut: *is_mut, inner: f(*inner) },
             TDK::Optional(it) => TDK::Optional(f(*it)),
             TDK::Primitive(it) => TDK::Primitive(*it),
-            TDK::Adt(it) => TDK::Adt(Adt::new(db, it.kind(), it.generic_args(db).map(f).collect())),
+            TDK::Adt(it) => TDK::Adt(Adt::new(
+                it.kind(),
+                GenericArgs::new(db, it.generic_args(db).map(f).collect()),
+            )),
             TDK::Builtin(it, args) => {
                 TDK::Builtin(*it, GenericArgs::new(db, args.iter(db).map(f).collect()))
             }
