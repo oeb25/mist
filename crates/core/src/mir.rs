@@ -12,9 +12,9 @@ use crate::mono::exprs::{ExprPtr, VariablePtr};
 pub use self::lower::lower_item;
 pub use def::{
     place::{Place, Projection, ProjectionList, Slot, SlotId},
-    BlockId, BlockLocation, BlockOrInstruction, Body, BodyLocation, BodySourceMap, BorrowKind,
-    Folding, Function, Instruction, InstructionId, MExpr, Operand, RangeKind, SwitchTargets,
-    Terminator,
+    source_map::BodySourceMap,
+    Block, BlockId, BlockLocation, BlockOrInstruction, Body, BodyLocation, BorrowKind, Folding,
+    Function, Instruction, InstructionId, MExpr, Operand, RangeKind, SwitchTargets, Terminator,
 };
 
 #[salsa::tracked]

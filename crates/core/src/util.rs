@@ -232,3 +232,22 @@ impl<V: IdxWrap> IdxSet<V> {
         self.0.iter().map(|(idx, _)| idx)
     }
 }
+
+pub trait SourceMapped<Src, Dst> {
+    fn register(&mut self, src: Src, dst: Dst);
+    fn find(&self, src: Src) -> Option<Dst>;
+    fn back(&self, dst: Dst) -> Option<Src>;
+
+    fn has(&self, src: Src) -> bool {
+        self.find(src).is_some()
+    }
+    fn has_back(&self, dst: Dst) -> bool {
+        self.back(dst).is_some()
+    }
+}
+
+pub trait SourceMappedMulti<Src, Dst> {
+    fn register_multi(&mut self, src: Src, dst: Dst);
+    fn find_multi(&self, src: Src) -> &[Dst];
+    fn back_multi(&self, dst: Dst) -> Option<Src>;
+}

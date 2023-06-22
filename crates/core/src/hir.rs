@@ -15,7 +15,7 @@ use crate::{
 };
 
 pub use def::*;
-pub use item_context::{ItemContext, ItemSourceMap, Named, SpanOrAstPtr};
+pub use item_context::{source_map::ItemSourceMap, ItemContext, Named, SpanOrAstPtr};
 use typecheck::TypeChecker;
 
 #[salsa::tracked]

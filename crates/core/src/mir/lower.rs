@@ -14,6 +14,7 @@ use crate::{
         Condition, Item, ItemKind,
     },
     types::{BuiltinField, BuiltinKind, ListField, Primitive},
+    util::{SourceMapped, SourceMappedMulti},
 };
 
 use super::{
@@ -123,7 +124,7 @@ impl<'a> MirLower<'a> {
             Slot::Param(var) | Slot::Local(var) | Slot::Quantified(var) => {
                 let var = *var;
                 let id = self.body.slots.alloc(slot);
-                self.source_map.var_map.insert(var, id);
+                self.source_map.register(var, id);
                 id
             }
             Slot::Self_ => self.body.self_slot,
@@ -149,23 +150,20 @@ impl<'a> MirLower<'a> {
         let id = self.body.instructions.alloc(instruction);
         self.body.blocks[bid].instructions.push(id);
         if let Some(expr) = expr {
-            self.source_map.expr_instr_map.entry(expr).or_default().push(id);
-            self.source_map.expr_instr_map_back.insert(id, expr);
+            self.source_map.register_multi(expr, id);
         }
         id
     }
     fn alloc_block(&mut self, expr: Option<ExprPtr>) -> BlockId {
         let id = self.body.blocks.alloc(Default::default());
         if let Some(expr) = expr {
-            self.source_map.expr_block_map.insert(expr, id);
-            self.source_map.expr_block_map_back.insert(id, expr);
+            self.source_map.register(expr, id);
         }
         id
     }
     fn hint_block_source(&mut self, source: ExprPtr, bid: BlockId) {
-        if !self.source_map.expr_block_map_back.contains_idx(bid) {
-            self.source_map.expr_block_map.insert(source, bid);
-            self.source_map.expr_block_map_back.insert(bid, source);
+        if !self.source_map.has_back(bid) {
+            self.source_map.register(source, bid);
         }
     }
     fn self_slot(&self) -> SlotId {
@@ -175,7 +173,7 @@ impl<'a> MirLower<'a> {
         self.body.slot_type.get(self.self_slot()).copied()
     }
     fn var_place(&mut self, var: VariablePtr) -> Place {
-        if let Some(&slot) = self.source_map.var_map.get(&var) {
+        if let Some(slot) = self.source_map.find(var) {
             slot.into()
         } else {
             MirErrors::push(self.db, MirError::SlotUseBeforeAlloc { var, span: None });
