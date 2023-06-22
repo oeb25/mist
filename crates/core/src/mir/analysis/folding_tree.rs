@@ -351,7 +351,7 @@ mod test {
     }
     prop_compose! {
         fn arb_place(ctx: &Context)
-            (slot in prop::sample::select(ctx.body.slots.idxs().collect_vec()),
+            (slot in prop::sample::select(ctx.body.slots().collect_vec()),
             // TODO
             //  projection in prop::sample::select(ctx.body.projections.idxs().collect_vec()))
              projection in prop::sample::select(Vec::new()))

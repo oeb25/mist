@@ -52,7 +52,7 @@ use tracing::warn;
 
 use crate::{gen::VExprId, mangle};
 
-use super::{BlockOrInstruction, BodyLower, Result, ViperLowerError};
+use super::{BodyLower, Result, ViperLowerError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PureLowerResult {
@@ -67,7 +67,7 @@ impl PureLowerResult {
     fn wrap_in_assignment(
         self,
         lower: &mut BodyLower<'_>,
-        source: impl Into<BlockOrInstruction> + Copy,
+        source: impl Into<mir::BlockOrInstruction> + Copy,
         x: mir::Place,
         exp: VExprId,
     ) -> Result<PureLowerResult> {

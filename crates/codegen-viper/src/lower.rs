@@ -9,7 +9,7 @@ use itertools::Either;
 use miette::Diagnostic;
 use mist_core::{
     hir,
-    mir::{self, analysis::cfg, BlockOrInstruction},
+    mir::{self, analysis::cfg},
     mono::{
         self,
         exprs::Field,
@@ -336,17 +336,17 @@ impl<'a> BodyLower<'a> {
 impl BodyLower<'_> {
     pub(crate) fn alloc(
         &mut self,
-        source: impl Into<BlockOrInstruction>,
+        source: impl Into<mir::BlockOrInstruction>,
         vexpr: impl Into<Exp<VExprId>>,
     ) -> VExprId {
         let item_id = self.body.def();
         let id = self.viper_body.arena.alloc(VExpr::new(vexpr.into()));
         match source.into() {
-            BlockOrInstruction::Block(block_id) => {
+            mir::BlockOrInstruction::Block(block_id) => {
                 self.source_map.block_expr.insert((item_id, block_id), id);
                 self.source_map.block_expr_back.insert(id, (item_id, block_id));
             }
-            BlockOrInstruction::Instruction(inst_id) => {
+            mir::BlockOrInstruction::Instruction(inst_id) => {
                 self.source_map.inst_expr.insert((item_id, inst_id), id);
                 self.source_map.inst_expr_back.insert(id, (item_id, inst_id));
             }
@@ -355,7 +355,7 @@ impl BodyLower<'_> {
     }
     fn function(
         &mut self,
-        source: impl Into<BlockOrInstruction> + Copy,
+        source: impl Into<mir::BlockOrInstruction> + Copy,
         f: mir::Function,
         args: &[mir::Operand],
     ) -> Result<Exp<VExprId>> {
@@ -436,7 +436,7 @@ impl BodyLower<'_> {
     }
     pub(super) fn place_to_ref(
         &mut self,
-        source: impl Into<BlockOrInstruction> + Copy,
+        source: impl Into<mir::BlockOrInstruction> + Copy,
         p: mir::Place,
     ) -> Result<VExprId> {
         let var = self.slot_to_var(p.slot())?;
@@ -504,7 +504,7 @@ impl BodyLower<'_> {
     }
     fn operand_to_ref(
         &mut self,
-        source: impl Into<BlockOrInstruction> + Copy,
+        source: impl Into<mir::BlockOrInstruction> + Copy,
         o: &mir::Operand,
     ) -> Result<VExprId> {
         Ok(match o {
@@ -568,7 +568,7 @@ impl BodyLower<'_> {
 
     pub(super) fn ty_to_condition(
         &mut self,
-        source: impl Into<BlockOrInstruction> + Copy,
+        source: impl Into<mir::BlockOrInstruction> + Copy,
         place: VExprId,
         ty: Type,
     ) -> Result<(Option<VExprId>, Option<VExprId>)> {

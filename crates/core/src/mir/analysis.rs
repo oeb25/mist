@@ -6,7 +6,7 @@ use petgraph::{stable_graph::NodeIndex, Graph};
 
 pub use petgraph;
 
-use super::{serialize, BlockId, Body, MExpr, Operand, Place, SlotId};
+use super::{serialize, BlockId, Body};
 
 pub mod cfg;
 pub mod folding_tree;
@@ -19,26 +19,4 @@ where
     E: std::fmt::Display,
 {
     petgraph::dot::Dot::with_config(g, &[]).to_string()
-}
-
-impl MExpr {
-    pub fn all_slot_usages(&self) -> impl IntoIterator<Item = SlotId> + '_ {
-        match self {
-            MExpr::Use(s) => s.slot().into_iter().collect(),
-            MExpr::BinaryOp(_, l, r) => l.slot().into_iter().chain(r.slot()).collect(),
-            MExpr::Ref(_, p) => vec![p.slot()],
-            MExpr::UnaryOp(_, o) => o.slot().into_iter().collect(),
-        }
-    }
-    pub fn all_operands(&self) -> impl IntoIterator<Item = &Operand> {
-        match self {
-            MExpr::Use(s) => vec![s],
-            MExpr::BinaryOp(_, l, r) => vec![l, r],
-            MExpr::Ref(_, _) => vec![],
-            MExpr::UnaryOp(_, o) => vec![o],
-        }
-    }
-    pub fn places(&self) -> impl Iterator<Item = Place> + '_ {
-        self.all_operands().into_iter().filter_map(|o| o.place())
-    }
 }

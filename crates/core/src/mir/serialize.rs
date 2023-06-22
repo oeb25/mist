@@ -325,12 +325,13 @@ impl<'db, A: Fn(BodyLocation) -> Option<String>> Serializer<'db, A> {
                 w!(self, Yellow, "!switch ");
                 self.operand(cond);
                 w!(self, Default, " {{");
-                for (idx, value) in switch.values.iter() {
+                let (values, otherwise) = switch.values();
+                for (value, target) in values {
                     w!(self, Default, " {value} -> ");
-                    self.block_id(Some(switch.targets[idx]));
+                    self.block_id(Some(target));
                 }
                 w!(self, Default, ", otherwise ");
-                self.block_id(Some(switch.otherwise));
+                self.block_id(Some(otherwise));
                 wln!(self, Default, " }}");
             }
             Terminator::Call { func, args, destination, target } => {

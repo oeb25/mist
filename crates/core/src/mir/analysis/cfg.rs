@@ -200,7 +200,7 @@ impl<'a> CfgBuilder<'a> {
     fn finish(mut self) -> Cfg {
         for (bid, b) in self.body.blocks.iter() {
             let nid = self.cfg.bid_to_node(bid);
-            if let Some(term) = b.terminator.clone() {
+            if let Some(term) = b.terminator().cloned() {
                 match &term {
                     Terminator::Return => {}
                     Terminator::Quantify(_, _, next) => {
@@ -216,11 +216,12 @@ impl<'a> CfgBuilder<'a> {
                         self.cfg.graph.add_edge(nid, next_nid, term);
                     }
                     Terminator::Switch(_, s) => {
-                        for t in s.targets.values() {
-                            let t_nid = self.cfg.bid_to_node(*t);
+                        let (targets, otherwise) = s.targets();
+                        for t in targets {
+                            let t_nid = self.cfg.bid_to_node(t);
                             self.cfg.graph.add_edge(nid, t_nid, term.clone());
                         }
-                        let t_nid = self.cfg.bid_to_node(s.otherwise);
+                        let t_nid = self.cfg.bid_to_node(otherwise);
                         self.cfg.graph.add_edge(nid, t_nid, term.clone());
                     }
                     Terminator::Call { target, .. } => {
