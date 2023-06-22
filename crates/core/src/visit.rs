@@ -8,8 +8,9 @@ use mist_syntax::{
 
 use crate::{
     def::{Def, DefKind, Function, Struct, StructField, TypeInvariant},
+    file::SourceFile,
     hir::{
-        self, Block, Decreases, ExprData, ExprIdx, IfExpr, ItemContext, ItemSourceMap, SourceFile,
+        self, Block, Decreases, ExprData, ExprIdx, IfExpr, ItemContext, ItemSourceMap,
         StatementData, StatementId, TypeSrc, VariableIdx, WhileExpr,
     },
     types::Field,
@@ -25,7 +26,7 @@ pub trait Walker<'db>: Sized {
         file: SourceFile,
         visitor: &'v mut V,
     ) -> ControlFlow<V::Item> {
-        for def in hir::file_definitions(db, file) {
+        for def in file.definitions(db) {
             Self::walk_def(db, file, visitor, def)?;
         }
         ControlFlow::Continue(())

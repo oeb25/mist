@@ -8,7 +8,7 @@ use itertools::Itertools;
 use miette::IntoDiagnostic;
 use mist_codegen_viper::gen::ViperHints;
 use mist_core::{
-    hir::{self, SourceFile},
+    file::SourceFile,
     salsa::{ParallelDatabase, Snapshot},
 };
 use mist_syntax::{ast::Spanned, SourceSpan};
@@ -390,7 +390,8 @@ impl Backend {
                         )
                         .await;
 
-                    let diagnostics = hir::file_definitions(&*db, file)
+                    let diagnostics = file
+                        .definitions(&*db)
                         .iter()
                         .map(|def| {
                             let span = def.syntax(&*db).span();

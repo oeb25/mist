@@ -4,7 +4,8 @@ use derive_new::new;
 use itertools::Either;
 use mist_core::{
     def::StructField,
-    hir::{self, SourceFile, TypeRefKind, VariableIdx},
+    file::SourceFile,
+    hir::{self, TypeRefKind, VariableIdx},
     salsa,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
     VariableDeclarationKind,

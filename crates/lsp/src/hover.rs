@@ -3,7 +3,8 @@ use std::ops::ControlFlow;
 use derive_new::new;
 use mist_core::{
     def::{Def, DefKind, Name, StructField},
-    hir::{pretty, ExprData, ExprIdx, SourceFile, TypeRefKind, TypeSrc, VariableIdx},
+    file::SourceFile,
+    hir::{pretty, ExprData, ExprIdx, TypeRefKind, TypeSrc, VariableIdx},
     salsa,
     types::{AdtKind, BuiltinField, Field, TypeProvider},
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},

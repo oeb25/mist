@@ -3,7 +3,7 @@
 pub mod db;
 
 use mist_codegen_viper::gen::ViperOutput;
-use mist_core::util::Position;
+use mist_core::{file::SourceFile, util::Position};
 use serde::{Deserialize, Serialize};
 use typeshare::typeshare;
 use wasm_bindgen::prelude::*;
@@ -24,18 +24,15 @@ pub fn parse(src: &str) -> String {
         .flat_map(|e| miette_to_markers(src, miette::Error::new(e)))
         .collect();
     let node = parse.syntax();
-    let res = ParseResult {
-        markers,
-        parse_tree: format!("{node:#?}"),
-    };
+    let res = ParseResult { markers, parse_tree: format!("{node:#?}") };
     serde_json::to_string(&res).expect("failed to serialize")
 }
 
 #[wasm_bindgen]
 pub fn type_check(src: &str) -> String {
     let db = db::Database::default();
-    let file = mist_core::hir::SourceFile::new(&db, src.to_string());
-    let parse = mist_core::hir::file::parse_file(&db, file);
+    let file = SourceFile::new(&db, src.to_string());
+    let parse = file.parse(&db);
 
     let parse_errors = parse.errors();
     let (viper_program, viper_body, _viper_source_map) =
@@ -54,10 +51,7 @@ pub fn type_check(src: &str) -> String {
         .flat_map(|e| miette_to_markers(src, e))
         .collect();
 
-    let res = ParseResult {
-        markers,
-        parse_tree: viper_src,
-    };
+    let res = ParseResult { markers, parse_tree: viper_src };
     serde_json::to_string(&res).expect("failed to serialize")
 }
 

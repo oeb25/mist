@@ -6,7 +6,7 @@ use itertools::Itertools;
 use miette::{bail, Context, IntoDiagnostic, Result};
 use mist_codegen_viper::gen::ViperOutput;
 use mist_core::{
-    hir,
+    file::SourceFile,
     mir::{self, pass::Pass},
     mono,
 };
@@ -75,7 +75,7 @@ async fn cli() -> Result<()> {
             let source = std::fs::read_to_string(&file)
                 .into_diagnostic()
                 .wrap_err_with(|| format!("failed to read `{}`", file.display()))?;
-            let file = hir::SourceFile::new(&db, source);
+            let file = SourceFile::new(&db, source);
             for item in mono::monomorphized_items(&db, file).items(&db) {
                 info!("{}", item.name(&db));
                 let span = tracing::span!(Level::DEBUG, "dump", def = item.name(&db).to_string());
@@ -146,7 +146,7 @@ async fn cli() -> Result<()> {
             let src = std::fs::read_to_string(&src_file)
                 .into_diagnostic()
                 .wrap_err_with(|| format!("failed to read `{}`", src_file.display()))?;
-            let file = hir::SourceFile::new(&db, src.clone());
+            let file = SourceFile::new(&db, src.clone());
 
             dump_errors(&db, &src_file, &src, file)?;
 
@@ -217,7 +217,7 @@ fn dump_errors(
     db: &dyn crate::Db,
     path: &std::path::Path,
     src: &str,
-    file: hir::SourceFile,
+    file: SourceFile,
 ) -> Result<()> {
     let errors = accumulated_errors(db, file).collect_vec();
 

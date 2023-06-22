@@ -107,11 +107,11 @@ mod tests {
     use salsa::ParallelDatabase;
     use tracing::{info, Level};
 
-    use crate::{db::Database, hir, mir, mono};
+    use crate::{db::Database, file::SourceFile, mir, mono};
 
     fn generate_annotated_mir(src: &str) -> String {
         let db = Database::default();
-        let file = hir::SourceFile::new(&db, src.to_string());
+        let file = SourceFile::new(&db, src.to_string());
         mono::monomorphized_items(&db, file)
             .items(&db)
             .iter()

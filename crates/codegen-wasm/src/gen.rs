@@ -1,6 +1,7 @@
 use itertools::Itertools;
 use mist_core::{
-    hir, mir,
+    file::SourceFile,
+    mir,
     mono::{
         self,
         types::{Adt, Type, TypeData},
@@ -15,7 +16,7 @@ use crate::wasm;
 pub enum Error {}
 type Result<T, E = Error> = std::result::Result<T, E>;
 
-pub fn generate_module(db: &dyn crate::Db, file: hir::SourceFile) -> Result<wasm::Module> {
+pub fn generate_module(db: &dyn crate::Db, file: SourceFile) -> Result<wasm::Module> {
     // let mut builder = wasm::Module::builder();
 
     for item in mono::monomorphized_items(db, file).items(db) {

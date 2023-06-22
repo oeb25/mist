@@ -6,12 +6,13 @@ use mist_syntax::{
     AstNode, Parse,
 };
 
-use crate::{
-    def::Def,
-    util::{impl_idx, IdxArena},
-};
+use crate::util::{impl_idx, IdxArena};
 
-use super::SourceFile;
+#[salsa::input]
+pub struct SourceFile {
+    #[return_ref]
+    pub text: String,
+}
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct AstIdMap {
@@ -27,13 +28,15 @@ pub struct InFile<T> {
 }
 
 #[salsa::tracked]
-pub fn parse_file(db: &dyn crate::Db, file: SourceFile) -> Parse<ast::SourceFile> {
-    mist_syntax::parse(file.text(db))
-}
-
-#[salsa::tracked]
-pub fn ast_map(db: &dyn crate::Db, file: SourceFile) -> AstIdMap {
-    AstIdMap::from_source(file.root(db))
+impl SourceFile {
+    #[salsa::tracked]
+    pub fn parse(self, db: &dyn crate::Db) -> Parse<ast::SourceFile> {
+        mist_syntax::parse(self.text(db))
+    }
+    #[salsa::tracked]
+    pub fn ast_map(self, db: &dyn crate::Db) -> AstIdMap {
+        AstIdMap::from_source(self.root(db))
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -53,13 +56,7 @@ pub type AstId<N> = InFile<FileAstId<N>>;
 
 impl SourceFile {
     pub fn root(&self, db: &dyn crate::Db) -> ast::SourceFile {
-        parse_file(db, *self).tree()
-    }
-    pub fn ast_map(&self, db: &dyn crate::Db) -> AstIdMap {
-        ast_map(db, *self)
-    }
-    pub fn definitions(&self, db: &dyn crate::Db) -> Vec<Def> {
-        super::file_definitions(db, *self)
+        self.parse(db).tree()
     }
 }
 

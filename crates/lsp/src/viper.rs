@@ -7,12 +7,12 @@ use futures_util::StreamExt;
 use miette::{Context, IntoDiagnostic};
 use mist_cli::VerificationContext;
 use mist_codegen_viper::gen::ViperOutput;
-use mist_core::hir;
+use mist_core::file::SourceFile;
 use tracing::info;
 use viperserver::{verification::DetailsError, VerificationStatus, ViperServerError};
 
 pub struct VerifyFile<'a> {
-    pub file: hir::SourceFile,
+    pub file: SourceFile,
     pub viperserver_jar: &'a Path,
     pub viperserver: &'a viperserver::ViperServer,
     pub working_dir: &'a Path,

@@ -4,11 +4,7 @@ pub mod types;
 
 use mist_syntax::ast::AttrFlags;
 
-use crate::{
-    def::Name,
-    hir::{Param, SourceFile},
-    mono::lower::MonoLower,
-};
+use crate::{def::Name, file::SourceFile, hir::Param, mono::lower::MonoLower};
 
 use self::{
     exprs::{ExprPtr, VariablePtr},

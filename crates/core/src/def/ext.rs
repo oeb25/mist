@@ -3,7 +3,10 @@ use mist_syntax::{
     AstNode,
 };
 
-use crate::hir::{self, Param, SourceFile};
+use crate::{
+    file::SourceFile,
+    hir::{self, Param},
+};
 
 use super::{Def, DefKind, Function, Name, Struct, StructField, TypeInvariant};
 

@@ -4,7 +4,7 @@ use derive_more::From;
 use derive_new::new;
 use itertools::Itertools;
 use mist_core::{
-    hir,
+    file::SourceFile,
     mir::{self, pass::Pass},
     mono,
     util::{impl_idx, IdxMap, IdxWrap},
@@ -25,7 +25,7 @@ type Result<T> = std::result::Result<T, ViperLowerError>;
 #[salsa::tracked]
 pub fn viper_file(
     db: &dyn crate::Db,
-    file: hir::SourceFile,
+    file: SourceFile,
 ) -> Result<(Program<VExprId>, ViperBody, ViperSourceMap)> {
     let mut domains = vec![];
     let mut fields = vec![];

@@ -5,7 +5,8 @@ use std::{ops::ControlFlow, sync::Arc};
 use derive_new::new;
 use itertools::Itertools;
 use mist_core::{
-    hir::{self, ExprIdx, SourceFile, TypeRefKind, VariableIdx},
+    file::SourceFile,
+    hir::{self, ExprIdx, TypeRefKind, VariableIdx},
     mir::{self, pass::Pass},
     mono, salsa,
     types::{TypeProvider, TDK},

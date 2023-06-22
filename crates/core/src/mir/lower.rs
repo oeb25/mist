@@ -706,7 +706,8 @@ impl MirLower<'_> {
                 let vars = vars.iter().map(|var| self.alloc_quantified(*var)).collect();
 
                 let mut q_end = q_body;
-                let q_dest = self.expr_into_operand(q_expr, &mut q_end, None);
+                // TODO: Do we need to consider `_q_dest`?
+                let _q_dest = self.expr_into_operand(q_expr, &mut q_end, None);
                 let next_bid = target.unwrap_or_else(|| self.alloc_block(None));
                 assert_ne!(bid, next_bid);
 

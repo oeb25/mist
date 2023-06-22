@@ -285,7 +285,7 @@ mod test {
     use itertools::Itertools;
     use proptest::prelude::*;
 
-    use crate::{hir, mir::Place, mono};
+    use crate::{file::SourceFile, mir::Place, mono};
 
     use super::*;
 
@@ -324,7 +324,7 @@ mod test {
                 x.a.b.b;
                 x.b.b.b;
             }";
-            let file = hir::SourceFile::new(&db, source.to_string());
+            let file = SourceFile::new(&db, source.to_string());
             let mono = mono::monomorphized_items(&db, file);
             let item = mono.items(&db)[1];
             let body = mir::lower_item(&db, item).unwrap().body(&db).clone();

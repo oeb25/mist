@@ -44,7 +44,7 @@ fn initialize_file_context_inner(
         source_map: Default::default(),
     };
 
-    for def in hir::file_definitions(db, file) {
+    for def in file.definitions(db) {
         if let hir::DefKind::Struct(s) = def.kind(db) {
             let s_ast = s.ast_node(db);
 
@@ -61,7 +61,7 @@ fn initialize_file_context_inner(
             b.create_adt_prototype(AdtKind::Struct(s), AdtPrototype::Delayed);
         }
     }
-    for def in hir::file_definitions(db, file) {
+    for def in file.definitions(db) {
         match def.kind(db) {
             hir::DefKind::Function(f) => {
                 let is_ghost = f.attrs(db).is_ghost();

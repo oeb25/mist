@@ -8,7 +8,7 @@ use mist_codegen_viper::{
     gen::ViperOutput,
     lower::{ViperLowerError, ViperSourceMap},
 };
-use mist_core::{hir, mir, mono, salsa, util::Position, TypeCheckError};
+use mist_core::{file::SourceFile, mir, mono, salsa, util::Position, TypeCheckError};
 use mist_syntax::{ast::Spanned, ParseError, SourceSpan};
 use tracing::warn;
 use viperserver::{verification::Details, VerificationStatus};
@@ -51,15 +51,15 @@ impl MistError {
 
 #[allow(unused)]
 #[salsa::tracked]
-fn lower_file_for_errors(db: &dyn crate::Db, file: hir::SourceFile) {
+fn lower_file_for_errors(db: &dyn crate::Db, file: SourceFile) {
     for _ in mono::monomorphized_items(db, file).items(db) {}
 }
 
 pub fn accumulated_errors(
     db: &dyn crate::Db,
-    file: hir::SourceFile,
+    file: SourceFile,
 ) -> impl Iterator<Item = MistError> + '_ {
-    let parse = hir::file::parse_file(db, file);
+    let parse = file.parse(db);
     let parse_errors = parse.errors();
     let type_errors = lower_file_for_errors::accumulated::<mist_core::TypeCheckErrors>(db, file);
     let mir_errors = lower_file_for_errors::accumulated::<mir::MirErrors>(db, file);
@@ -104,7 +104,7 @@ pub fn accumulated_errors(
 }
 
 pub struct VerificationContext<'a> {
-    pub file: hir::SourceFile,
+    pub file: SourceFile,
     pub mist_src_path: &'a std::path::Path,
     pub mist_src: &'a str,
     pub viper_path: &'a std::path::Path,

@@ -438,7 +438,8 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             let expr_ty = tc.expr_ty(expr);
             let (sf, field_ty): (Option<Field>, TypeId) = match tc.ty_kind(expr_ty) {
                 TDK::Error => (None, error()),
-                TDK::Ref { is_mut, inner } => match tc.ty_kind(inner) {
+                // TODO: potentially use `is_mut`
+                TDK::Ref { is_mut: _, inner } => match tc.ty_kind(inner) {
                     TDK::Adt(s) => {
                         if let Some(field) =
                             tc.fields_of(s).into_iter().find(|f| f.name(tc.db) == field)

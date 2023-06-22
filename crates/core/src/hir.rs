@@ -1,6 +1,5 @@
 pub mod def;
 pub mod desugar;
-pub mod file;
 pub(crate) mod file_context;
 mod item_context;
 pub mod pretty;
@@ -10,6 +9,7 @@ use mist_syntax::ast::{HasName, Spanned};
 
 use crate::{
     def::{Def, DefKind},
+    file::SourceFile,
     hir::typecheck::{Typed, TypingMutExt},
     types::primitive::*,
 };
@@ -17,21 +17,6 @@ use crate::{
 pub use def::*;
 pub use item_context::{ItemContext, ItemSourceMap, Named, SpanOrAstPtr};
 use typecheck::TypeChecker;
-
-#[salsa::input]
-pub struct SourceFile {
-    #[return_ref]
-    pub text: String,
-}
-
-#[salsa::tracked]
-pub fn file_definitions(db: &dyn crate::Db, file: SourceFile) -> Vec<Def> {
-    let ast_map = file.ast_map(db);
-    file.root(db)
-        .items()
-        .filter_map(|item| Some(Def::new(db, DefKind::new(db, ast_map.ast_id(file, &item))?)))
-        .collect()
-}
 
 #[salsa::tracked]
 pub struct DefinitionHir {

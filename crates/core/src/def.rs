@@ -1,6 +1,6 @@
 use mist_syntax::ast;
 
-use crate::hir::file::AstId;
+use crate::file::{AstId, SourceFile};
 
 mod ext;
 mod name;
@@ -95,4 +95,16 @@ pub struct StructField {
 #[salsa::interned]
 pub struct TypeInvariant {
     id: AstId<ast::TypeInvariant>,
+}
+
+#[salsa::tracked]
+impl SourceFile {
+    #[salsa::tracked]
+    pub fn definitions(self, db: &dyn crate::Db) -> Vec<Def> {
+        let ast_map = self.ast_map(db);
+        self.root(db)
+            .items()
+            .filter_map(|item| Some(Def::new(db, DefKind::new(db, ast_map.ast_id(self, &item))?)))
+            .collect()
+    }
 }
