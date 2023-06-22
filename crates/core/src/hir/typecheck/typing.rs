@@ -105,7 +105,7 @@ fn lower_type_inner(tc: &mut impl TypingMut, ast_ty: &ast::Type) -> (TypeRefKind
                         NamedType::Builtin(builtin) => {
                             (Path::Name(builtin.name()), builtin.arity())
                         }
-                        NamedType::TypeId(_) => (Path::Name(name.into()), 1),
+                        NamedType::TypeId(_) => (Path::Name(name.into()), 0),
                     };
                     let type_args = if let Some(args) = ast_name.generic_arg_list() {
                         // TODO: put `type_ref_args` on the type ref
