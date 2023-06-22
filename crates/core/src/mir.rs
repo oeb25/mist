@@ -23,7 +23,7 @@ use crate::{
         types::{Adt, AdtField, Type},
         Item,
     },
-    util::{impl_idx, IdxArena, IdxMap, IdxWrap},
+    util::{impl_idx, IdxArena, IdxMap},
 };
 
 pub use self::lower::lower_item;
@@ -145,7 +145,7 @@ impl Terminator {
         }
     }
 
-    fn places_referenced<'a>(&'a self, body: &'a Body) -> impl Iterator<Item = Place> + 'a {
+    fn places_referenced<'a>(&'a self, db: &'a dyn crate::Db) -> impl Iterator<Item = Place> + 'a {
         match self {
             Terminator::Return
             | Terminator::Goto(_)
@@ -154,7 +154,7 @@ impl Terminator {
             Terminator::Switch(op, _) => Left(op.place().into_iter()),
             Terminator::Call { args, .. } => Right(args.iter().filter_map(|arg| arg.place())),
         }
-        .flat_map(|p| [p].into_iter().chain(nested_places(p, body)))
+        .flat_map(|p| [p].into_iter().chain(p.nested_places(db)))
     }
 
     fn places_written_to(&self) -> impl Iterator<Item = Place> + '_ {
@@ -283,30 +283,78 @@ impl Slot {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Place {
-    pub slot: SlotId,
-    pub projection: ProjectionList,
+    slot: SlotId,
+    projection: Option<ProjectionList>,
 }
 impl Place {
-    pub fn without_projection(&self) -> Place {
-        self.replace_projection(Projection::empty())
+    pub fn new(slot: SlotId, projection: Option<ProjectionList>) -> Place {
+        Place { slot, projection }
+    }
+
+    pub fn slot(self) -> SlotId {
+        self.slot
+    }
+
+    pub fn has_projection(self, db: &dyn crate::Db) -> bool {
+        !self.projection(db).is_empty(db)
+    }
+
+    pub fn projection(self, db: &dyn crate::Db) -> ProjectionList {
+        self.projection.unwrap_or_else(|| ProjectionList::new(db, Vec::new()))
+    }
+
+    pub fn projections(self, db: &dyn crate::Db) -> &[Projection] {
+        self.projection(db).elements(db)
+    }
+
+    pub fn without_projection(&self, db: &dyn crate::Db) -> Place {
+        self.replace_projection(Projection::empty(db))
     }
 
     pub fn replace_projection(&self, projection: ProjectionList) -> Place {
-        Place { slot: self.slot, projection }
+        Place { slot: self.slot, projection: Some(projection) }
     }
 
-    pub fn parent(&self, b: &Body) -> Option<Place> {
-        Some(self.replace_projection(b.projection_parent(self.projection)?))
+    pub fn parent(&self, db: &dyn crate::Db) -> Option<Place> {
+        Some(self.replace_projection(self.projection(db).parent(db)?))
+    }
+
+    pub fn project_deeper(self, db: &dyn crate::Db, projection: &[Projection]) -> Place {
+        let mut new_projection = self.projection(db).elements(db).to_vec();
+        new_projection.extend_from_slice(projection);
+        self.replace_projection(ProjectionList::new(db, new_projection))
+    }
+
+    pub fn projection_iter(self, db: &dyn crate::Db) -> impl Iterator<Item = Projection> + '_ {
+        self.projection(db).iter(db)
+    }
+
+    pub fn projection_path_iter(
+        self,
+        db: &dyn crate::Db,
+    ) -> impl Iterator<Item = ProjectionList> + '_ {
+        self.projection(db).path_iter(db)
+    }
+
+    fn nested_places(self, db: &dyn crate::Db) -> impl Iterator<Item = Place> + '_ {
+        self.projection_iter(db).filter_map(|pj| match pj {
+            Projection::Field(_, _) => None,
+            Projection::Index(s, _) => Some(s.into()),
+        })
     }
 }
 
 impl From<SlotId> for Place {
-    fn from(slot: SlotId) -> Self {
-        Place { slot, projection: Projection::empty() }
+    fn from(slot: SlotId) -> Place {
+        Place { slot, projection: None }
     }
 }
 
-impl_idx!(ProjectionList, Vec<Projection>, default_debug);
+#[salsa::interned]
+pub struct ProjectionList {
+    #[return_ref]
+    pub elements: Vec<Projection>,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Projection {
     Field(Field, Type),
@@ -314,8 +362,50 @@ pub enum Projection {
 }
 impl Projection {
     /// Construct an empty [`ProjectionList`]
-    pub fn empty() -> ProjectionList {
-        ProjectionList::from_raw(0.into())
+    pub fn empty(db: &dyn crate::Db) -> ProjectionList {
+        ProjectionList::new(db, Vec::new())
+    }
+}
+impl ProjectionList {
+    pub fn is_empty(self, db: &dyn crate::Db) -> bool {
+        self.elements(db).is_empty()
+    }
+    pub fn len(self, db: &dyn crate::Db) -> usize {
+        self.elements(db).len()
+    }
+    pub fn last(self, db: &dyn crate::Db) -> Option<Projection> {
+        self.elements(db).last().copied()
+    }
+    pub fn iter(self, db: &dyn crate::Db) -> impl Iterator<Item = Projection> + '_ {
+        self.elements(db).iter().copied()
+    }
+    pub fn parent(self, db: &dyn crate::Db) -> Option<ProjectionList> {
+        let list = self.elements(db);
+        let search_for = if list.is_empty() {
+            return None;
+        } else {
+            &list[0..list.len() - 1]
+        };
+        Some(ProjectionList::new(db, search_for.to_vec()))
+    }
+    /// Returns a iterator over all [`ProjectionList`]'s leading to this projection.
+    ///
+    /// For `a.b.c` the iterator will produce `[a, a.b, a.b.c]` in that order.
+    pub fn path_iter(self, db: &dyn crate::Db) -> impl Iterator<Item = ProjectionList> + '_ {
+        let mut entries = vec![self];
+        let mut current = self;
+
+        loop {
+            match current.parent(db) {
+                Some(next) => {
+                    entries.push(next);
+                    current = next;
+                }
+                None => {
+                    return entries.into_iter().rev();
+                }
+            }
+        }
     }
 }
 
@@ -378,7 +468,6 @@ pub struct Body {
     blocks: IdxArena<BlockId>,
     instructions: IdxArena<InstructionId>,
     slots: IdxArena<SlotId>,
-    projections: IdxArena<ProjectionList>,
 
     params: Vec<SlotId>,
 
@@ -430,11 +519,6 @@ impl Body {
             blocks: Default::default(),
             instructions: Default::default(),
             slots,
-            projections: {
-                let mut arena = IdxArena::default();
-                arena.alloc(vec![]);
-                arena
-            },
 
             params: Default::default(),
 
@@ -545,12 +629,9 @@ impl Body {
     }
 
     pub fn place_ty(&self, db: &dyn crate::Db, place: Place) -> Type {
-        if self[place.projection].is_empty() {
-            self.slot_ty(db, place.slot)
-        } else {
-            match self[place.projection].last().unwrap() {
-                Projection::Field(_, ty) | Projection::Index(_, ty) => *ty,
-            }
+        match place.projection(db).last(db) {
+            None => self.slot_ty(db, place.slot),
+            Some(Projection::Field(_, ty) | Projection::Index(_, ty)) => ty,
         }
     }
 
@@ -560,38 +641,6 @@ impl Body {
 
     pub fn block_invariants(&self, block: BlockId) -> &[BlockId] {
         self.block_invariants.get(block).map(|invs| invs.as_slice()).unwrap_or_else(|| &[])
-    }
-
-    /// Returns a iterator over all [`ProjectionList`]'s leading to this projection.
-    ///
-    /// For `a.b.c` the iterator will produce `[a, a.b, a.b.c]` in that order.
-    pub fn projection_path_iter(
-        &self,
-        projection: ProjectionList,
-    ) -> impl Iterator<Item = ProjectionList> + '_ {
-        let mut entries = vec![projection];
-        let mut current = projection;
-
-        loop {
-            match self.projection_parent(current) {
-                Some(next) => {
-                    entries.push(next);
-                    current = next;
-                }
-                None => {
-                    return entries.into_iter().rev();
-                }
-            }
-        }
-    }
-    pub fn projection_parent(&self, projection: ProjectionList) -> Option<ProjectionList> {
-        let list = &self[projection];
-        let search_for = if list.is_empty() {
-            return None;
-        } else {
-            &list[0..list.len() - 1]
-        };
-        Some(self.projections.iter().find(|(_, proj)| proj == &search_for).unwrap().0)
     }
 
     fn intersperse_block(&mut self, from: BlockId, into: BlockId, middle: BlockId) {
@@ -695,19 +744,6 @@ impl Body {
     fn locations_in(&self, bid: BlockId) -> impl Iterator<Item = BodyLocation> + '_ {
         self[bid].locations().map(move |loc| loc.in_block(bid))
     }
-
-    pub fn project_deeper(&mut self, mut place: Place, projection: &[Projection]) -> Place {
-        let mut new_projection = self[place.projection].to_vec();
-        new_projection.extend_from_slice(projection);
-
-        if let Some((id, _)) = self.projections.iter().find(|(_, proj)| proj == &&new_projection) {
-            place.projection = id;
-            return place;
-        }
-
-        place.projection = self.projections.alloc(new_projection);
-        place
-    }
 }
 
 impl Body {
@@ -766,20 +802,6 @@ impl std::ops::Index<&'_ SlotId> for Body {
         &self.slots[*index]
     }
 }
-impl std::ops::Index<ProjectionList> for Body {
-    type Output = [Projection];
-
-    fn index(&self, index: ProjectionList) -> &Self::Output {
-        &self.projections[index]
-    }
-}
-impl std::ops::Index<&'_ ProjectionList> for Body {
-    type Output = [Projection];
-
-    fn index(&self, index: &'_ ProjectionList) -> &Self::Output {
-        &self.projections[*index]
-    }
-}
 
 #[derive(new, Debug, Clone, Copy, PartialEq, Eq, Hash, From)]
 pub struct BodyLocation {
@@ -825,7 +847,7 @@ impl Instruction {
         }
     }
 
-    fn places_referenced<'a>(&'a self, body: &'a Body) -> impl Iterator<Item = Place> + 'a {
+    fn places_referenced<'a>(&'a self, db: &'a dyn crate::Db) -> impl Iterator<Item = Place> + 'a {
         match self {
             Instruction::Assign(_, expr) => {
                 // TODO: Perhaps the targets parent should be part of the
@@ -843,7 +865,7 @@ impl Instruction {
             },
         }
         .into_iter()
-        .flat_map(|p| [p].into_iter().chain(nested_places(p, body)))
+        .flat_map(|p| [p].into_iter().chain(p.nested_places(db)))
     }
 
     fn places_written_to(&self) -> impl Iterator<Item = Place> + '_ {
@@ -855,13 +877,6 @@ impl Instruction {
         }
         .into_iter()
     }
-}
-
-fn nested_places(p: Place, body: &Body) -> impl Iterator<Item = Place> + '_ {
-    body[p.projection].iter().filter_map(|&pj| match pj {
-        Projection::Field(_, _) => None,
-        Projection::Index(s, _) => Some(s.into()),
-    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Diagnostic)]

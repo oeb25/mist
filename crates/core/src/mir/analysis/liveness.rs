@@ -24,6 +24,7 @@ impl MonotoneFramework for LivenessAnalysis {
 
     fn instruction_semantic(
         &self,
+        db: &dyn crate::Db,
         body: &mir::Body,
         inst: mir::InstructionId,
         prev: &mut Self::Domain,
@@ -31,21 +32,22 @@ impl MonotoneFramework for LivenessAnalysis {
         for p in body[inst].places_written_to() {
             prev.remove(p.slot);
         }
-        for p in body[inst].places_referenced(body) {
+        for p in body[inst].places_referenced(db) {
             prev.insert(p.slot);
         }
     }
 
     fn terminator_semantic(
         &self,
-        body: &mir::Body,
+        db: &dyn crate::Db,
+        _body: &mir::Body,
         terminator: &mir::Terminator,
         prev: &mut Self::Domain,
     ) {
         for p in terminator.places_written_to() {
             prev.remove(p.slot);
         }
-        for p in terminator.places_referenced(body) {
+        for p in terminator.places_referenced(db) {
             prev.insert(p.slot);
         }
     }
@@ -72,20 +74,22 @@ impl MonotoneFramework for FoldingAnalysis {
 
     fn instruction_semantic(
         &self,
+        db: &dyn crate::Db,
         body: &mir::Body,
         inst: mir::InstructionId,
         prev: &mut Self::Domain,
     ) {
-        prev.backwards_instruction_transition(body, inst)
+        prev.backwards_instruction_transition(db, body, inst)
     }
 
     fn terminator_semantic(
         &self,
-        body: &mir::Body,
+        db: &dyn crate::Db,
+        _body: &mir::Body,
         terminator: &mir::Terminator,
         prev: &mut Self::Domain,
     ) {
-        prev.backwards_terminator_transition(body, terminator)
+        prev.backwards_terminator_transition(db, terminator)
     }
 
     fn initial(&self, db: &dyn crate::Db, body: &mir::Body) -> Self::Domain {
@@ -94,7 +98,7 @@ impl MonotoneFramework for FoldingAnalysis {
         let mut t = FoldingTree::default();
         for &param in body.params() {
             if let TypeData::Ref { .. } = body.slot_ty(db, param).kind(db) {
-                t.require(body, None, RequireType::Folded, param.into());
+                t.require(db, None, RequireType::Folded, param.into());
             }
         }
         t
@@ -125,25 +129,22 @@ mod tests {
                 let a = mir::analysis::liveness::FoldingAnalysisResults::compute(&db, mir);
                 let db2 = db.snapshot();
                 let mir2 = mir.clone();
-                let serialized = mir.serialize_with_annotation(
-                    &db,
-                    mir::serialize::Color::No,
-                    Box::new(move |loc| {
+                let serialized =
+                    mir.serialize_with_annotation(&db, mir::serialize::Color::No, |loc| {
                         let mut x = a.try_entry(loc)?.clone();
                         let incomming = x.debug_str(&*db2, &mir2);
                         match loc.inner {
                             mir::BlockLocation::Instruction(inst) => {
-                                x.forwards_instruction_transition(&mir2, inst)
+                                x.forwards_instruction_transition(&db, &mir2, inst)
                             }
                             mir::BlockLocation::Terminator => x.forwards_terminator_transition(
-                                &mir2,
+                                &db,
                                 mir2[loc.block].terminator.as_ref()?,
                             ),
                         }
                         let outgoing = x.debug_str(&*db2, &mir2);
                         Some(format!("{incomming}\n> {outgoing}"))
-                    }),
-                );
+                    });
                 if serialized.is_empty() {
                     None
                 } else {

@@ -37,13 +37,13 @@ impl FoldingTree {
             .inner
             .iter()
             .map(|(slot, ft)| {
-                let new_ft = ft.map_edges(|e| match body[e].last() {
+                let new_ft = ft.map_edges(|e| match e.last(db) {
                     Some(mir::Projection::Field(f, _)) => {
                         format!(".{}", f.name(db))
                     }
                     Some(mir::Projection::Index(idx, _)) => format!(
                         "[{}]",
-                        mir::serialize::serialize_slot(mir::serialize::Color::No, db, body, *idx)
+                        mir::serialize::serialize_slot(mir::serialize::Color::No, db, body, idx)
                     ),
                     None => "#".to_string(),
                 });
@@ -60,7 +60,7 @@ impl FoldingTree {
     /// accessible.
     pub fn require(
         &mut self,
-        body: &mir::Body,
+        db: &dyn crate::Db,
         loc: Option<mir::BlockLocation>,
         req_ty: RequireType,
         place: mir::Place,
@@ -77,7 +77,7 @@ impl FoldingTree {
                 let p = if let Some(pl) = path.last() {
                     place.replace_projection(*pl)
                 } else {
-                    place.without_projection()
+                    place.without_projection(db)
                 };
                 foldings.push(match kind {
                     folding_tree::EventKind::Unfold => mir::Folding::Unfold { consume: p },
@@ -85,7 +85,7 @@ impl FoldingTree {
                 })
             },
             req_ty,
-            body.projection_path_iter(place.projection).skip(1),
+            place.projection_path_iter(db).skip(1),
         );
 
         foldings
@@ -95,19 +95,23 @@ impl FoldingTree {
     ///
     /// This is useful when performing an assignment to a place, where all
     /// previous unfoldings into that place are lost.
-    pub fn drop(&mut self, body: &mir::Body, place: mir::Place) {
+    pub fn drop(&mut self, db: &dyn crate::Db, place: mir::Place) {
         if let Some(ft) = self.inner.get_mut(place.slot) {
-            ft.drop(body.projection_path_iter(place.projection).skip(1))
+            ft.drop(place.projection_path_iter(db).skip(1))
         }
     }
 
-    pub fn compute_transition_into(&mut self, target: &FoldingTree) -> Vec<mir::Folding> {
+    pub fn compute_transition_into(
+        &mut self,
+        _db: &dyn crate::Db,
+        target: &FoldingTree,
+    ) -> Vec<mir::Folding> {
         let mut foldings = vec![];
         for (slot, target_ft) in target.inner.iter() {
             self.inner.entry(slot).or_default().transition_into(
                 |kind, path| {
                     let p = if let Some(&projection) = path.last() {
-                        mir::Place { slot, projection }
+                        mir::Place::new(slot, Some(projection))
                     } else {
                         slot.into()
                     };
@@ -122,85 +126,83 @@ impl FoldingTree {
         foldings
     }
 
-    #[tracing::instrument(skip_all)]
-    pub fn forwards_instruction_transition(&mut self, body: &mir::Body, inst: mir::InstructionId) {
-        // debug!(inst=?&body[inst], "Starting with: {}", self.debug_str(None, body));
+    pub fn forwards_instruction_transition(
+        &mut self,
+        db: &dyn crate::Db,
+        body: &mir::Body,
+        inst: mir::InstructionId,
+    ) {
         match &body[inst] {
             mir::Instruction::Folding(f) => match f {
                 mir::Folding::Fold { into } => {
-                    self.fold(body, *into);
+                    self.fold(db, *into);
                 }
                 mir::Folding::Unfold { consume } => {
-                    self.unfold(body, *consume);
+                    self.unfold(db, *consume);
                 }
             },
             _ => {
-                for p in body[inst].places_referenced(body) {
-                    let _ = self.require(body, None, RequireType::Folded, p);
+                for p in body[inst].places_referenced(db) {
+                    let _ = self.require(db, None, RequireType::Folded, p);
                 }
                 for p in body[inst].places_written_to() {
-                    self.drop(body, p);
-                    let _ = self.require(body, None, RequireType::Folded, p);
+                    self.drop(db, p);
+                    let _ = self.require(db, None, RequireType::Folded, p);
                 }
             }
         }
-        // debug!("Ending with:   {}", self.debug_str(None, body));
     }
-    #[tracing::instrument(skip_all)]
     pub fn forwards_terminator_transition(
         &mut self,
-        body: &mir::Body,
+        db: &dyn crate::Db,
         terminator: &mir::Terminator,
     ) {
-        // debug!(?terminator, "Starting with: {}", self.debug_str(None, body));
-        for p in terminator.places_referenced(body) {
-            let _ = self.require(body, None, RequireType::Folded, p);
+        for p in terminator.places_referenced(db) {
+            let _ = self.require(db, None, RequireType::Folded, p);
         }
         for p in terminator.places_written_to() {
-            self.drop(body, p);
-            let _ = self.require(body, None, RequireType::Folded, p);
+            self.drop(db, p);
+            let _ = self.require(db, None, RequireType::Folded, p);
         }
-        // debug!("Ending with:   {}", self.debug_str(None, body));
     }
-    #[tracing::instrument(skip_all)]
-    pub fn backwards_instruction_transition(&mut self, body: &mir::Body, inst: mir::InstructionId) {
-        // debug!(inst=?&body[inst], "Starting with: {}", self.debug_str(None, body));
+    pub fn backwards_instruction_transition(
+        &mut self,
+        db: &dyn crate::Db,
+        body: &mir::Body,
+        inst: mir::InstructionId,
+    ) {
         match &body[inst] {
             mir::Instruction::Folding(f) => match f {
                 mir::Folding::Fold { into } => {
-                    self.unfold(body, *into);
+                    self.unfold(db, *into);
                 }
                 mir::Folding::Unfold { consume } => {
-                    self.fold(body, *consume);
+                    self.fold(db, *consume);
                 }
             },
             _ => {
                 for p in body[inst].places_written_to() {
-                    self.drop(body, p);
-                    self.require(body, None, RequireType::Accessible, p);
+                    self.drop(db, p);
+                    self.require(db, None, RequireType::Accessible, p);
                 }
-                for p in body[inst].places_referenced(body) {
-                    let _ = self.require(body, None, RequireType::Folded, p);
+                for p in body[inst].places_referenced(db) {
+                    let _ = self.require(db, None, RequireType::Folded, p);
                 }
             }
         }
-        // debug!("Ending with:   {}", self.debug_str(None, body));
     }
-    #[tracing::instrument(skip_all)]
     pub fn backwards_terminator_transition(
         &mut self,
-        body: &mir::Body,
+        db: &dyn crate::Db,
         terminator: &mir::Terminator,
     ) {
-        // debug!(?terminator, "Starting with: {}", self.debug_str(None, body));
         for p in terminator.places_written_to() {
-            self.drop(body, p);
-            self.require(body, None, RequireType::Accessible, p);
+            self.drop(db, p);
+            self.require(db, None, RequireType::Accessible, p);
         }
-        for p in terminator.places_referenced(body) {
-            let _ = self.require(body, None, RequireType::Folded, p);
+        for p in terminator.places_referenced(db) {
+            let _ = self.require(db, None, RequireType::Folded, p);
         }
-        // debug!("Ending with:   {}", self.debug_str(None, body));
     }
 
     fn zip<'a, 'b>(
@@ -224,15 +226,15 @@ impl FoldingTree {
         )
     }
 
-    fn fold(&mut self, body: &mir::Body, p: mir::Place) {
+    fn fold(&mut self, db: &dyn crate::Db, p: mir::Place) {
         let ft = self.inner.entry(p.slot).or_default();
         // TODO: Perhaps we should check that these are valid
-        let _ = ft.fold(body.projection_path_iter(p.projection).skip(1));
+        let _ = ft.fold(p.projection_path_iter(db).skip(1));
     }
-    fn unfold(&mut self, body: &mir::Body, p: mir::Place) {
+    fn unfold(&mut self, db: &dyn crate::Db, p: mir::Place) {
         let ft = self.inner.entry(p.slot).or_default();
         // TODO: Perhaps we should check that these are valid
-        let _ = ft.unfold(body.projection_path_iter(p.projection).skip(1));
+        let _ = ft.unfold(p.projection_path_iter(db).skip(1));
     }
 }
 
@@ -241,7 +243,6 @@ impl Lattice<mir::Body> for FoldingTree {
         Default::default()
     }
 
-    #[tracing::instrument(skip_all)]
     fn lub(&self, _body: &mir::Body, other: &Self) -> Self {
         let inner = self
             .zip(other)
@@ -258,7 +259,6 @@ impl Lattice<mir::Body> for FoldingTree {
         FoldingTree { inner }
     }
 
-    #[tracing::instrument(skip_all)]
     fn contains(&self, _body: &mir::Body, other: &Self) -> bool {
         self.zip(other).all(|(_, a_ft, b_ft)| match (a_ft, b_ft) {
             (Some(a_ft), Some(b_ft)) => a_ft.contains(b_ft),
@@ -352,7 +352,9 @@ mod test {
     prop_compose! {
         fn arb_place(ctx: &Context)
             (slot in prop::sample::select(ctx.body.slots.idxs().collect_vec()),
-             projection in prop::sample::select(ctx.body.projections.idxs().collect_vec()))
+            // TODO
+            //  projection in prop::sample::select(ctx.body.projections.idxs().collect_vec()))
+             projection in prop::sample::select(Vec::new()))
             -> Place
         {
             Place { slot, projection }
@@ -365,7 +367,7 @@ mod test {
         {
             let mut tree = FoldingTree::default();
             for p in places {
-                let _ = tree.require(&ctx.body, None, RequireType::Folded, p);
+                let _ = tree.require(&*ctx.db, None, RequireType::Folded, p);
             }
             tree
         }

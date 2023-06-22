@@ -223,16 +223,16 @@ impl BodyLower<'_> {
         match self.body[inst].clone() {
             mir::Instruction::Assign(t, x) => {
                 let rhs = self.expr(inst, &x)?;
-                match self.body[t.projection] {
+                match t.projections(self.db) {
                     [] => {
                         insts
                             .push(Stmt::LocalVarAssign { lhs: self.place_for_assignment(t)?, rhs });
                     }
-                    [.., mir::Projection::Field(f, ty)] => {
+                    &[.., mir::Projection::Field(f, ty)] => {
                         match f {
                             Field::AdtField(adt, af) => insts.push(Stmt::FieldAssign {
                                 lhs: FieldAccess::new(
-                                    self.place_to_ref(inst, t.parent(self.body).unwrap())?,
+                                    self.place_to_ref(inst, t.parent(self.db).unwrap())?,
                                     VField::new(
                                         mangle::mangled_adt_field(self.db, adt, af),
                                         // TODO: should we respect the extra constraints in such a scenario?
@@ -244,17 +244,17 @@ impl BodyLower<'_> {
                             Field::Builtin(_) | Field::Undefined => {}
                         };
                     }
-                    [mir::Projection::Index(index, _)] => {
+                    &[mir::Projection::Index(index, _)] => {
                         let idx = self.place_to_ref(inst, index.into())?;
-                        let seq = self.place_to_ref(inst, t.parent(self.body).unwrap())?;
+                        let seq = self.place_to_ref(inst, t.parent(self.db).unwrap())?;
                         let new_rhs = self.alloc(inst, SeqExp::Update { s: seq, idx, elem: rhs });
-                        let lhs = self.place_for_assignment(t.without_projection())?;
+                        let lhs = self.place_for_assignment(t.without_projection(self.db))?;
                         insts.push(Stmt::LocalVarAssign { lhs, rhs: new_rhs })
                     }
-                    [.., mir::Projection::Field(f, ty), mir::Projection::Index(index, _)] => {
+                    &[.., mir::Projection::Field(f, ty), mir::Projection::Index(index, _)] => {
                         let idx = self.place_to_ref(inst, index.into())?;
-                        let parent = t.parent(self.body).unwrap();
-                        let grand_parent = parent.parent(self.body).unwrap();
+                        let parent = t.parent(self.db).unwrap();
+                        let grand_parent = parent.parent(self.db).unwrap();
                         let seq = self.place_to_ref(inst, parent)?;
                         let new_rhs = self.alloc(inst, SeqExp::Update { s: seq, idx, elem: rhs });
                         match f {

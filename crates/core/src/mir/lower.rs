@@ -185,21 +185,6 @@ impl<'a> MirLower<'a> {
     fn finish(self) -> ItemMir {
         ItemMir::new(self.db, self.body, self.source_map)
     }
-
-    fn project_deeper(&mut self, mut place: Place, projection: &[Projection]) -> Place {
-        let mut new_projection = self.body[place.projection].to_vec();
-        new_projection.extend_from_slice(projection);
-
-        if let Some((id, _)) =
-            self.body.projections.iter().find(|(_, proj)| proj == &&new_projection)
-        {
-            place.projection = id;
-            return place;
-        }
-
-        place.projection = self.body.projections.alloc(new_projection);
-        place
-    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -400,9 +385,9 @@ impl MirLower<'_> {
                 BuiltinKind::Map => todo!(),
                 // a <_ b <==> |a| < |b|
                 BuiltinKind::List => {
-                    let mut len = |o| match o {
-                        Operand::Copy(p) | Operand::Move(p) => self.project_deeper(
-                            p,
+                    let len = |o| match o {
+                        Operand::Copy(p) | Operand::Move(p) => p.project_deeper(
+                            self.db,
                             &[Projection::Field(
                                 Field::Builtin(BuiltinField::List(variant_ty, ListField::Len)),
                                 Type::int(self.db),
@@ -456,7 +441,7 @@ impl MirLower<'_> {
                 match field {
                     Field::AdtField(_, _) | Field::Builtin(_) => {
                         let f_ty = expr.ty();
-                        (bid, self.project_deeper(place, &[Projection::Field(field, f_ty)]))
+                        (bid, place.project_deeper(self.db, &[Projection::Field(field, f_ty)]))
                     }
                     Field::Undefined => {
                         MirErrors::push(
@@ -485,7 +470,7 @@ impl MirLower<'_> {
                 let idx = self.alloc_tmp(index.ty());
                 let bid = self.expr(index, bid, None, Placement::Assign(idx));
                 let (bid, place) = self.lhs_expr(base, bid, None);
-                (bid, self.project_deeper(place, &[Projection::Index(idx.slot, expr.ty())]))
+                (bid, place.project_deeper(self.db, &[Projection::Index(idx.slot, expr.ty())]))
             }
             ExprData::List { .. } => todo!(),
             ExprData::Quantifier { .. } => todo!(),
@@ -563,7 +548,7 @@ impl MirLower<'_> {
                     if let Some(place) = tmp.place() {
                         let f_ty = expr.ty();
                         let field_projection =
-                            self.project_deeper(place, &[Projection::Field(field, f_ty)]);
+                            place.project_deeper(self.db, &[Projection::Field(field, f_ty)]);
                         self.put(
                             bid,
                             dest,
@@ -719,7 +704,8 @@ impl MirLower<'_> {
             }
             ExprData::Result => {
                 if let Some(result_slot) = self.body.result_slot() {
-                    self.put(bid, dest, Some(expr), MExpr::Use(Operand::Move(result_slot.into())));
+                    let place = result_slot.into();
+                    self.put(bid, dest, Some(expr), MExpr::Use(Operand::Move(place)));
                 } else {
                     MirErrors::push(
                         self.db,
@@ -760,7 +746,8 @@ impl MirLower<'_> {
                         // self.alloc_slot(Slot::Result, expr_ty)
                     };
                     let result_operand = self.expr_into_operand(inner, &mut bid, None);
-                    self.assign(bid, Some(expr), result_slot.into(), MExpr::Use(result_operand));
+                    let result_place = result_slot.into();
+                    self.assign(bid, Some(expr), result_place, MExpr::Use(result_operand));
                     // TODO: dest is unused?
                 }
                 self.body.blocks[bid].set_terminator(Terminator::Return);

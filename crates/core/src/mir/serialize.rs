@@ -200,11 +200,11 @@ impl<'db, A: Fn(BodyLocation) -> Option<String>> Serializer<'db, A> {
     }
 
     fn place(&mut self, s: Place) {
-        if self.body[s.projection].is_empty() {
+        if !s.has_projection(self.db) {
             self.slot(s.slot);
         } else {
             self.slot(s.slot);
-            for p in &self.body[s.projection] {
+            for p in s.projection_iter(self.db) {
                 match p {
                     Projection::Field(f, _) => {
                         let name = &f.name(self.db);
@@ -212,7 +212,7 @@ impl<'db, A: Fn(BodyLocation) -> Option<String>> Serializer<'db, A> {
                     }
                     Projection::Index(idx, _) => {
                         w!(self, Default, "[");
-                        self.slot(*idx);
+                        self.slot(idx);
                         w!(self, Default, "]");
                     }
                 }

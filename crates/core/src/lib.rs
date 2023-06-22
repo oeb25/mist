@@ -52,6 +52,7 @@ pub struct Jar(
     // mir
     crate::mir::MirErrors,
     crate::mir::ItemMir,
+    crate::mir::ProjectionList,
     crate::mir::lower_item,
 );
 

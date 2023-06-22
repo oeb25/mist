@@ -319,9 +319,9 @@ impl<'a> BodyLower<'a> {
     fn can_inline(&self, x: mir::Place, exp: VExprId) -> bool {
         // TODO: This entire thing should be better specified
         // return false;
-        let n = self.body.reference_to(x.slot).count();
+        let n = self.body.reference_to(x.slot()).count();
         match &*self.viper_body[exp] {
-            _ if n < 2 && Some(x.slot) != self.body.result_slot() => true,
+            _ if n < 2 && Some(x.slot()) != self.body.result_slot() => true,
             // Exp::Literal(_) => true,
             Exp::AbstractLocalVar(_) => {
                 // TODO: We should be able inline these, as long as the
@@ -439,14 +439,14 @@ impl BodyLower<'_> {
         source: impl Into<BlockOrInstruction> + Copy,
         p: mir::Place,
     ) -> Result<VExprId> {
-        let var = self.slot_to_var(p.slot)?;
-        if self.body[p.projection].is_empty() {
-            if let Some(exp) = self.var_refs.get(p.slot).copied() {
+        let var = self.slot_to_var(p.slot())?;
+        if !p.has_projection(self.db) {
+            if let Some(exp) = self.var_refs.get(p.slot()).copied() {
                 return Ok(exp);
             }
         }
 
-        let exp = match &self.body[p.slot] {
+        let exp = match &self.body[p.slot()] {
             mir::Slot::Temp
             | mir::Slot::Self_
             | mir::Slot::Param(_)
@@ -462,9 +462,9 @@ impl BodyLower<'_> {
         };
 
         let id = self.alloc(source, exp);
-        self.var_refs.insert(p.slot, id);
+        self.var_refs.insert(p.slot(), id);
 
-        self.body[p.projection].iter().copied().try_fold(id, |base, proj| -> Result<_> {
+        p.projection_iter(self.db).try_fold(id, |base, proj| -> Result<_> {
             Ok(match proj {
                 mir::Projection::Field(f, ty) => {
                     match f {
@@ -514,8 +514,8 @@ impl BodyLower<'_> {
         })
     }
     fn place_for_assignment(&mut self, dest: mir::Place) -> Result<LocalVar> {
-        if self.body[dest.projection].is_empty() {
-            self.slot_to_var(dest.slot)
+        if !dest.has_projection(self.db) {
+            self.slot_to_var(dest.slot())
         } else {
             todo!()
         }

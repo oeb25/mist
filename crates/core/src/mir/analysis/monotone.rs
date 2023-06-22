@@ -34,6 +34,7 @@ pub enum Progress {
 pub trait Direction {
     fn initial_blocks(body: &mir::Body, f: impl FnMut(mir::BlockId));
     fn semantic<A: MonotoneFramework>(
+        db: &dyn crate::Db,
         a: &A,
         body: &mir::Body,
         prev: &mut A::Domain,
@@ -41,6 +42,7 @@ pub trait Direction {
         events: impl for<'a> FnMut(mir::BodyLocation, &'a A::Domain),
     );
     fn semantics<A: MonotoneFramework>(
+        db: &dyn crate::Db,
         a: &A,
         body: &mir::Body,
         facts: &mut HashMap<mir::BodyLocation, A::Domain>,
@@ -60,6 +62,7 @@ impl Direction for Forward {
     }
 
     fn semantic<A: MonotoneFramework>(
+        db: &dyn crate::Db,
         a: &A,
         body: &mir::Body,
         prev: &mut A::Domain,
@@ -67,16 +70,17 @@ impl Direction for Forward {
         mut events: impl for<'a> FnMut(mir::BodyLocation, &'a A::Domain),
     ) {
         for &inst in body[bid].instructions() {
-            a.instruction_semantic(body, inst, prev);
+            a.instruction_semantic(db, body, inst, prev);
             events(mir::BodyLocation::new(bid, mir::BlockLocation::Instruction(inst)), prev)
         }
         if let Some(term) = body[bid].terminator() {
-            a.terminator_semantic(body, term, prev);
+            a.terminator_semantic(db, body, term, prev);
             events(mir::BodyLocation::new(bid, mir::BlockLocation::Terminator), prev)
         }
     }
 
     fn semantics<A: MonotoneFramework>(
+        db: &dyn crate::Db,
         a: &A,
         body: &mir::Body,
         facts: &mut HashMap<mir::BodyLocation, A::Domain>,
@@ -89,7 +93,7 @@ impl Direction for Forward {
                 .entry(mir::BodyLocation::new(d, mir::BlockLocation::Terminator))
                 .or_insert_with(|| A::Domain::bottom(body))
                 .clone();
-            Self::semantic(a, body, &mut prev, bid, |loc, d| {
+            Self::semantic(db, a, body, &mut prev, bid, |loc, d| {
                 let prev = facts.entry(loc).or_insert_with(|| A::Domain::bottom(body));
                 if !prev.contains(body, d) {
                     progress = Progress::Yes;
@@ -115,6 +119,7 @@ impl Direction for Backward {
     }
 
     fn semantic<A: MonotoneFramework>(
+        db: &dyn crate::Db,
         a: &A,
         body: &mir::Body,
         prev: &mut A::Domain,
@@ -122,16 +127,17 @@ impl Direction for Backward {
         mut events: impl for<'a> FnMut(mir::BodyLocation, &'a A::Domain),
     ) {
         if let Some(term) = body[bid].terminator() {
-            a.terminator_semantic(body, term, prev);
+            a.terminator_semantic(db, body, term, prev);
             events(mir::BodyLocation::new(bid, mir::BlockLocation::Terminator), prev)
         }
         for &inst in body[bid].instructions().iter().rev() {
-            a.instruction_semantic(body, inst, prev);
+            a.instruction_semantic(db, body, inst, prev);
             events(mir::BodyLocation::new(bid, mir::BlockLocation::Instruction(inst)), prev)
         }
     }
 
     fn semantics<A: MonotoneFramework>(
+        db: &dyn crate::Db,
         a: &A,
         body: &mir::Body,
         facts: &mut HashMap<mir::BodyLocation, A::Domain>,
@@ -145,7 +151,7 @@ impl Direction for Backward {
                 .entry(mir::BodyLocation::new(d, initial_loc))
                 .or_insert_with(|| A::Domain::bottom(body))
                 .clone();
-            Self::semantic(a, body, &mut prev, bid, |loc, d| {
+            Self::semantic(db, a, body, &mut prev, bid, |loc, d| {
                 let prev = facts.entry(loc).or_insert_with(|| A::Domain::bottom(body));
                 if !prev.contains(body, d) {
                     progress = Progress::Yes;
@@ -169,12 +175,14 @@ pub trait MonotoneFramework {
     type Direction: Direction;
     fn instruction_semantic(
         &self,
+        db: &dyn crate::Db,
         body: &mir::Body,
         inst: mir::InstructionId,
         prev: &mut Self::Domain,
     );
     fn terminator_semantic(
         &self,
+        db: &dyn crate::Db,
         body: &mir::Body,
         terminator: &mir::Terminator,
         prev: &mut Self::Domain,
@@ -246,7 +254,7 @@ pub fn mono_analysis<A: MonotoneFramework, W: Worklist>(
     A::Direction::initial_blocks(body, |bid| {
         let mut called = false;
         let mut prev = initial.clone();
-        A::Direction::semantic(&a, body, &mut prev, bid, |loc, d| {
+        A::Direction::semantic(db, &a, body, &mut prev, bid, |loc, d| {
             called = true;
             facts.insert(loc, d.clone());
         });
@@ -260,7 +268,7 @@ pub fn mono_analysis<A: MonotoneFramework, W: Worklist>(
     while let Some(n) = worklist.extract() {
         calls += 1;
 
-        match A::Direction::semantics(&a, body, &mut facts, n) {
+        match A::Direction::semantics(db, &a, body, &mut facts, n) {
             Progress::No => {}
             Progress::Yes => A::Direction::next(body, n, |b| worklist.insert(b)),
         }

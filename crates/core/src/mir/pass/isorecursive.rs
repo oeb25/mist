@@ -31,13 +31,13 @@ impl Pass for IsorecursivePass {
         let mut tree_from_params = FoldingTree::default();
         let mut tree_from_returns = FoldingTree::default();
         for &s in body.params() {
-            tree_from_params.require(body, None, RequireType::Folded, s.into());
+            tree_from_params.require(db, None, RequireType::Folded, s.into());
             if let TypeData::Ref { .. } = body.slot_ty(db, s).kind(db) {
-                tree_from_returns.require(body, None, RequireType::Folded, s.into());
+                tree_from_returns.require(db, None, RequireType::Folded, s.into());
             }
         }
         if let Some(s) = body.result_slot() {
-            tree_from_returns.require(body, None, RequireType::Folded, s.into());
+            tree_from_returns.require(db, None, RequireType::Folded, s.into());
         }
         let tree_from_params = tree_from_params;
         let tree_from_returns = tree_from_returns;
@@ -49,15 +49,16 @@ impl Pass for IsorecursivePass {
                 let mut current = folding_analysis.entry(body.first_loc_in(bid)).clone();
 
                 for loc in body.locations_in(bid) {
-                    for folding in current.compute_transition_into(folding_analysis.entry(loc)) {
+                    for folding in current.compute_transition_into(db, folding_analysis.entry(loc))
+                    {
                         internal_foldings.push(InternalFolding::new(loc, folding));
                     }
                     match loc.inner {
                         BlockLocation::Instruction(inst) => {
-                            current.forwards_instruction_transition(body, inst)
+                            current.forwards_instruction_transition(db, body, inst)
                         }
                         BlockLocation::Terminator => current
-                            .forwards_terminator_transition(body, body[bid].terminator().unwrap()),
+                            .forwards_terminator_transition(db, body[bid].terminator().unwrap()),
                     }
                 }
                 let outgoing = current;
@@ -65,13 +66,14 @@ impl Pass for IsorecursivePass {
 
                 if body.succeeding_blocks(bid).next().is_none() {
                     let mut outgoing = outgoing;
-                    let foldings = outgoing.compute_transition_into(&termination_folding);
+                    let foldings = outgoing.compute_transition_into(db, &termination_folding);
                     if !foldings.is_empty() {
                         external_foldings.push((bid, None, foldings));
                     }
                 } else {
                     for next in body.succeeding_blocks(bid) {
                         let foldings = outgoing.clone().compute_transition_into(
+                            db,
                             folding_analysis.entry(body.first_loc_in(next)),
                         );
                         if !foldings.is_empty() {
@@ -90,7 +92,7 @@ impl Pass for IsorecursivePass {
                 tree_from_params.clone()
             };
             for folding in
-                tree.compute_transition_into(folding_analysis.entry(body.first_loc_in(bid)))
+                tree.compute_transition_into(db, folding_analysis.entry(body.first_loc_in(bid)))
             {
                 internal_foldings.push(InternalFolding::new(
                     BodyLocation::new(bid, first_inst_or_terminator),
