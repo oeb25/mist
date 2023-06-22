@@ -14,18 +14,18 @@ use super::{BodyLower, Result};
 impl BodyLower<'_> {
     pub fn adt_lower(
         &mut self,
+        self_slot: mir::SlotId,
         adt: Adt,
         invariants: impl IntoIterator<Item = mir::BlockId>,
     ) -> Result<Vec<ViperItem<VExprId>>> {
         let mut viper_items = vec![];
 
         let source = mir::BlockId::from_raw(0.into());
-        let self_slot = self.body.self_slot();
         let self_var = self.slot_to_var(self_slot)?;
         let self_var = LocalVar { name: self_var.name, typ: silvers::typ::Type::ref_() };
         let self_ = self.alloc(source, AbstractLocalVar::LocalVar(self_var.clone()));
 
-        self.pre_unfolded.insert(self_slot.into());
+        self.pre_unfolded.insert(self_slot.place(self.db, self.ib));
 
         let field_invs: Vec<_> = adt
             .fields(self.db)

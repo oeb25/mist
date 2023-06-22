@@ -95,10 +95,10 @@ impl ViperLowerer {
     pub fn body_lower<'a>(
         &'a mut self,
         db: &'a dyn crate::Db,
-        mir: &'a mir::Body,
+        ib: &'a mir::ItemBody,
         is_method: bool,
     ) -> BodyLower<'a> {
-        BodyLower::new(db, mir, is_method, &mut self.viper_body, &mut self.source_map)
+        BodyLower::new(db, ib, is_method, &mut self.viper_body, &mut self.source_map)
     }
     pub fn finish(self) -> (ViperBody, ViperSourceMap) {
         (self.viper_body, self.source_map)
@@ -195,7 +195,7 @@ impl From<VTy> for ViperType {
 
 pub struct BodyLower<'a> {
     db: &'a dyn crate::Db,
-    body: &'a mir::Body,
+    ib: &'a mir::ItemBody,
     viper_body: &'a mut ViperBody,
     source_map: &'a mut ViperSourceMap,
     is_method: bool,
@@ -214,15 +214,15 @@ pub struct BodyLower<'a> {
 impl<'a> BodyLower<'a> {
     pub fn new(
         db: &'a dyn crate::Db,
-        body: &'a mir::Body,
+        ib: &'a mir::ItemBody,
         is_method: bool,
         viper_body: &'a mut ViperBody,
         source_map: &'a mut ViperSourceMap,
     ) -> Self {
-        let cfg = cfg::Cfg::compute(db, body);
+        let cfg = cfg::Cfg::compute(db, ib);
         Self {
             db,
-            body,
+            ib,
             is_method,
             viper_body,
             source_map,
@@ -308,7 +308,7 @@ impl<'a> BodyLower<'a> {
             TypeData::Function { .. } => {
                 return Err(ViperLowerError::NotYetImplemented {
                     msg: "lower_type(Function)".to_string(),
-                    def: self.body.def(),
+                    def: self.ib.item(),
                     block_or_inst: None,
                     span: None,
                 })
@@ -319,9 +319,9 @@ impl<'a> BodyLower<'a> {
     fn can_inline(&self, x: mir::Place, exp: VExprId) -> bool {
         // TODO: This entire thing should be better specified
         // return false;
-        let n = self.body.reference_to(self.db, x.slot()).count();
+        let n = self.ib.reference_to(self.db, x.slot()).count();
         match &*self.viper_body[exp] {
-            _ if n < 2 && Some(x.slot()) != self.body.result_slot() => true,
+            _ if n < 2 && !x.slot().is_result(self.ib) => true,
             // Exp::Literal(_) => true,
             Exp::AbstractLocalVar(_) => {
                 // TODO: We should be able inline these, as long as the
@@ -339,7 +339,7 @@ impl BodyLower<'_> {
         source: impl Into<mir::BlockOrInstruction>,
         vexpr: impl Into<Exp<VExprId>>,
     ) -> VExprId {
-        let item_id = self.body.def();
+        let item_id = self.ib.item();
         let id = self.viper_body.arena.alloc(VExpr::new(vexpr.into()));
         match source.into() {
             mir::BlockOrInstruction::Block(block_id) => {
@@ -423,14 +423,14 @@ impl BodyLower<'_> {
         Ok(LocalVarDecl::new(var.name, var.typ))
     }
     pub(super) fn slot_to_var(&mut self, x: mir::SlotId) -> Result<LocalVar> {
-        Ok(match &self.body[x] {
+        Ok(match x.data(self.ib) {
             mir::Slot::Local(var) => LocalVar::new(
                 format!("{}_{}", var.name(self.db), x.into_raw()),
-                self.lower_type(self.body.slot_ty(self.db, x))?.vty,
+                self.lower_type(x.ty(self.db, self.ib))?.vty,
             ),
             _ => LocalVar::new(
                 format!("_{}", x.into_raw()),
-                self.lower_type(self.body.slot_ty(self.db, x))?.vty,
+                self.lower_type(x.ty(self.db, self.ib))?.vty,
             ),
         })
     }
@@ -446,7 +446,7 @@ impl BodyLower<'_> {
             }
         }
 
-        let exp = match &self.body[p.slot()] {
+        let exp = match p.slot().data(self.ib) {
             mir::Slot::Temp
             | mir::Slot::Self_
             | mir::Slot::Param(_)
@@ -524,7 +524,7 @@ impl BodyLower<'_> {
     fn expr(&mut self, inst: mir::InstructionId, e: &mir::MExpr) -> Result<VExprId> {
         let exp = match e {
             mir::MExpr::Use(s) => {
-                let item_id = self.body.def();
+                let item_id = self.ib.item();
                 let id = self.operand_to_ref(inst, s)?;
                 self.source_map.inst_expr.insert((item_id, inst), id);
                 self.source_map.inst_expr_back.insert(id, (item_id, inst));
@@ -534,7 +534,7 @@ impl BodyLower<'_> {
                 // TODO: Perhaps we should do something different depending on this?
                 let _ = bk;
 
-                let item_id = self.body.def();
+                let item_id = self.ib.item();
                 let id = self.place_to_ref(inst, *p)?;
                 self.source_map.inst_expr.insert((item_id, inst), id);
                 self.source_map.inst_expr_back.insert(id, (item_id, inst));

@@ -8,6 +8,8 @@ use crate::{
     util::impl_idx,
 };
 
+use super::Body;
+
 impl_idx!(SlotId, Slot);
 impl fmt::Debug for SlotId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -19,7 +21,7 @@ impl fmt::Display for SlotId {
         write!(f, "%{}", self.0.into_raw())
     }
 }
-#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Slot {
     #[default]
     Temp,
@@ -40,14 +42,19 @@ impl Slot {
 pub struct Place {
     slot: SlotId,
     projection: Option<ProjectionList>,
+    ty: Type,
 }
 impl Place {
-    pub fn new(slot: SlotId, projection: Option<ProjectionList>) -> Place {
-        Place { slot, projection }
+    fn new(slot: SlotId, projection: Option<ProjectionList>, ty: Type) -> Place {
+        Place { slot, projection, ty }
     }
 
     pub fn slot(self) -> SlotId {
         self.slot
+    }
+
+    pub fn ty(self) -> Type {
+        self.ty
     }
 
     pub fn has_projection(self, db: &dyn crate::Db) -> bool {
@@ -63,21 +70,24 @@ impl Place {
     }
 
     pub fn without_projection(&self, db: &dyn crate::Db) -> Place {
-        self.replace_projection(Projection::empty(db))
+        self.replace_projection(db, Projection::empty(db))
     }
 
-    pub fn replace_projection(&self, projection: ProjectionList) -> Place {
-        Place::new(self.slot, Some(projection))
+    pub fn replace_projection(&self, db: &dyn crate::Db, projection: ProjectionList) -> Place {
+        match projection.last(db) {
+            Some(p) => Place::new(self.slot, Some(projection), p.ty()),
+            None => Place::new(self.slot, None, self.ty),
+        }
     }
 
     pub fn parent(&self, db: &dyn crate::Db) -> Option<Place> {
-        Some(self.replace_projection(self.projection(db).parent(db)?))
+        Some(self.replace_projection(db, self.projection(db).parent(db)?))
     }
 
     pub fn project_deeper(self, db: &dyn crate::Db, projection: &[Projection]) -> Place {
         let mut new_projection = self.projection(db).elements(db).to_vec();
         new_projection.extend_from_slice(projection);
-        self.replace_projection(ProjectionList::new(db, new_projection))
+        self.replace_projection(db, ProjectionList::new(db, new_projection))
     }
 
     pub fn projection_iter(self, db: &dyn crate::Db) -> impl Iterator<Item = Projection> + '_ {
@@ -94,14 +104,23 @@ impl Place {
     pub(super) fn nested_places(self, db: &dyn crate::Db) -> impl Iterator<Item = Place> + '_ {
         self.projection_iter(db).filter_map(|pj| match pj {
             Projection::Field(_, _) => None,
-            Projection::Index(s, _) => Some(s.into()),
+            Projection::Index(s, ty) => Some(Place::new(s, None, ty)),
         })
     }
 }
 
-impl From<SlotId> for Place {
-    fn from(slot: SlotId) -> Place {
-        Place { slot, projection: None }
+impl SlotId {
+    pub fn ty(self, db: &dyn crate::Db, body: &Body) -> Type {
+        body.slot_ty(db, self)
+    }
+    pub fn is_result(self, body: &Body) -> bool {
+        body.slots[self].is_result()
+    }
+    pub fn place(self, db: &dyn crate::Db, body: &Body) -> Place {
+        Place::new(self, None, self.ty(db, body))
+    }
+    pub fn data(self, body: &Body) -> Slot {
+        body.slots[self]
     }
 }
 
@@ -119,6 +138,13 @@ impl Projection {
     /// Construct an empty [`ProjectionList`]
     pub fn empty(db: &dyn crate::Db) -> ProjectionList {
         ProjectionList::new(db, Vec::new())
+    }
+
+    pub fn ty(self) -> Type {
+        match self {
+            Projection::Field(_, ty) => ty,
+            Projection::Index(_, ty) => ty,
+        }
     }
 }
 impl ProjectionList {

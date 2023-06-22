@@ -75,7 +75,7 @@ impl FoldingForrest {
         ft.soft_require(
             |kind, path| {
                 let p = if let Some(pl) = path.last() {
-                    place.replace_projection(*pl)
+                    place.replace_projection(db, *pl)
                 } else {
                     place.without_projection(db)
                 };
@@ -103,7 +103,8 @@ impl FoldingForrest {
 
     pub fn compute_transition_into(
         &mut self,
-        _db: &dyn crate::Db,
+        db: &dyn crate::Db,
+        body: &mir::Body,
         target: &FoldingForrest,
     ) -> Vec<mir::Folding> {
         let mut foldings = vec![];
@@ -111,9 +112,9 @@ impl FoldingForrest {
             self.inner.entry(slot).or_default().transition_into(
                 |kind, path| {
                     let p = if let Some(&projection) = path.last() {
-                        mir::Place::new(slot, Some(projection))
+                        slot.place(db, body).replace_projection(db, projection)
                     } else {
-                        slot.into()
+                        slot.place(db, body)
                     };
                     foldings.push(match kind {
                         folding_tree::EventKind::Unfold => mir::Folding::Unfold { consume: p },
@@ -128,7 +129,7 @@ impl FoldingForrest {
 
     pub fn forwards_transition(&mut self, db: &dyn crate::Db, body: &mir::Body, act: mir::Action) {
         match act {
-            mir::Action::Instruction(inst) => match &body[inst] {
+            mir::Action::Instruction(inst) => match inst.data(body) {
                 mir::Instruction::Folding(f) => match f {
                     mir::Folding::Fold { into } => {
                         self.fold(db, *into);
@@ -138,10 +139,10 @@ impl FoldingForrest {
                     }
                 },
                 _ => {
-                    for p in body[inst].places_referenced(db) {
+                    for p in inst.places_referenced(db, body) {
                         let _ = self.require(db, None, RequireType::Folded, p);
                     }
-                    for p in body[inst].places_written_to() {
+                    for p in inst.places_written_to(body) {
                         self.drop(db, p);
                         let _ = self.require(db, None, RequireType::Folded, p);
                     }
@@ -160,7 +161,7 @@ impl FoldingForrest {
     }
     pub fn backwards_transition(&mut self, db: &dyn crate::Db, body: &mir::Body, act: mir::Action) {
         match act {
-            mir::Action::Instruction(inst) => match &body[inst] {
+            mir::Action::Instruction(inst) => match inst.data(body) {
                 mir::Instruction::Folding(f) => match f {
                     mir::Folding::Fold { into } => {
                         self.unfold(db, *into);
@@ -170,11 +171,11 @@ impl FoldingForrest {
                     }
                 },
                 _ => {
-                    for p in body[inst].places_written_to() {
+                    for p in inst.places_written_to(body) {
                         self.drop(db, p);
                         self.require(db, None, RequireType::Accessible, p);
                     }
-                    for p in body[inst].places_referenced(db) {
+                    for p in inst.places_referenced(db, body) {
                         let _ = self.require(db, None, RequireType::Folded, p);
                     }
                 }
@@ -278,11 +279,19 @@ mod test {
     #[derive(Clone)]
     struct Context {
         db: Arc<crate::db::Database>,
-        body: mir::Body,
+        ib: mir::ItemBody,
     }
     impl fmt::Debug for Context {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             f.debug_struct("Context").finish()
+        }
+    }
+    impl Context {
+        fn db(&self) -> &dyn crate::Db {
+            &*self.db
+        }
+        fn body(&self) -> &mir::Body {
+            &self.ib
         }
     }
 
@@ -313,13 +322,13 @@ mod test {
             let file = SourceFile::new(&db, source.to_string());
             let mono = mono::monomorphized_items(&db, file);
             let item = mono.items(&db)[1];
-            let body = mir::lower_item(&db, item).unwrap().body(&db).clone();
+            let ib = mir::lower_item(&db, item).unwrap().ib(&db).clone();
 
-            Context { db: Arc::new(db), body }
+            Context { db: Arc::new(db), ib }
         }
     }
     fn debug_folding_tree_ctx(ctx: &Context, tree: &FoldingForrest) -> String {
-        debug_folding_tree(&*ctx.db, &ctx.body, tree)
+        debug_folding_tree(ctx.db(), ctx.body(), tree)
     }
 
     struct Input {
@@ -336,24 +345,26 @@ mod test {
         }
     }
     prop_compose! {
-        fn arb_place(ctx: &Context)
-            (slot in prop::sample::select(ctx.body.slots().collect_vec()),
-            // TODO
-            //  projection in prop::sample::select(ctx.body.projections.idxs().collect_vec()))
-             projection in prop::sample::select(Vec::new()))
+        fn arb_place(ctx: Context)
+            (slot in prop::sample::select(ctx.body().slots().collect_vec()),
+            // TODO: find a way to generate projections now
+            //  projection in prop::sample::select(ctx.body.projections.idxs().collect_vec())
+             projection in prop::sample::select(Vec::new()),
+             ctx in Just(ctx)
+            )
             -> Place
         {
-            Place::new(slot, Some(projection))
+            slot.place(ctx.db(), ctx.body()).replace_projection(ctx.db(), projection)
         }
     }
     prop_compose! {
         fn arb_folding_tree(ctx: Context)
-            (places in prop::collection::vec(arb_place(&ctx), 0..10))
+            (places in prop::collection::vec(arb_place(ctx.clone()), 0..10))
             -> FoldingForrest
         {
             let mut tree = FoldingForrest::default();
             for p in places {
-                let _ = tree.require(&*ctx.db, None, RequireType::Folded, p);
+                let _ = tree.require(ctx.db(), None, RequireType::Folded, p);
             }
             tree
         }
@@ -371,7 +382,7 @@ mod test {
         #[test]
         fn folding_tree_lattice_lub_idempotent(Input { ctx, trees } in arb_ctx_trees(1)) {
             let [tree]: [_; 1] = trees.try_into().unwrap();
-            let lub = tree.lub(&ctx.body, &tree);
+            let lub = tree.lub(ctx.body(), &tree);
             prop_assert!(
                 lub == tree,
                 "{} != {}",
@@ -384,8 +395,8 @@ mod test {
         #[test]
         fn folding_tree_lattice_lub_identity(Input { ctx, trees } in arb_ctx_trees(1)) {
             let [tree]: [_; 1] = trees.try_into().unwrap();
-            let lub_1 = tree.lub(&ctx.body, &FoldingForrest::default());
-            let lub_2 = FoldingForrest::default().lub(&ctx.body, &tree);
+            let lub_1 = tree.lub(ctx.body(), &FoldingForrest::default());
+            let lub_2 = FoldingForrest::default().lub(ctx.body(), &tree);
             prop_assert!(
                 lub_1 == tree,
                 "{} != {}",
@@ -405,8 +416,8 @@ mod test {
         #[test]
         fn folding_tree_lattice_commute(Input { ctx, trees } in arb_ctx_trees(2)) {
             let [lhs, rhs]: [_; 2] = trees.try_into().unwrap();
-            let lub_lr = lhs.lub(&ctx.body, &rhs);
-            let lub_rl = rhs.lub(&ctx.body, &lhs);
+            let lub_lr = lhs.lub(ctx.body(), &rhs);
+            let lub_rl = rhs.lub(ctx.body(), &lhs);
 
             eprintln!(
                 "lub({}, {}) = {}",
@@ -438,7 +449,7 @@ mod test {
             let cases = [a, b, c]
                 .into_iter()
                 .permutations(3)
-                .map(|ts| ts[0].lub(&ctx.body, &ts[1].lub(&ctx.body, &ts[2])))
+                .map(|ts| ts[0].lub(ctx.body(), &ts[1].lub(ctx.body(), &ts[2])))
                 .collect_vec();
 
             for (x, y) in cases.iter().tuple_windows() {
@@ -462,8 +473,8 @@ mod test {
                 .into_iter()
                 .permutations(3)
                 .map(|ts| (
-                    ts[0].lub(&ctx.body, &ts[1].lub(&ctx.body, &ts[2])),
-                    ts[0].lub(&ctx.body, &ts[1]).lub(&ctx.body, &ts[2]),
+                    ts[0].lub(ctx.body(), &ts[1].lub(ctx.body(), &ts[2])),
+                    ts[0].lub(ctx.body(), &ts[1]).lub(ctx.body(), &ts[2]),
                 ))
                 .collect_vec();
 
@@ -483,7 +494,7 @@ mod test {
         #[test]
         fn folding_tree_lattice_lub_2(Input { ctx, trees } in arb_ctx_trees(2)) {
             let [lhs, rhs]: [_; 2] = trees.try_into().unwrap();
-            let lub = lhs.lub(&ctx.body, &rhs);
+            let lub = lhs.lub(ctx.body(), &rhs);
 
             eprintln!(
                 "lub({}, {}) = {}",
@@ -496,13 +507,13 @@ mod test {
             // ⋣
 
             prop_assert!(
-                lub.contains(&ctx.body, &lhs),
+                lub.contains(ctx.body(), &lhs),
                 "{} ⋣ {}",
                 debug_folding_tree_ctx(&ctx, &lub),
                 debug_folding_tree_ctx(&ctx, &lhs),
             );
             prop_assert!(
-                lub.contains(&ctx.body, &rhs),
+                lub.contains(ctx.body(), &rhs),
                 "{} ⋣ {}",
                 debug_folding_tree_ctx(&ctx, &lub),
                 debug_folding_tree_ctx(&ctx, &rhs),
@@ -519,7 +530,7 @@ mod test {
                 .into_iter()
                 .permutations(3)
                 .map(|ts| {
-                    let lub = ts[0].lub(&ctx.body, &ts[1]).lub(&ctx.body, &ts[2]);
+                    let lub = ts[0].lub(ctx.body(), &ts[1]).lub(ctx.body(), &ts[2]);
                     (ts, lub)
                 })
                 .collect_vec();
@@ -527,7 +538,7 @@ mod test {
             for (ts, lub) in cases.iter() {
                 for t in ts {
                     prop_assert!(
-                        lub.contains(&ctx.body, t),
+                        lub.contains(ctx.body(), t),
                         "{} ⋣ {}",
                         debug_folding_tree_ctx(&ctx, lub),
                         debug_folding_tree_ctx(&ctx, t),

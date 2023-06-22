@@ -82,45 +82,41 @@ async fn cli() -> Result<()> {
                 let _enter = span.enter();
 
                 let Some(mir) = mir::lower_item(&db, item) else { continue };
-                let mut body = mir.body(&db).clone();
+                let mut ib = mir.ib(&db).clone();
 
-                mir::pass::MentionPass::run(&db, &mut body);
+                mir::pass::MentionPass::run(&db, &mut ib);
 
                 if dump_mir {
-                    let a = mir::analysis::liveness::FoldingAnalysisResults::compute(&db, &body);
-                    let mir2 = body.clone();
+                    let a = mir::analysis::liveness::FoldingAnalysisResults::compute(&db, &ib);
                     println!(
                         "{}",
-                        body.serialize_with_annotation(&db, mir::serialize::Color::Yes, |act| {
-                            Some(a.try_entry(act.loc())?.debug_str(&db, &mir2))
+                        ib.serialize_with_annotation(&db, mir::serialize::Color::Yes, |act| {
+                            Some(a.try_entry(act.loc())?.debug_str(&db, &ib))
                         })
                     );
                 }
                 if dump_isorecursive {
-                    mir::pass::IsorecursivePass::run(&db, &mut body);
-                    let a = mir::analysis::liveness::FoldingAnalysisResults::compute(&db, &body);
+                    mir::pass::IsorecursivePass::run(&db, &mut ib);
+                    let a = mir::analysis::liveness::FoldingAnalysisResults::compute(&db, &ib);
                     if dump_mir {
-                        let mir2 = body.clone();
                         println!(
                             "{}",
-                            body.serialize_with_annotation(
-                                &db,
-                                mir::serialize::Color::Yes,
-                                |act| { Some(a.try_entry(act.loc())?.debug_str(&db, &mir2)) }
-                            )
+                            ib.serialize_with_annotation(&db, mir::serialize::Color::Yes, |act| {
+                                Some(a.try_entry(act.loc())?.debug_str(&db, &ib))
+                            })
                         );
                     }
                 }
                 if dump_cfg {
-                    let cfg = mir::analysis::cfg::Cfg::compute(&db, &body);
-                    let dot = cfg.dot(&db, &body);
+                    let cfg = mir::analysis::cfg::Cfg::compute(&db, &ib);
+                    let dot = cfg.dot(&db, &ib);
                     mir::analysis::cfg::dot_imgcat(&dot);
 
                     if dump_liveness {
                         mir::analysis::cfg::dot_imgcat(&cfg.analysis_dot(
-                            &body,
-                            &mir::analysis::liveness::FoldingAnalysisResults::compute(&db, &body),
-                            |x| x.debug_str(&db, &body),
+                            &ib,
+                            &mir::analysis::liveness::FoldingAnalysisResults::compute(&db, &ib),
+                            |x| x.debug_str(&db, &ib),
                         ));
                     }
                 }

@@ -1,6 +1,6 @@
 use folding_tree::RequireType;
 
-use crate::{mir, mono::types::TypeData, util::IdxSet};
+use crate::{mir, util::IdxSet};
 
 use super::{
     folding_forrest::FoldingForrest,
@@ -10,8 +10,8 @@ use super::{
 pub type Liveness = monotone::AnalysisResults<LivenessAnalysis>;
 
 impl Liveness {
-    pub fn compute(db: &dyn crate::Db, body: &mir::Body) -> Self {
-        mono_analysis::<_, monotone::FiFo>(db, LivenessAnalysis, body)
+    pub fn compute(db: &dyn crate::Db, ib: &mir::ItemBody) -> Self {
+        mono_analysis::<_, monotone::FiFo>(db, LivenessAnalysis, ib)
     }
 }
 
@@ -37,7 +37,7 @@ impl MonotoneFramework for LivenessAnalysis {
         }
     }
 
-    fn initial(&self, _db: &dyn crate::Db, _body: &mir::Body) -> Self::Domain {
+    fn initial(&self, _db: &dyn crate::Db, _ib: &mir::ItemBody) -> Self::Domain {
         Default::default()
     }
 }
@@ -45,8 +45,8 @@ impl MonotoneFramework for LivenessAnalysis {
 pub type FoldingAnalysisResults = monotone::AnalysisResults<FoldingAnalysis>;
 
 impl FoldingAnalysisResults {
-    pub fn compute(db: &dyn crate::Db, body: &mir::Body) -> Self {
-        mono_analysis::<_, monotone::FiFo>(db, FoldingAnalysis, body)
+    pub fn compute(db: &dyn crate::Db, ib: &mir::ItemBody) -> Self {
+        mono_analysis::<_, monotone::FiFo>(db, FoldingAnalysis, ib)
     }
 }
 
@@ -67,13 +67,13 @@ impl MonotoneFramework for FoldingAnalysis {
         prev.backwards_transition(db, body, act)
     }
 
-    fn initial(&self, db: &dyn crate::Db, body: &mir::Body) -> Self::Domain {
+    fn initial(&self, db: &dyn crate::Db, ib: &mir::ItemBody) -> Self::Domain {
         // TODO: We should look at params, return type, and post-conditions, to
         // see which slots should be folded at the exit
         let mut t = FoldingForrest::default();
-        for &param in body.params() {
-            if let TypeData::Ref { .. } = body.slot_ty(db, param).kind(db) {
-                t.require(db, None, RequireType::Folded, param.into());
+        for &param in ib.params() {
+            if param.ty(db, ib).is_ref(db) {
+                t.require(db, None, RequireType::Folded, param.place(db, ib));
             }
         }
         t
@@ -83,7 +83,6 @@ impl MonotoneFramework for FoldingAnalysis {
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
-    use salsa::ParallelDatabase;
     use tracing::{info, Level};
 
     use crate::{db::Database, file::SourceFile, mir, mono};
@@ -99,17 +98,15 @@ mod tests {
                 let span = tracing::span!(Level::DEBUG, "dump", item = item.name(&db).to_string());
                 let _enter = span.enter();
 
-                let mir = mir::lower_item(&db, item)?.body(&db);
+                let ib = mir::lower_item(&db, item)?.ib(&db);
 
-                let a = mir::analysis::liveness::FoldingAnalysisResults::compute(&db, mir);
-                let db2 = db.snapshot();
-                let mir2 = mir.clone();
+                let a = mir::analysis::liveness::FoldingAnalysisResults::compute(&db, ib);
                 let serialized =
-                    mir.serialize_with_annotation(&db, mir::serialize::Color::No, |act| {
+                    ib.serialize_with_annotation(&db, mir::serialize::Color::No, |act| {
                         let mut x = a.try_entry(act.loc())?.clone();
-                        let incomming = x.debug_str(&*db2, &mir2);
-                        x.forwards_transition(&db, &mir2, act.inner);
-                        let outgoing = x.debug_str(&*db2, &mir2);
+                        let incomming = x.debug_str(&db, ib);
+                        x.forwards_transition(&db, ib, act.inner);
+                        let outgoing = x.debug_str(&db, ib);
                         Some(format!("{incomming}\n> {outgoing}"))
                     });
                 if serialized.is_empty() {

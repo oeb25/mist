@@ -5,13 +5,11 @@ use itertools::{
     Itertools,
 };
 use la_arena::{Arena, ArenaMap};
-use tracing::debug;
 
 use crate::{
     hir::Quantifier,
-    mir::{self, SlotId},
+    mir,
     mono::{types::Type, Item},
-    util::IdxArena,
 };
 
 use super::{Operand, SwitchTargets};
@@ -59,42 +57,57 @@ impl mir::MExpr {
     }
 }
 
+impl mir::BlockId {
+    pub fn actions(self, body: &mir::Body) -> impl Iterator<Item = mir::Action> + '_ {
+        body.blocks[self].actions()
+    }
+    pub fn actions_rev(self, body: &mir::Body) -> impl Iterator<Item = mir::Action> + '_ {
+        body.blocks[self].actions_rev()
+    }
+    pub fn instructions(self, body: &mir::Body) -> &[mir::InstructionId] {
+        body.blocks[self].instructions()
+    }
+    pub fn terminator(self, body: &mir::Body) -> Option<mir::Terminator> {
+        body.blocks[self].terminator()
+    }
+    pub fn first_loc(self, body: &mir::Body) -> mir::BlockLocation {
+        body.blocks[self].first_loc()
+    }
+    pub fn first_body_loc(self, body: &mir::Body) -> mir::BodyLocation {
+        body.blocks[self].first_loc().in_block(self)
+    }
+    pub fn locations(self, body: &mir::Body) -> impl Iterator<Item = mir::BlockLocation> + '_ {
+        body.blocks[self].locations()
+    }
+}
 impl mir::Block {
-    pub fn actions(&self) -> impl Iterator<Item = mir::Action> + '_ {
+    fn actions(&self) -> impl Iterator<Item = mir::Action> + '_ {
         self.instructions
             .iter()
             .copied()
             .map(mir::Action::Instruction)
             .chain(self.terminator.map(mir::Action::Terminator))
     }
-    pub fn actions_rev(&self) -> impl Iterator<Item = mir::Action> + '_ {
+    fn actions_rev(&self) -> impl Iterator<Item = mir::Action> + '_ {
         self.terminator
             .map(mir::Action::Terminator)
             .into_iter()
             .chain(self.instructions.iter().copied().map(mir::Action::Instruction))
     }
 
-    pub fn instructions(&self) -> &[mir::InstructionId] {
+    fn instructions(&self) -> &[mir::InstructionId] {
         self.instructions.as_ref()
     }
 
-    pub fn terminator(&self) -> Option<mir::Terminator> {
+    fn terminator(&self) -> Option<mir::Terminator> {
         self.terminator
     }
 
-    pub(crate) fn set_terminator(&mut self, term: mir::Terminator) -> Option<mir::Terminator> {
-        let old = self.terminator.replace(term);
-        if let Some(_old) = &old {
-            debug!("terminator was replaced!");
-        }
-        old
-    }
-
-    pub fn first_loc(&self) -> mir::BlockLocation {
+    fn first_loc(&self) -> mir::BlockLocation {
         self.locations().next().unwrap_or(mir::BlockLocation::Terminator(()))
     }
 
-    pub fn locations(&self) -> impl Iterator<Item = mir::BlockLocation> + '_ {
+    fn locations(&self) -> impl Iterator<Item = mir::BlockLocation> + '_ {
         self.actions().map(|act| act.loc())
     }
 }
@@ -137,7 +150,7 @@ impl mir::Terminator {
     pub fn quantify(
         db: &dyn crate::Db,
         quantifier: Quantifier,
-        vars: Vec<SlotId>,
+        vars: Vec<mir::SlotId>,
         bid: mir::BlockId,
     ) -> mir::Terminator {
         mir::Terminator::new(db, mir::TerminatorKind::Quantify(quantifier, vars, bid))
@@ -209,46 +222,22 @@ impl mir::Terminator {
     }
 }
 
-impl mir::Body {
-    pub(crate) fn new(item: Item) -> mir::Body {
-        let mut slots: IdxArena<_> = Default::default();
-        let self_slot = slots.alloc(mir::Slot::Self_);
-
-        mir::Body {
-            item,
-
-            self_slot,
-
-            blocks: Default::default(),
-            instructions: Default::default(),
-            slots,
-
-            params: Default::default(),
-
-            block_invariants: Default::default(),
-            slot_type: Default::default(),
-
-            requires: Default::default(),
-            ensures: Default::default(),
-            invariants: Default::default(),
-
-            result_slot: Default::default(),
-            body_block: Default::default(),
-        }
+impl mir::ItemBody {
+    pub fn exit_blocks<'a>(
+        &'a self,
+        db: &'a dyn crate::Db,
+    ) -> impl Iterator<Item = mir::BlockId> + 'a {
+        self.body.blocks.iter().filter_map(|(bid, b)| match &b.terminator {
+            Some(t) => t.targets(db).is_empty().then_some(bid),
+            None => Some(bid),
+        })
     }
-
-    pub fn result_slot(&self) -> Option<mir::SlotId> {
-        self.result_slot
-    }
-    pub fn self_slot(&self) -> mir::SlotId {
-        self.self_slot
-    }
-
     pub fn entry_blocks(&self) -> impl Iterator<Item = mir::BlockId> + '_ {
         itertools::chain!(
             itertools::chain!(self.requires(), self.invariants(), self.ensures()).copied(),
             self.body_block(),
-            self.block_invariants.iter().flat_map(|(_, invs)| invs).copied()
+            // TODO: this should not really be entry blocks
+            self.body.block_invariants.iter().flat_map(|(_, invs)| invs).copied()
         )
     }
     pub fn is_requires(&self, bid: mir::BlockId) -> bool {
@@ -256,20 +245,6 @@ impl mir::Body {
     }
     pub fn is_ensures(&self, bid: mir::BlockId) -> bool {
         self.ensures.contains(&bid)
-    }
-
-    pub fn slots(&self) -> impl Iterator<Item = mir::SlotId> + '_ {
-        self.slots.idxs()
-    }
-
-    pub fn exit_blocks<'a>(
-        &'a self,
-        db: &'a dyn crate::Db,
-    ) -> impl Iterator<Item = mir::BlockId> + 'a {
-        self.blocks.iter().filter_map(|(bid, b)| match &b.terminator {
-            Some(t) => t.targets(db).is_empty().then_some(bid),
-            None => Some(bid),
-        })
     }
 
     pub fn body_block(&self) -> Option<mir::BlockId> {
@@ -286,6 +261,47 @@ impl mir::Body {
 
     pub fn invariants(&self) -> &[mir::BlockId] {
         self.invariants.as_ref()
+    }
+    pub fn params(&self) -> &[mir::SlotId] {
+        self.params.as_ref()
+    }
+    pub fn item(&self) -> Item {
+        self.item
+    }
+    pub fn place(&self, db: &dyn crate::Db, s: mir::SlotId) -> mir::Place {
+        self.body.place(db, s)
+    }
+}
+
+impl mir::Body {
+    pub(crate) fn new(item: Item) -> mir::Body {
+        mir::Body {
+            item,
+
+            self_slot: None,
+            result_slot: None,
+
+            blocks: Default::default(),
+            instructions: Default::default(),
+            slots: Default::default(),
+            block_invariants: Default::default(),
+            slot_type: Default::default(),
+        }
+    }
+    pub fn item(&self) -> Item {
+        self.item
+    }
+
+    pub fn place(&self, db: &dyn crate::Db, s: mir::SlotId) -> mir::Place {
+        s.place(db, self)
+    }
+
+    pub fn slots(&self) -> impl Iterator<Item = mir::SlotId> + '_ {
+        self.slots.idxs()
+    }
+
+    pub fn blocks(&self) -> impl Iterator<Item = mir::BlockId> + '_ {
+        self.blocks.idxs()
     }
 
     pub fn assignments_to(&self, x: mir::SlotId) -> impl Iterator<Item = mir::InstructionId> + '_ {
@@ -335,23 +351,15 @@ impl mir::Body {
             )
     }
 
-    pub fn params(&self) -> &[mir::SlotId] {
-        self.params.as_ref()
+    pub fn self_slot(&self) -> Option<mir::SlotId> {
+        self.self_slot
+    }
+    pub fn result_slot(&self) -> Option<mir::SlotId> {
+        self.result_slot
     }
 
-    pub fn slot_ty(&self, db: &dyn crate::Db, slot: mir::SlotId) -> Type {
+    pub(super) fn slot_ty(&self, db: &dyn crate::Db, slot: mir::SlotId) -> Type {
         self.slot_type.get(slot).copied().unwrap_or_else(|| Type::error(db))
-    }
-
-    pub fn place_ty(&self, db: &dyn crate::Db, place: mir::Place) -> Type {
-        match place.projection(db).last(db) {
-            None => self.slot_ty(db, place.slot()),
-            Some(mir::Projection::Field(_, ty) | mir::Projection::Index(_, ty)) => ty,
-        }
-    }
-
-    pub fn def(&self) -> Item {
-        self.item
     }
 
     pub fn block_invariants(&self, block: mir::BlockId) -> &[mir::BlockId] {
@@ -433,7 +441,7 @@ impl mir::Body {
         blocks: &'a [mir::BlockId],
     ) -> impl Iterator<Item = mir::SlotId> + 'a {
         blocks.iter().flat_map(|bid| {
-            self[*bid].actions().flat_map(|act| act.places_referenced(db, self).map(|p| p.slot()))
+            bid.actions(self).flat_map(|act| act.places_referenced(db, self).map(|p| p.slot()))
         })
     }
 
@@ -462,10 +470,6 @@ impl mir::Body {
             _ => None,
         })
     }
-
-    pub fn first_loc_in(&self, bid: mir::BlockId) -> mir::BodyLocation {
-        self[bid].first_loc().in_block(bid)
-    }
 }
 
 impl mir::Body {
@@ -475,7 +479,7 @@ impl mir::Body {
         inst: mir::Instruction,
     ) -> mir::InstructionId {
         let id = self.instructions.alloc(inst);
-        let b = &mut self.blocks[loc.block];
+        let b = &mut self.blocks[loc.bid];
         let insert_at = loc
             .inner
             .as_instruction()
@@ -485,49 +489,6 @@ impl mir::Body {
             None => b.instructions.push(id),
         }
         id
-    }
-}
-
-impl std::ops::Index<mir::BlockId> for mir::Body {
-    type Output = mir::Block;
-
-    fn index(&self, index: mir::BlockId) -> &Self::Output {
-        &self.blocks[index]
-    }
-}
-impl std::ops::Index<&'_ mir::BlockId> for mir::Body {
-    type Output = mir::Block;
-
-    fn index(&self, index: &'_ mir::BlockId) -> &Self::Output {
-        &self.blocks[*index]
-    }
-}
-impl std::ops::Index<mir::InstructionId> for mir::Body {
-    type Output = mir::Instruction;
-
-    fn index(&self, index: mir::InstructionId) -> &Self::Output {
-        &self.instructions[index]
-    }
-}
-impl std::ops::Index<&'_ mir::InstructionId> for mir::Body {
-    type Output = mir::Instruction;
-
-    fn index(&self, index: &'_ mir::InstructionId) -> &Self::Output {
-        &self.instructions[*index]
-    }
-}
-impl std::ops::Index<mir::SlotId> for mir::Body {
-    type Output = mir::Slot;
-
-    fn index(&self, index: mir::SlotId) -> &Self::Output {
-        &self.slots[index]
-    }
-}
-impl std::ops::Index<&'_ mir::SlotId> for mir::Body {
-    type Output = mir::Slot;
-
-    fn index(&self, index: &'_ mir::SlotId) -> &Self::Output {
-        &self.slots[*index]
     }
 }
 
@@ -542,6 +503,21 @@ impl fmt::Display for mir::BlockId {
     }
 }
 
+impl mir::InstructionId {
+    pub fn places_written_to(self, body: &mir::Body) -> impl Iterator<Item = mir::Place> + '_ {
+        body.instructions[self].places_written_to()
+    }
+    pub fn places_referenced<'a>(
+        self,
+        db: &'a dyn crate::Db,
+        body: &'a mir::Body,
+    ) -> impl Iterator<Item = mir::Place> + 'a {
+        body.instructions[self].places_referenced(db)
+    }
+    pub fn data(self, body: &mir::Body) -> &mir::Instruction {
+        &body.instructions[self]
+    }
+}
 impl mir::Instruction {
     pub fn places(&self) -> impl Iterator<Item = mir::Place> + '_ {
         match self {
@@ -640,7 +616,7 @@ impl mir::Action {
         body: &'a mir::Body,
     ) -> impl Iterator<Item = mir::Place> + 'a {
         match self {
-            mir::Action::Instruction(inst) => Left(body[inst].places_written_to()),
+            mir::Action::Instruction(inst) => Left(inst.places_written_to(body)),
             mir::Action::Terminator(t) => Right(t.places_written_to(db)),
         }
     }
@@ -651,7 +627,7 @@ impl mir::Action {
         body: &'a mir::Body,
     ) -> impl Iterator<Item = mir::Place> + 'a {
         match self {
-            mir::Action::Instruction(inst) => Left(body[inst].places_referenced(db)),
+            mir::Action::Instruction(inst) => Left(inst.places_referenced(db, body)),
             mir::Action::Terminator(t) => Right(t.places_referenced(db)),
         }
     }
@@ -659,7 +635,7 @@ impl mir::Action {
 
 impl<T> mir::InBlock<T> {
     pub fn map<S>(self, mut f: impl FnMut(T) -> S) -> mir::InBlock<S> {
-        mir::InBlock::new(self.block, f(self.inner))
+        mir::InBlock::new(self.bid, f(self.inner))
     }
 }
 

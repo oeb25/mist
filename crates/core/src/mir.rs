@@ -1,6 +1,5 @@
 pub mod analysis;
 pub mod def;
-mod lower;
 pub mod pass;
 pub mod serialize;
 
@@ -9,19 +8,19 @@ use mist_syntax::SourceSpan;
 
 use crate::mono::exprs::{ExprPtr, VariablePtr};
 
-pub use self::lower::lower_item;
 pub use def::{
+    lower::lower_item,
     place::{Place, Projection, ProjectionList, Slot, SlotId},
     source_map::BodySourceMap,
     Action, Block, BlockId, BlockLocation, BlockOrInstruction, Body, BodyLocation, BorrowKind,
-    Folding, Function, InBlock, Instruction, InstructionId, MExpr, Operand, RangeKind,
+    Folding, Function, InBlock, Instruction, InstructionId, ItemBody, MExpr, Operand, RangeKind,
     SwitchTargets, Terminator, TerminatorKind,
 };
 
 #[salsa::tracked]
 pub struct ItemMir {
     #[return_ref]
-    pub body: Body,
+    pub ib: ItemBody,
     #[return_ref]
     pub source_map: BodySourceMap,
 }

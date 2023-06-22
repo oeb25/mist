@@ -154,12 +154,12 @@ impl BodyLower<'_> {
             todo!();
         }
 
-        let start = match self.body[block].terminator() {
+        let start = match block.terminator(self.ib) {
             Some(t) => match t.kind(self.db) {
                 mir::TerminatorKind::Return => {
                     return Err(ViperLowerError::NotYetImplemented {
                         msg: "return terminator".to_string(),
-                        def: self.body.def(),
+                        def: self.ib.item(),
                         block_or_inst: Some(block.into()),
                         span: None,
                     })
@@ -190,14 +190,14 @@ impl BodyLower<'_> {
                             ),
                             // TODO
                             place,
-                            // self.body.result_slot().unwrap().into(),
+                            // self.ib.result_slot().unwrap().into(),
                             stopped_before,
                         )
                     }
                     PureLowerResult::Empty { .. } => {
                         return Err(ViperLowerError::NotYetImplemented {
                             msg: "quantifier with empty result".into(),
-                            def: self.body.def(),
+                            def: self.ib.item(),
                             block_or_inst: Some(block.into()),
                             span: None,
                         })
@@ -217,7 +217,7 @@ impl BodyLower<'_> {
                     let Some(next) = self.postdominators.get(block) else {
                         return Err(ViperLowerError::NotYetImplemented {
                             msg: format!("block {block} did not have a postdominator"),
-                            def: self.body.def(),
+                            def: self.ib.item(),
                             block_or_inst: Some(block.into()),
                             span: None,
                         })
@@ -234,7 +234,7 @@ impl BodyLower<'_> {
                                 if thn_slot != els_slot {
                                     return Err(ViperLowerError::NotYetImplemented {
                                         msg: "divergent branches".to_string(),
-                                        def: self.body.def(),
+                                        def: self.ib.item(),
                                         block_or_inst: Some(block.into()),
                                         span: None,
                                     });
@@ -260,7 +260,7 @@ impl BodyLower<'_> {
                             (PureLowerResult::Empty { .. }, _) => {
                                 Err(ViperLowerError::NotYetImplemented {
                                     msg: format!("divergent branches: {otherwise} is empty, and was told to stop at {block}"),
-                                    def: self.body.def(),
+                                    def: self.ib.item(),
                                     block_or_inst: Some(otherwise.into()),
                                     span: None,
                                 })
@@ -295,8 +295,8 @@ impl BodyLower<'_> {
             None => PureLowerResult::Empty { stopped_before: None },
         };
 
-        self.body[block]
-            .instructions()
+        block
+            .instructions(self.ib)
             .iter()
             .copied()
             .try_rfold(start, |acc, inst| self.pure_wrap_with_instruction(inst, acc))
@@ -307,7 +307,7 @@ impl BodyLower<'_> {
         inst: mir::InstructionId,
         acc: PureLowerResult,
     ) -> Result<PureLowerResult> {
-        Ok(match &self.body[inst] {
+        Ok(match inst.data(self.ib) {
             mir::Instruction::Assign(x, e) => {
                 let exp = self.expr(inst, e)?;
                 acc.wrap_in_assignment(self, inst, *x, exp)?
@@ -315,7 +315,7 @@ impl BodyLower<'_> {
             mir::Instruction::NewAdt(_, _, _) => {
                 return Err(ViperLowerError::NotYetImplemented {
                     msg: "struct initialization in pure context".to_string(),
-                    def: self.body.def(),
+                    def: self.ib.item(),
                     block_or_inst: Some(inst.into()),
                     span: None,
                 });
@@ -330,7 +330,7 @@ impl BodyLower<'_> {
                     }
                     _ => return Ok(acc),
                 };
-                if let Some(s) = self.body.place_ty(self.db, unfolding_place).ty_adt(self.db) {
+                if let Some(s) = unfolding_place.ty().ty_adt(self.db) {
                     acc.try_map_exp(|exp| {
                         let place_ref = self.place_to_ref(inst, unfolding_place)?;
                         let pred_acc = PredicateAccessPredicate::new(
@@ -341,10 +341,7 @@ impl BodyLower<'_> {
                         Ok(self.alloc(inst, Exp::new_unfolding(pred_acc, exp)))
                     })?
                 } else {
-                    warn!(
-                        "no struct found for '{}'",
-                        self.body.place_ty(self.db, unfolding_place).display(self.db)
-                    );
+                    warn!("no struct found for '{}'", unfolding_place.ty().display(self.db));
                     acc
                 }
             }

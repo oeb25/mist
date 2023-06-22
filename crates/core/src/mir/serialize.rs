@@ -110,7 +110,7 @@ macro_rules! wln {
 
 impl<'db, A: Fn(InBlock<Action>) -> Option<String>> Serializer<'db, A> {
     fn finish(mut self) -> String {
-        for bid in self.body.blocks.iter().map(|(id, _)| id).collect::<Vec<_>>() {
+        for bid in self.body.blocks().collect::<Vec<_>>() {
             self.block(bid);
         }
 
@@ -129,7 +129,7 @@ impl<'db, A: Fn(InBlock<Action>) -> Option<String>> Serializer<'db, A> {
         self.indented(|this| {
             let mut printed = false;
 
-            for act in this.body[bid].actions() {
+            for act in bid.actions(this.body) {
                 printed = true;
                 if let Some(s) = (this.annotator)(act.in_block(bid)) {
                     wln!(this, Default, "{s}");
@@ -154,7 +154,7 @@ impl<'db, A: Fn(InBlock<Action>) -> Option<String>> Serializer<'db, A> {
         }
     }
     fn inst(&mut self, inst: InstructionId) {
-        match &self.body.instructions[inst] {
+        match inst.data(self.body) {
             Instruction::Assign(t, e) => {
                 self.place(*t);
                 w!(self, Default, " := ");
@@ -192,7 +192,7 @@ impl<'db, A: Fn(InBlock<Action>) -> Option<String>> Serializer<'db, A> {
     }
 
     fn slot(&mut self, s: SlotId) {
-        match &self.body.slots[s] {
+        match s.data(self.body) {
             Slot::Param(v) => w!(self, Cyan, "{s}_{}", v.name(self.db)),
             Slot::Quantified(v) => w!(self, Cyan, "{s}_{}", v.name(self.db)),
             Slot::Local(v) => w!(self, Cyan, "{s}_{}", v.name(self.db)),

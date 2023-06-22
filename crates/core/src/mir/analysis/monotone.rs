@@ -32,7 +32,7 @@ pub enum Progress {
 }
 
 pub trait Direction {
-    fn initial_blocks(db: &dyn crate::Db, body: &mir::Body, f: impl FnMut(mir::BlockId));
+    fn initial_blocks(db: &dyn crate::Db, ib: &mir::ItemBody, f: impl FnMut(mir::BlockId));
     fn semantic<A: MonotoneFramework>(
         db: &dyn crate::Db,
         a: &A,
@@ -48,15 +48,15 @@ pub trait Direction {
         facts: &mut HashMap<mir::BodyLocation, A::Domain>,
         bid: mir::BlockId,
     ) -> Progress;
-    fn next(db: &dyn crate::Db, body: &mir::Body, bid: mir::BlockId, f: impl FnMut(mir::BlockId));
+    fn next(db: &dyn crate::Db, ib: &mir::ItemBody, bid: mir::BlockId, f: impl FnMut(mir::BlockId));
 }
 
 pub struct Forward;
 pub struct Backward;
 
 impl Direction for Forward {
-    fn initial_blocks(_db: &dyn crate::Db, body: &mir::Body, mut f: impl FnMut(mir::BlockId)) {
-        for bid in body.entry_blocks() {
+    fn initial_blocks(_db: &dyn crate::Db, ib: &mir::ItemBody, mut f: impl FnMut(mir::BlockId)) {
+        for bid in ib.entry_blocks() {
             f(bid);
         }
     }
@@ -69,7 +69,7 @@ impl Direction for Forward {
         bid: mir::BlockId,
         mut events: impl for<'a> FnMut(mir::BodyLocation, &'a A::Domain),
     ) {
-        for act in body[bid].actions() {
+        for act in bid.actions(body) {
             let location = act.loc();
             a.semantic(db, body, act, prev);
             events(mir::BodyLocation::new(bid, location), prev)
@@ -104,18 +104,18 @@ impl Direction for Forward {
 
     fn next(
         db: &dyn crate::Db,
-        body: &mir::Body,
+        ib: &mir::ItemBody,
         bid: mir::BlockId,
         mut f: impl FnMut(mir::BlockId),
     ) {
-        for b in body.succeeding_blocks(db, bid) {
+        for b in ib.succeeding_blocks(db, bid) {
             f(b);
         }
     }
 }
 impl Direction for Backward {
-    fn initial_blocks(db: &dyn crate::Db, body: &mir::Body, mut f: impl FnMut(mir::BlockId)) {
-        for bid in body.exit_blocks(db) {
+    fn initial_blocks(db: &dyn crate::Db, ib: &mir::ItemBody, mut f: impl FnMut(mir::BlockId)) {
+        for bid in ib.exit_blocks(db) {
             f(bid);
         }
     }
@@ -128,7 +128,7 @@ impl Direction for Backward {
         bid: mir::BlockId,
         mut events: impl for<'a> FnMut(mir::BodyLocation, &'a A::Domain),
     ) {
-        for op in body[bid].actions_rev() {
+        for op in bid.actions_rev(body) {
             let location = op.loc();
             a.semantic(db, body, op, prev);
             events(mir::BodyLocation::new(bid, location), prev)
@@ -145,7 +145,7 @@ impl Direction for Backward {
         let mut progress = Progress::No;
 
         for d in body.succeeding_blocks(db, bid) {
-            let initial_loc = body[d].first_loc();
+            let initial_loc = d.first_loc(body);
             let mut prev = facts
                 .entry(mir::BodyLocation::new(d, initial_loc))
                 .or_insert_with(|| A::Domain::bottom(body))
@@ -164,11 +164,11 @@ impl Direction for Backward {
 
     fn next(
         db: &dyn crate::Db,
-        body: &mir::Body,
+        ib: &mir::ItemBody,
         bid: mir::BlockId,
         mut f: impl FnMut(mir::BlockId),
     ) {
-        for b in body.preceding_blocks(db, bid) {
+        for b in ib.preceding_blocks(db, bid) {
             f(b);
         }
     }
@@ -184,7 +184,7 @@ pub trait MonotoneFramework {
         act: mir::Action,
         prev: &mut Self::Domain,
     );
-    fn initial(&self, db: &dyn crate::Db, body: &mir::Body) -> Self::Domain;
+    fn initial(&self, db: &dyn crate::Db, ib: &mir::ItemBody) -> Self::Domain;
     fn debug(&self, item: &Self::Domain) {
         let _ = item;
     }
@@ -238,25 +238,25 @@ impl Worklist for LiFo {
 pub fn mono_analysis<A: MonotoneFramework, W: Worklist>(
     db: &dyn crate::Db,
     a: A,
-    body: &mir::Body,
+    ib: &mir::ItemBody,
 ) -> AnalysisResults<A> {
     let mut worklist = W::empty();
 
     let mut facts: HashMap<mir::BodyLocation, A::Domain> = Default::default();
-    for (bid, _) in body.blocks.iter() {
+    for bid in ib.blocks() {
         worklist.insert(bid);
     }
 
-    let initial = a.initial(db, body);
-    A::Direction::initial_blocks(db, body, |bid| {
+    let initial = a.initial(db, ib);
+    A::Direction::initial_blocks(db, ib, |bid| {
         let mut called = false;
         let mut prev = initial.clone();
-        A::Direction::semantic(db, &a, body, &mut prev, bid, |loc, d| {
+        A::Direction::semantic(db, &a, ib, &mut prev, bid, |loc, d| {
             called = true;
             facts.insert(loc, d.clone());
         });
         if !called {
-            facts.insert(body.first_loc_in(bid), prev);
+            facts.insert(bid.first_body_loc(ib), prev);
         }
     });
 
@@ -265,9 +265,9 @@ pub fn mono_analysis<A: MonotoneFramework, W: Worklist>(
     while let Some(n) = worklist.extract() {
         calls += 1;
 
-        match A::Direction::semantics(db, &a, body, &mut facts, n) {
+        match A::Direction::semantics(db, &a, ib, &mut facts, n) {
             Progress::No => {}
-            Progress::Yes => A::Direction::next(db, body, n, |b| worklist.insert(b)),
+            Progress::Yes => A::Direction::next(db, ib, n, |b| worklist.insert(b)),
         }
     }
 

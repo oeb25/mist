@@ -1,4 +1,5 @@
 mod ext;
+pub mod lower;
 pub mod place;
 pub mod source_map;
 
@@ -22,8 +23,8 @@ use place::{Place, SlotId};
 impl_idx!(BlockId, Block);
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct Block {
-    pub(super) instructions: Vec<InstructionId>,
-    pub(super) terminator: Option<Terminator>,
+    instructions: Vec<InstructionId>,
+    terminator: Option<Terminator>,
 }
 
 #[salsa::interned]
@@ -112,26 +113,45 @@ pub enum RangeKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ItemBody {
+    item: Item,
+
+    body: Body,
+
+    params: Vec<SlotId>,
+
+    requires: Vec<BlockId>,
+    ensures: Vec<BlockId>,
+    invariants: Vec<BlockId>,
+
+    body_block: Option<BlockId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Body {
     item: Item,
 
-    pub(super) self_slot: SlotId,
+    self_slot: Option<SlotId>,
+    result_slot: Option<SlotId>,
 
-    pub(super) blocks: IdxArena<BlockId>,
-    pub(super) instructions: IdxArena<InstructionId>,
-    pub(super) slots: IdxArena<SlotId>,
+    blocks: IdxArena<BlockId>,
+    instructions: IdxArena<InstructionId>,
+    slots: IdxArena<SlotId>,
+    block_invariants: IdxMap<BlockId, Vec<BlockId>>,
+    slot_type: IdxMap<SlotId, Type>,
+}
 
-    pub(super) params: Vec<SlotId>,
+impl std::ops::Deref for ItemBody {
+    type Target = Body;
 
-    pub(super) block_invariants: IdxMap<BlockId, Vec<BlockId>>,
-    pub(super) slot_type: IdxMap<SlotId, Type>,
-
-    pub(super) requires: Vec<BlockId>,
-    pub(super) ensures: Vec<BlockId>,
-    pub(super) invariants: Vec<BlockId>,
-
-    pub(super) result_slot: Option<SlotId>,
-    pub(super) body_block: Option<BlockId>,
+    fn deref(&self) -> &Self::Target {
+        &self.body
+    }
+}
+impl std::ops::DerefMut for ItemBody {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.body
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, From)]
@@ -144,7 +164,7 @@ pub type BodyLocation = InBlock<BlockLocation>;
 
 #[derive(new, Debug, Clone, Copy, PartialEq, Eq, Hash, From)]
 pub struct InBlock<T> {
-    pub block: BlockId,
+    pub bid: BlockId,
     pub inner: T,
 }
 

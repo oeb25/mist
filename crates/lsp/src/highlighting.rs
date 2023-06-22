@@ -50,15 +50,15 @@ pub fn inlay_hints(db: &dyn crate::Db, source: SourceFile) -> Arc<Vec<InlayHint>
             .filter_map(|item| {
                 let mir = mir::lower_item(db, item)?;
                 let mir_source_map = mir.source_map(db);
-                let mut body = mir.body(db).clone();
-                mir::pass::FullDefaultPass::run(db, &mut body);
+                let mut ib = mir.ib(db).clone();
+                mir::pass::FullDefaultPass::run(db, &mut ib);
 
-                let cfg = mir::analysis::cfg::Cfg::compute(db, &body);
-                for entry in body.entry_blocks() {
+                let cfg = mir::analysis::cfg::Cfg::compute(db, &ib);
+                for entry in ib.entry_blocks() {
                     cfg.visit_reverse_post_order(entry, |bid| {
                         let mut stacked_up = vec![];
-                        for inst in body[bid].locations().filter_map(|loc| loc.as_instruction()) {
-                            if let mir::Instruction::Folding(f) = &body[inst] {
+                        for inst in bid.locations(&ib).filter_map(|loc| loc.as_instruction()) {
+                            if let mir::Instruction::Folding(f) = inst.data(&ib) {
                                 stacked_up.push(f)
                             }
 
@@ -68,7 +68,7 @@ pub fn inlay_hints(db: &dyn crate::Db, source: SourceFile) -> Arc<Vec<InlayHint>
                                 let p = mir::serialize::serialize_place(
                                     mir::serialize::Color::No,
                                     db,
-                                    &body,
+                                    &ib,
                                     f.place(),
                                 );
                                 result.push(InlayHint {

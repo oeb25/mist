@@ -50,7 +50,7 @@ impl Cfg {
     where
         A::Domain: fmt::Debug,
     {
-        let g = self.map_graph(|bid| fmt(result.value_at(body.first_loc_in(bid))), |_| "");
+        let g = self.map_graph(|bid| fmt(result.value_at(bid.first_body_loc(body))), |_| "");
         petgraph::dot::Dot::new(&g).to_string()
     }
     pub fn map_graph<V, E>(
@@ -201,9 +201,9 @@ fn frontiers(g: &Graph<BlockId, Terminator>, e: NodeIndex) -> HashMap<NodeIndex,
 
 impl<'a> CfgBuilder<'a> {
     fn finish(mut self, db: &dyn crate::Db) -> Cfg {
-        for (bid, b) in self.body.blocks.iter() {
+        for bid in self.body.blocks() {
             let nid = self.cfg.bid_to_node(bid);
-            if let Some(term) = b.terminator() {
+            if let Some(term) = bid.terminator(self.body) {
                 match term.kind(db) {
                     TerminatorKind::Return => {}
                     TerminatorKind::Quantify(_, _, next) => {

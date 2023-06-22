@@ -38,9 +38,9 @@ pub fn viper_file(
 
     for item in mono::monomorphized_items(db, file).items(db) {
         let Some(mir) = mir::lower_item(db, item) else { return Err(ViperLowerError::EmptyBody) };
-        let mut body = mir.body(db).clone();
-        mir::pass::FullDefaultPass::run(db, &mut body);
-        match internal_viper_item(db, &mut lowerer, item, &body) {
+        let mut ib = mir.ib(db).clone();
+        mir::pass::FullDefaultPass::run(db, &mut ib);
+        match internal_viper_item(db, &mut lowerer, item, &ib) {
             Ok(items) => {
                 for item in items {
                     match item {
@@ -72,10 +72,10 @@ pub fn viper_item(
     item: mono::Item,
 ) -> Result<(Vec<ViperItem<VExprId>>, ViperBody, ViperSourceMap)> {
     let Some(mir) = mir::lower_item(db, item) else { return Err(ViperLowerError::EmptyBody) };
-    let mut body = mir.body(db).clone();
-    mir::pass::FullDefaultPass::run(db, &mut body);
+    let mut ib = mir.ib(db).clone();
+    mir::pass::FullDefaultPass::run(db, &mut ib);
     let mut lowerer = ViperLowerer::new();
-    let items = internal_viper_item(db, &mut lowerer, item, &body)?;
+    let items = internal_viper_item(db, &mut lowerer, item, &ib)?;
     let (viper_body, viper_source_map) = lowerer.finish();
     Ok((items, viper_body, viper_source_map))
 }
@@ -83,32 +83,32 @@ fn internal_viper_item(
     db: &dyn crate::Db,
     lowerer: &mut ViperLowerer,
     item: mono::Item,
-    mir: &mir::Body,
+    ib: &mir::ItemBody,
 ) -> Result<Vec<ViperItem<VExprId>>> {
     match item.kind(db) {
         mono::ItemKind::Adt(adt) => {
             // TODO: we should lower the actual instantications of structs, not
             // those found in the file necessarily.
-            let mut lower = lowerer.body_lower(db, mir, false);
-            lower.adt_lower(adt, mir.invariants().iter().copied())
+            let mut lower = lowerer.body_lower(db, ib, false);
+            lower.adt_lower(ib.self_slot().unwrap(), adt, ib.invariants().iter().copied())
         }
         mono::ItemKind::Function(function) => {
             let is_method = !function.attrs(db).is_pure();
 
-            let mut lower = lowerer.body_lower(db, mir, is_method);
+            let mut lower = lowerer.body_lower(db, ib, is_method);
 
             let mut pres = vec![];
             let mut posts = vec![];
 
-            let formal_args = mir
+            let formal_args = ib
                 .params()
                 .iter()
                 .map(|&s| {
                     // TODO: Don't lower explicitly from 0
                     let bid = mir::BlockId::from_raw(0.into());
 
-                    let refe = lower.place_to_ref(bid, s.into())?;
-                    let conds = lower.ty_to_condition(bid, refe, mir.slot_ty(db, s))?;
+                    let refe = lower.place_to_ref(bid, s.place(db, ib))?;
+                    let conds = lower.ty_to_condition(bid, refe, s.ty(db, ib))?;
                     if let Some(cond) = conds.0 {
                         pres.push(cond);
                     }
@@ -122,14 +122,14 @@ fn internal_viper_item(
                 })
                 .collect::<Result<_>>()?;
 
-            let return_ty = mir
+            let return_ty = ib
                 .result_slot()
                 .map(|s| {
                     // TODO: Don't lower explicitly from 0
                     let bid = mir::BlockId::from_raw(0.into());
 
-                    let refe = lower.place_to_ref(bid, s.into())?;
-                    let conds = lower.ty_to_condition(bid, refe, mir.slot_ty(db, s))?;
+                    let refe = lower.place_to_ref(bid, s.place(db, ib))?;
+                    let conds = lower.ty_to_condition(bid, refe, s.ty(db, ib))?;
                     if is_method {
                         if let Some(cond) = conds.0 {
                             posts.push(cond);
@@ -140,20 +140,20 @@ fn internal_viper_item(
                 })
                 .transpose()?;
 
-            for &pre in mir.requires() {
+            for &pre in ib.requires() {
                 pres.push(lower.pure_lower(pre)?);
             }
-            for &post in mir.ensures() {
+            for &post in ib.ensures() {
                 posts.push(lower.pure_lower(post)?);
             }
-            for &inv in mir.invariants() {
+            for &inv in ib.invariants() {
                 let exp = lower.pure_lower(inv)?;
                 pres.push(exp);
                 posts.push(exp);
             }
 
             if function.attrs(db).is_pure() {
-                let body = mir.body_block().map(|body| lower.pure_lower(body)).transpose()?;
+                let body = ib.body_block().map(|body| lower.pure_lower(body)).transpose()?;
 
                 let func = Function {
                     name: function.name(db).to_string(),
@@ -161,7 +161,7 @@ fn internal_viper_item(
                     typ: return_ty
                         .ok_or_else(|| ViperLowerError::NotYetImplemented {
                             msg: "function had no return type".to_owned(),
-                            def: mir.def(),
+                            def: ib.item(),
                             block_or_inst: None,
                             span: None,
                             // TODO: find a way to pass the span here
@@ -183,7 +183,7 @@ fn internal_viper_item(
                     formal_returns,
                     pres,
                     posts,
-                    body: mir.body_block().map(|body| lower.method_lower(body)).transpose()?,
+                    body: ib.body_block().map(|body| lower.method_lower(body)).transpose()?,
                 };
 
                 Ok(vec![method.into()])

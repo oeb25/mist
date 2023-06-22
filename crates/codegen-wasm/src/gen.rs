@@ -21,7 +21,7 @@ pub fn generate_module(db: &dyn crate::Db, file: SourceFile) -> Result<wasm::Mod
 
     for item in mono::monomorphized_items(db, file).items(db) {
         let Some(mir) = mir::lower_item(db, item) else { continue };
-        FunctionLowerer::new(db, mir.body(db)).generate_func();
+        FunctionLowerer::new(db, mir.ib(db)).generate_func();
     }
 
     todo!()
@@ -29,13 +29,13 @@ pub fn generate_module(db: &dyn crate::Db, file: SourceFile) -> Result<wasm::Mod
 
 struct FunctionLowerer<'a> {
     db: &'a dyn crate::Db,
-    body: &'a mir::Body,
+    ib: &'a mir::ItemBody,
     slots_stack_offsets: IdxMap<mir::SlotId, usize>,
 }
 
 impl<'a> FunctionLowerer<'a> {
-    fn new(db: &'a dyn crate::Db, body: &'a mir::Body) -> Self {
-        Self { db, body, slots_stack_offsets: Default::default() }
+    fn new(db: &'a dyn crate::Db, ib: &'a mir::ItemBody) -> Self {
+        Self { db, ib, slots_stack_offsets: Default::default() }
     }
 
     fn allocate_slots<T: From<wasm::ValType>>(
@@ -46,7 +46,7 @@ impl<'a> FunctionLowerer<'a> {
         slots.fold(Vec::new(), |mut items, sid| {
             let idx = offset + items.len();
             self.slots_stack_offsets.insert(sid, idx);
-            let types = self.compute_ty_layout(self.body.slot_ty(self.db, sid));
+            let types = self.compute_ty_layout(sid.ty(self.db, self.ib));
             items.extend(types.into_iter().map_into());
             items
         })
@@ -91,9 +91,9 @@ impl<'a> FunctionLowerer<'a> {
     }
 
     pub fn generate_func(&mut self) -> wasm::Func {
-        let params = self.allocate_slots(0, self.body.params().iter().copied());
-        let results = self.allocate_slots(params.len(), self.body.result_slot().into_iter());
-        let locals = self.allocate_slots(params.len() + results.len(), self.body.locals());
+        let params = self.allocate_slots(0, self.ib.params().iter().copied());
+        let results = self.allocate_slots(params.len(), self.ib.result_slot().into_iter());
+        let locals = self.allocate_slots(params.len() + results.len(), self.ib.locals());
 
         let type_use = wasm::TypeUse { type_idx: wasm::TypeIdx::Idx(0), params, results };
         let instrs = vec![];

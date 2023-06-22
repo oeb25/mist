@@ -15,9 +15,10 @@ impl BodyLower<'_> {
     #[tracing::instrument(skip_all)]
     pub fn method_lower(&mut self, entry: mir::BlockId) -> Result<Seqn<VExprId>> {
         self.postdominators = Default::default();
-        for bid in self.body.entry_blocks() {
-            self.postdominators.merge(&self.cfg.postdominators(bid));
-        }
+        // TODO: Should we really compute for all entry blocks?
+        // for bid in self.ib.entry_blocks() {
+        self.postdominators.merge(&self.cfg.postdominators(entry));
+        // }
         self.final_block(entry)
     }
 
@@ -25,7 +26,7 @@ impl BodyLower<'_> {
         let mut result = self.block(bid, vec![], None)?;
         result.ss.push(Stmt::Label(Label::new("end".to_string(), vec![])));
 
-        for x in self.body.locals() {
+        for x in self.ib.locals() {
             let var = self.slot_to_decl(x)?;
             result
                 .scoped_seqn_declarations
@@ -56,11 +57,11 @@ impl BodyLower<'_> {
         mut insts: Vec<Stmt<VExprId>>,
         stop_at: Option<mir::BlockId>,
     ) -> Result<Seqn<VExprId>> {
-        for &inst in self.body[block].instructions() {
+        for &inst in block.instructions(self.ib) {
             self.instruction(inst, &mut insts)?;
         }
 
-        match self.body[block].terminator() {
+        match block.terminator(self.ib) {
             Some(t) => match t.kind(self.db) {
                 mir::TerminatorKind::Return => {
                     insts.push(Stmt::Goto { target: "end".to_string() });
@@ -76,7 +77,7 @@ impl BodyLower<'_> {
                 mir::TerminatorKind::Quantify(_q, _over, _b) => {
                     Err(ViperLowerError::NotYetImplemented {
                         msg: "lower quantifier in method".to_string(),
-                        def: self.body.def(),
+                        def: self.ib.item(),
                         block_or_inst: Some(block.into()),
                         span: None,
                     })
@@ -94,7 +95,7 @@ impl BodyLower<'_> {
                         let (value, target) = values.next().unwrap();
                         assert_eq!(values.next(), None);
                         let mut body = self.block(target, vec![], Some(block))?;
-                        for &inst in self.body[block].instructions() {
+                        for &inst in block.instructions(self.ib) {
                             self.instruction(inst, &mut body.ss)?;
                         }
 
@@ -106,16 +107,16 @@ impl BodyLower<'_> {
                         let cond =
                             if let Some(&cond) = self.inlined.get(cond) { cond } else { cond };
 
-                        let liveness =
-                            mir::analysis::liveness::Liveness::compute(self.db, self.body);
+                        let liveness = mir::analysis::liveness::Liveness::compute(self.db, self.ib);
 
                         let access_invs = liveness
-                            .entry(self.body.first_loc_in(block))
+                            .entry(block.first_body_loc(self.ib))
                             .iter()
                             .map(|s| {
-                                let place_ty = self.body.place_ty(self.db, s.into());
-                                let place_ref = self.place_to_ref(block, s.into())?;
-                                let (pre, _) = self.ty_to_condition(block, place_ref, place_ty)?;
+                                let place = s.place(self.db, self.ib);
+                                let place_ref = self.place_to_ref(block, place)?;
+                                let (pre, _) =
+                                    self.ty_to_condition(block, place_ref, place.ty())?;
                                 Ok(pre)
                             })
                             .filter_map(|s| s.transpose())
@@ -124,7 +125,7 @@ impl BodyLower<'_> {
                         let invs = access_invs
                             .into_iter()
                             .map(Ok)
-                            .chain(self.body.block_invariants(block).iter().map(|bid| {
+                            .chain(self.ib.block_invariants(block).iter().map(|bid| {
                                 match self.pure_block(*bid, None)? {
                                     PureLowerResult::UnassignedExpression(exp, _, _) => Ok(exp),
                                     PureLowerResult::Empty { .. } => todo!(),
@@ -169,7 +170,7 @@ impl BodyLower<'_> {
                 mir::TerminatorKind::Call { func, args, destination, target } => {
                     let var = self.place_for_assignment(*destination)?;
                     let f = self.function(block, *func, args)?;
-                    let voided = self.body.place_ty(self.db, *destination).is_void(self.db);
+                    let voided = destination.ty().is_void(self.db);
 
                     match f {
                         Exp::FuncApp { funcname, args } => {
@@ -220,7 +221,7 @@ impl BodyLower<'_> {
         inst: mir::InstructionId,
         insts: &mut Vec<Stmt<VExprId>>,
     ) -> Result<()> {
-        match self.body[inst].clone() {
+        match inst.data(self.ib).clone() {
             mir::Instruction::Assign(t, x) => {
                 let rhs = self.expr(inst, &x)?;
                 match t.projections(self.db) {
@@ -245,14 +246,14 @@ impl BodyLower<'_> {
                         };
                     }
                     &[mir::Projection::Index(index, _)] => {
-                        let idx = self.place_to_ref(inst, index.into())?;
+                        let idx = self.place_to_ref(inst, index.place(self.db, self.ib))?;
                         let seq = self.place_to_ref(inst, t.parent(self.db).unwrap())?;
                         let new_rhs = self.alloc(inst, SeqExp::Update { s: seq, idx, elem: rhs });
                         let lhs = self.place_for_assignment(t.without_projection(self.db))?;
                         insts.push(Stmt::LocalVarAssign { lhs, rhs: new_rhs })
                     }
                     &[.., mir::Projection::Field(f, ty), mir::Projection::Index(index, _)] => {
-                        let idx = self.place_to_ref(inst, index.into())?;
+                        let idx = self.place_to_ref(inst, index.place(self.db, self.ib))?;
                         let parent = t.parent(self.db).unwrap();
                         let grand_parent = parent.parent(self.db).unwrap();
                         let seq = self.place_to_ref(inst, parent)?;
@@ -320,7 +321,7 @@ impl BodyLower<'_> {
                     mir::Folding::Fold { into, .. } => into,
                     mir::Folding::Unfold { consume, .. } => consume,
                 };
-                if let Some(adt) = self.body.place_ty(self.db, place).ty_adt(self.db) {
+                if let Some(adt) = place.ty().ty_adt(self.db) {
                     let name = mangle::mangled_adt(self.db, adt);
                     let place_ref = self.place_to_ref(inst, place)?;
                     let acc = PredicateAccessPredicate::new(
