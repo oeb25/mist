@@ -109,12 +109,7 @@ fn initialize_file_context_inner(
                     .ast_node(db)
                     .generic_param_list()
                     .into_iter()
-                    .flat_map(|generic_params| generic_params.generic_params())
-                    .map(|arg| {
-                        let ty = b.new_generic(Generic::default());
-                        b.generics.insert(arg.name().unwrap().into(), ty);
-                        ty
-                    })
+                    .flat_map(|generic_params| b.register_generics(&generic_params))
                     .collect();
 
                 let fields = s
@@ -169,6 +164,9 @@ impl FileContext {
                 FileContextBuilderEvent::InstantiateAdt(kind, generic_args) => {
                     typer.instantiate_adt(db, *kind, *generic_args);
                 }
+                FileContextBuilderEvent::AdtTy(adt) => {
+                    typer.adt_ty(db, *adt);
+                }
             }
         }
         typer
@@ -190,6 +188,7 @@ enum FileContextBuilderEvent {
     NewGeneric(Generic),
     InstantiateAdt(AdtKind, GenericArgs),
     CreateAdtPrototype(AdtKind, AdtPrototype),
+    AdtTy(Adt),
 }
 
 impl<'a> TypeProvider for FileContextBuilder<'a> {
@@ -228,9 +227,11 @@ impl<'a> TypingMut for FileContextBuilder<'a> {
         self.typer.new_free()
     }
 
-    fn new_generic(&mut self, generic: Generic) -> TypeId {
+    fn new_generic(&mut self, name: Name, generic: Generic) -> TypeId {
         self.fc.events.push(FileContextBuilderEvent::NewGeneric(generic));
-        self.typer.new_generic(generic)
+        let ty = self.typer.new_generic(generic);
+        self.generics.insert(name, ty);
+        ty
     }
 
     fn create_adt_prototype(&mut self, kind: AdtKind, prototype: AdtPrototype) {
@@ -242,6 +243,7 @@ impl<'a> TypingMut for FileContextBuilder<'a> {
         self.typer.instantiate_adt(self.db, kind, generic_args)
     }
     fn adt_ty(&mut self, adt: Adt) -> TypeId {
+        self.fc.events.push(FileContextBuilderEvent::AdtTy(adt));
         self.typer.adt_ty(self.db, adt)
     }
 

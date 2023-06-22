@@ -298,6 +298,15 @@ impl<'a> TypeChecker<'a> {
 
         checker.cx.invariant_ty = match def.kind(db) {
             hir::DefKind::TypeInvariant(ty_inv) => {
+                // TODO: store these somewhere, so that we can instanitate it
+                // for ADT's later
+                let _generics: Vec<_> = ty_inv
+                    .ast_node(db)
+                    .generic_param_list()
+                    .into_iter()
+                    .flat_map(|generic_params| checker.register_generics(&generic_params))
+                    .collect();
+
                 Some(checker.expect_find_type_src(&ty_inv.ty(db)))
             }
             hir::DefKind::Struct(_) | hir::DefKind::StructField(_) | hir::DefKind::Function(_) => {
@@ -603,8 +612,10 @@ impl<'a> TypingMut for TypeChecker<'a> {
         self.typer.adt_ty(self.db, adt)
     }
 
-    fn new_generic(&mut self, generic: Generic) -> TypeId {
-        self.typer.new_generic(generic)
+    fn new_generic(&mut self, name: Name, generic: Generic) -> TypeId {
+        let ty = self.typer.new_generic(generic);
+        self.scope.insert_ty(name, ty);
+        ty
     }
 
     fn alloc_ty_data(&mut self, data: TypeData) -> TypeId {

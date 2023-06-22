@@ -243,7 +243,7 @@ impl Typer {
                 let ty = self.substitude(db, f, &mut |_tc, ty| {
                     sp.generics
                         .iter()
-                        .zip_eq(adt.generic_args(db))
+                        .zip(adt.generic_args(db))
                         .find_map(|(param, arg)| if *param == ty { Some(arg) } else { None })
                         .unwrap_or(ty)
                 });
@@ -264,6 +264,13 @@ impl Typer {
     ) -> Option<TypeId> {
         if self.probe_type(expected).is_void() && self.probe_type(actual).is_void() {
             return Some(expected);
+        }
+
+        {
+            let mut table = self.ty_table.lock().unwrap();
+            if table.unioned(expected, actual) {
+                return Some(expected);
+            }
         }
 
         let t1 = self.probe_type(expected);

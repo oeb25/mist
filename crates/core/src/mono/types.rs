@@ -47,7 +47,7 @@ pub struct Adt {
     pub kind: AdtKind,
     pub generic_args: Vec<Type>,
     #[return_ref]
-    raw_fields: Vec<(crate::types::AdtField, crate::types::TypeId)>,
+    raw_fields: Vec<(crate::types::AdtField, Def, crate::types::TypeId)>,
 }
 
 #[salsa::interned]
@@ -68,27 +68,29 @@ impl Adt {
     }
     pub fn fields(&self, db: &dyn crate::Db) -> Vec<AdtField> {
         match self.kind(db) {
-            AdtKind::Struct(s) => {
-                let def = Def::new(db, crate::def::DefKind::Struct(s));
-                let hir = def.hir(db).unwrap();
-                let cx = hir.cx(db);
-                let mut inner_mdl = MonoDefLower::new(db, cx);
+            AdtKind::Struct(_) => self
+                .raw_fields(db)
+                .iter()
+                .map(|(af, def, ty)| {
+                    let hir = def.hir(db).unwrap();
+                    let cx = hir.cx(db);
+                    let mut inner_mdl = MonoDefLower::new(db, cx);
 
-                self.raw_fields(db)
-                    .iter()
-                    .map(|(af, ty)| {
-                        let ty = inner_mdl.lower_ty(*ty);
-                        AdtField::new(db, af.name(db), ty)
-                    })
-                    .collect()
-            }
+                    let ty = inner_mdl.lower_ty(*ty);
+                    AdtField::new(db, af.name(db), ty)
+                })
+                .collect(),
             AdtKind::Enum => todo!(),
         }
     }
     pub fn ty(&self, db: &dyn crate::Db) -> Type {
         Type::new(db, false, TypeData::Adt(*self))
     }
-    pub fn invariants(&self, db: &dyn crate::Db) -> Vec<ExprPtr> {
+}
+#[salsa::tracked]
+impl Adt {
+    #[salsa::tracked]
+    pub fn invariants(self, db: &dyn crate::Db) -> Vec<ExprPtr> {
         match self.kind(db) {
             AdtKind::Struct(s) => {
                 let file = Def::new(db, crate::def::DefKind::Struct(s)).file(db);

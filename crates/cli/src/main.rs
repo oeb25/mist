@@ -18,6 +18,7 @@ use mist_cli::{accumulated_errors, db::Database, Db, VerificationContext};
 #[tokio::main]
 async fn main() -> Result<()> {
     miette::set_panic_hook();
+    color_backtrace::install();
     dotenvy::dotenv().into_diagnostic()?;
 
     tracing_subscriber::Registry::default()

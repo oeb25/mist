@@ -43,6 +43,7 @@ pub struct Jar(
     crate::mono::types::Type,
     crate::mono::types::BuiltinType,
     crate::mono::types::Adt,
+    crate::mono::types::Adt_invariants,
     crate::mono::types::AdtField,
     crate::mono::types::FunctionType,
     crate::mono::Function,

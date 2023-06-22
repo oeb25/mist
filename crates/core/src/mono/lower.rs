@@ -120,7 +120,7 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
             .cx
             .fields_of(adt)
             .into_iter()
-            .map(|af| (af, self.cx.field_ty(af.into())))
+            .map(|af| (af, self.cx.def(), self.cx.field_ty(af.into())))
             .collect();
 
         let new_adt = Adt::new(self.db, adt.kind(), generic_args, fields);
