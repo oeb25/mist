@@ -138,6 +138,9 @@ impl Type {
     pub fn is_list(&self, db: &dyn crate::Db) -> bool {
         matches!(self.builtin(db), Some(b) if b.kind(db) == BuiltinKind::List)
     }
+    pub fn is_ref(&self, db: &dyn crate::Db) -> bool {
+        matches!(self.kind(db), TypeData::Ref { .. })
+    }
 
     pub fn builtin(&self, db: &dyn crate::Db) -> Option<BuiltinType> {
         match self.kind(db) {
@@ -146,6 +149,9 @@ impl Type {
         }
     }
 
+    pub fn is_adt(&self, db: &dyn crate::Db) -> bool {
+        matches!(self.kind(db), TypeData::Adt(_))
+    }
     pub fn ty_adt(&self, db: &dyn crate::Db) -> Option<Adt> {
         match self.kind(db) {
             TypeData::Adt(adt) => Some(adt),

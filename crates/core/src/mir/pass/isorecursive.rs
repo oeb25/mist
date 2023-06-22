@@ -1,12 +1,9 @@
 use derive_new::new;
 use folding_tree::RequireType;
 
-use crate::{
-    mir::{
-        analysis::{cfg::Cfg, folding_tree::FoldingTree, liveness, monotone::MonotoneFramework},
-        Body, BodyLocation, Folding, Instruction,
-    },
-    mono::types::TypeData,
+use crate::mir::{
+    analysis::{cfg::Cfg, folding_forrest::FoldingForrest, liveness, monotone::MonotoneFramework},
+    Body, BodyLocation, Folding, Instruction,
 };
 
 use super::Pass;
@@ -28,11 +25,11 @@ impl Pass for IsorecursivePass {
 
         let cfg = Cfg::compute(db, body);
 
-        let mut tree_from_params = FoldingTree::default();
-        let mut tree_from_returns = FoldingTree::default();
+        let mut tree_from_params = FoldingForrest::default();
+        let mut tree_from_returns = FoldingForrest::default();
         for &s in body.params() {
             tree_from_params.require(db, None, RequireType::Folded, s.into());
-            if let TypeData::Ref { .. } = body.slot_ty(db, s).kind(db) {
+            if body.slot_ty(db, s).is_ref(db) {
                 tree_from_returns.require(db, None, RequireType::Folded, s.into());
             }
         }

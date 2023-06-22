@@ -9,7 +9,7 @@ pub use petgraph;
 use super::{serialize, BlockId, Body};
 
 pub mod cfg;
-pub mod folding_tree;
+pub mod folding_forrest;
 pub mod liveness;
 pub mod monotone;
 

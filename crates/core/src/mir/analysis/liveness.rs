@@ -3,7 +3,7 @@ use folding_tree::RequireType;
 use crate::{mir, mono::types::TypeData, util::IdxSet};
 
 use super::{
-    folding_tree::FoldingTree,
+    folding_forrest::FoldingForrest,
     monotone::{self, mono_analysis, MonotoneFramework},
 };
 
@@ -53,7 +53,7 @@ impl FoldingAnalysisResults {
 pub struct FoldingAnalysis;
 
 impl MonotoneFramework for FoldingAnalysis {
-    type Domain = FoldingTree;
+    type Domain = FoldingForrest;
 
     type Direction = monotone::Backward;
 
@@ -70,7 +70,7 @@ impl MonotoneFramework for FoldingAnalysis {
     fn initial(&self, db: &dyn crate::Db, body: &mir::Body) -> Self::Domain {
         // TODO: We should look at params, return type, and post-conditions, to
         // see which slots should be folded at the exit
-        let mut t = FoldingTree::default();
+        let mut t = FoldingForrest::default();
         for &param in body.params() {
             if let TypeData::Ref { .. } = body.slot_ty(db, param).kind(db) {
                 t.require(db, None, RequireType::Folded, param.into());

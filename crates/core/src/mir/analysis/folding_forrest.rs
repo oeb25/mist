@@ -1,18 +1,18 @@
-use folding_tree::RequireType;
+use folding_tree::{FoldingTree, RequireType};
 use itertools::Itertools;
 
 use crate::{mir, util::IdxMap};
 
 use super::monotone::Lattice;
 
-/// A [`FoldingTree`] maintains the the state of foldings and unfoldings of
+/// A [`FoldingForrest`] maintains the the state of foldings and unfoldings of
 /// [slots](crate::mir::Slot) and their projections.
 #[derive(Default, Debug, Clone, Eq)]
-pub struct FoldingTree {
-    inner: IdxMap<mir::SlotId, folding_tree::FoldingTree<mir::ProjectionList>>,
+pub struct FoldingForrest {
+    inner: IdxMap<mir::SlotId, FoldingTree<mir::ProjectionList>>,
 }
 
-impl PartialEq for FoldingTree {
+impl PartialEq for FoldingForrest {
     fn eq(&self, other: &Self) -> bool {
         self.inner == other.inner
             || (self.inner.iter().all(|(slot, a_ft)| {
@@ -31,7 +31,7 @@ impl PartialEq for FoldingTree {
     }
 }
 
-impl FoldingTree {
+impl FoldingForrest {
     pub fn debug_str(&self, db: &dyn crate::Db, body: &mir::Body) -> String {
         let entries = self
             .inner
@@ -104,7 +104,7 @@ impl FoldingTree {
     pub fn compute_transition_into(
         &mut self,
         _db: &dyn crate::Db,
-        target: &FoldingTree,
+        target: &FoldingForrest,
     ) -> Vec<mir::Folding> {
         let mut foldings = vec![];
         for (slot, target_ft) in target.inner.iter() {
@@ -193,12 +193,12 @@ impl FoldingTree {
 
     fn zip<'a, 'b>(
         &'a self,
-        other: &'b FoldingTree,
+        other: &'b FoldingForrest,
     ) -> impl Iterator<
         Item = (
             mir::SlotId,
-            Option<&'a folding_tree::FoldingTree<mir::ProjectionList>>,
-            Option<&'b folding_tree::FoldingTree<mir::ProjectionList>>,
+            Option<&'a FoldingTree<mir::ProjectionList>>,
+            Option<&'b FoldingTree<mir::ProjectionList>>,
         ),
     > {
         self.inner.iter().map(|(slot, a_ft)| (slot, Some(a_ft), other.inner.get(slot))).chain(
@@ -224,7 +224,7 @@ impl FoldingTree {
     }
 }
 
-impl Lattice<mir::Body> for FoldingTree {
+impl Lattice<mir::Body> for FoldingForrest {
     fn bottom(_body: &mir::Body) -> Self {
         Default::default()
     }
@@ -242,7 +242,7 @@ impl Lattice<mir::Body> for FoldingTree {
             })
             .collect();
 
-        FoldingTree { inner }
+        FoldingForrest { inner }
     }
 
     fn contains(&self, _body: &mir::Body, other: &Self) -> bool {
@@ -259,7 +259,7 @@ impl Lattice<mir::Body> for FoldingTree {
 pub(crate) fn debug_folding_tree(
     db: &dyn crate::Db,
     body: &mir::Body,
-    tree: &FoldingTree,
+    tree: &FoldingForrest,
 ) -> String {
     tree.debug_str(db, body)
 }
@@ -318,13 +318,13 @@ mod test {
             Context { db: Arc::new(db), body }
         }
     }
-    fn debug_folding_tree_ctx(ctx: &Context, tree: &FoldingTree) -> String {
+    fn debug_folding_tree_ctx(ctx: &Context, tree: &FoldingForrest) -> String {
         debug_folding_tree(&*ctx.db, &ctx.body, tree)
     }
 
     struct Input {
         ctx: Context,
-        trees: Vec<FoldingTree>,
+        trees: Vec<FoldingForrest>,
     }
     impl fmt::Debug for Input {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -349,9 +349,9 @@ mod test {
     prop_compose! {
         fn arb_folding_tree(ctx: Context)
             (places in prop::collection::vec(arb_place(&ctx), 0..10))
-            -> FoldingTree
+            -> FoldingForrest
         {
-            let mut tree = FoldingTree::default();
+            let mut tree = FoldingForrest::default();
             for p in places {
                 let _ = tree.require(&*ctx.db, None, RequireType::Folded, p);
             }
@@ -384,8 +384,8 @@ mod test {
         #[test]
         fn folding_tree_lattice_lub_identity(Input { ctx, trees } in arb_ctx_trees(1)) {
             let [tree]: [_; 1] = trees.try_into().unwrap();
-            let lub_1 = tree.lub(&ctx.body, &FoldingTree::default());
-            let lub_2 = FoldingTree::default().lub(&ctx.body, &tree);
+            let lub_1 = tree.lub(&ctx.body, &FoldingForrest::default());
+            let lub_2 = FoldingForrest::default().lub(&ctx.body, &tree);
             prop_assert!(
                 lub_1 == tree,
                 "{} != {}",
