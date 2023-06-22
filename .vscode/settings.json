@@ -3,6 +3,12 @@
         "Cargo.toml",
         "app/wasm/Cargo.toml"
     ],
+    "rust-analyzer.server.extraEnv": {
+        "CARGO_TARGET_DIR": "target/analyzer"
+    },
+    "rust-analyzer.check.extraArgs": [
+        "--target-dir=target/analyzer"
+    ],
     "search.exclude": {
         "**/node_modules": true,
         "**/bower_components": true,

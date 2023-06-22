@@ -996,6 +996,7 @@ dependencies = [
 [[package]]
 name = "silvers"
 version = "0.1.0"
+source = "git+https://github.com/oeb25/vipers.git#7cae25b9c6e5d6614eae5bc9d92624282acc59e4"
 dependencies = [
  "derive-new",
  "derive_more",
