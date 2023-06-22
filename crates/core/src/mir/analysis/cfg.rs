@@ -3,7 +3,10 @@ use std::fmt;
 use petgraph::{algo::dominators::Dominators, visit::IntoNodeIdentifiers, Direction};
 use tracing::warn;
 
-use crate::{mir::Terminator, util::IdxMap};
+use crate::{
+    mir::{Terminator, TerminatorKind},
+    util::IdxMap,
+};
 
 use super::{
     monotone::{AnalysisResults, MonotoneFramework},
@@ -24,8 +27,8 @@ struct CfgBuilder<'a> {
 }
 
 impl Cfg {
-    pub fn compute(body: &Body) -> Cfg {
-        CfgBuilder::new(body).finish()
+    pub fn compute(db: &dyn crate::Db, body: &Body) -> Cfg {
+        CfgBuilder::new(body).finish(db)
     }
     fn bid_to_node(&mut self, bid: BlockId) -> NodeIndex {
         *self.nodes.entry(bid).or_insert_with(|| self.graph.add_node(bid))
@@ -53,9 +56,9 @@ impl Cfg {
     pub fn map_graph<V, E>(
         &self,
         mut f: impl FnMut(BlockId) -> V,
-        mut g: impl FnMut(&Terminator) -> E,
+        mut g: impl FnMut(Terminator) -> E,
     ) -> Graph<V, E> {
-        self.graph.map(|_, &bid| f(bid), |_, term| g(term))
+        self.graph.map(|_, &bid| f(bid), |_, &term| g(term))
     }
     #[allow(dead_code)]
     fn exit_nodes(&self) -> impl Iterator<Item = NodeIndex> + '_ {
@@ -197,34 +200,34 @@ fn frontiers(g: &Graph<BlockId, Terminator>, e: NodeIndex) -> HashMap<NodeIndex,
 }
 
 impl<'a> CfgBuilder<'a> {
-    fn finish(mut self) -> Cfg {
+    fn finish(mut self, db: &dyn crate::Db) -> Cfg {
         for (bid, b) in self.body.blocks.iter() {
             let nid = self.cfg.bid_to_node(bid);
-            if let Some(term) = b.terminator().cloned() {
-                match &term {
-                    Terminator::Return => {}
-                    Terminator::Quantify(_, _, next) => {
+            if let Some(term) = b.terminator() {
+                match term.kind(db) {
+                    TerminatorKind::Return => {}
+                    TerminatorKind::Quantify(_, _, next) => {
                         let next_nid = self.cfg.bid_to_node(*next);
                         self.cfg.graph.add_edge(nid, next_nid, term);
                     }
-                    Terminator::QuantifyEnd(next) => {
+                    TerminatorKind::QuantifyEnd(next) => {
                         let next_nid = self.cfg.bid_to_node(*next);
                         self.cfg.graph.add_edge(nid, next_nid, term);
                     }
-                    Terminator::Goto(next) => {
+                    TerminatorKind::Goto(next) => {
                         let next_nid = self.cfg.bid_to_node(*next);
                         self.cfg.graph.add_edge(nid, next_nid, term);
                     }
-                    Terminator::Switch(_, s) => {
+                    TerminatorKind::Switch(_, s) => {
                         let (targets, otherwise) = s.targets();
                         for t in targets {
                             let t_nid = self.cfg.bid_to_node(t);
-                            self.cfg.graph.add_edge(nid, t_nid, term.clone());
+                            self.cfg.graph.add_edge(nid, t_nid, term);
                         }
                         let t_nid = self.cfg.bid_to_node(otherwise);
-                        self.cfg.graph.add_edge(nid, t_nid, term.clone());
+                        self.cfg.graph.add_edge(nid, t_nid, term);
                     }
-                    Terminator::Call { target, .. } => {
+                    TerminatorKind::Call { target, .. } => {
                         if let Some(next) = target {
                             let next_nid = self.cfg.bid_to_node(*next);
                             self.cfg.graph.add_edge(nid, next_nid, term);

@@ -3,11 +3,11 @@ use std::fmt::Write;
 use derive_new::new;
 use owo_colors::{colors::*, OwoColorize};
 
-use crate::mir::{BlockLocation, Projection, Terminator};
+use crate::mir::{Projection, Terminator};
 
 use super::{
-    BlockId, Body, BodyLocation, BorrowKind, Folding, Function, Instruction, InstructionId, MExpr,
-    Operand, Place, Slot, SlotId,
+    def::InBlock, Action, BlockId, Body, BorrowKind, Folding, Function, Instruction, InstructionId,
+    MExpr, Operand, Place, Slot, SlotId, TerminatorKind,
 };
 
 #[derive(new)]
@@ -29,7 +29,7 @@ impl Body {
         &self,
         db: &dyn crate::Db,
         color: Color,
-        f: impl Fn(BodyLocation) -> Option<String>,
+        f: impl Fn(InBlock<Action>) -> Option<String>,
     ) -> String {
         Serializer::new(color, db, self, f).finish()
     }
@@ -55,7 +55,7 @@ pub fn serialize_terminator(
     color: Color,
     db: &dyn crate::Db,
     body: &Body,
-    term: &Terminator,
+    term: Terminator,
 ) -> String {
     let mut s = Serializer::new(color, db, body, |_| None).with_color(color);
     s.terminator(term);
@@ -108,7 +108,7 @@ macro_rules! wln {
     }};
 }
 
-impl<'db, A: Fn(BodyLocation) -> Option<String>> Serializer<'db, A> {
+impl<'db, A: Fn(InBlock<Action>) -> Option<String>> Serializer<'db, A> {
     fn finish(mut self) -> String {
         for bid in self.body.blocks.iter().map(|(id, _)| id).collect::<Vec<_>>() {
             self.block(bid);
@@ -123,33 +123,36 @@ impl<'db, A: Fn(BodyLocation) -> Option<String>> Serializer<'db, A> {
         self.indentation -= 1;
     }
 
-    fn block(&mut self, body: BlockId) {
-        self.block_id(Some(body));
+    fn block(&mut self, bid: BlockId) {
+        self.block_id(Some(bid));
         wln!(self, Default, "");
         self.indented(|this| {
             let mut printed = false;
-            for &inst in &this.body.blocks[body].instructions {
+
+            for act in this.body[bid].actions() {
                 printed = true;
-                if let Some(s) = (this.annotator)(BlockLocation::Instruction(inst).in_block(body)) {
+                if let Some(s) = (this.annotator)(act.in_block(bid)) {
                     wln!(this, Default, "{s}");
                 }
-                this.inst(inst);
+                this.action(act);
             }
-            if let Some(term) = &this.body.blocks[body].terminator {
-                printed = true;
-                if let Some(s) = (this.annotator)(BlockLocation::Terminator.in_block(body)) {
-                    wln!(this, Default, "{s}");
-                }
-                this.terminator(term);
-            }
+
             if !printed {
-                if let Some(s) = (this.annotator)(BlockLocation::Terminator.in_block(body)) {
+                if let Some(s) =
+                    (this.annotator)(Action::from(Terminator::returns(self.db)).in_block(bid))
+                {
                     wln!(this, Default, "{s}");
                 }
             }
         });
     }
 
+    fn action(&mut self, act: Action) {
+        match act {
+            Action::Instruction(inst) => self.inst(inst),
+            Action::Terminator(term) => self.terminator(term),
+        }
+    }
     fn inst(&mut self, inst: InstructionId) {
         match &self.body.instructions[inst] {
             Instruction::Assign(t, e) => {
@@ -299,15 +302,15 @@ impl<'db, A: Fn(BodyLocation) -> Option<String>> Serializer<'db, A> {
             w!(self, Green, ":B!")
         }
     }
-    fn terminator(&mut self, term: &Terminator) {
-        match term {
-            Terminator::Return => wln!(self, Default, "!return"),
-            Terminator::Goto(b) => {
+    fn terminator(&mut self, term: Terminator) {
+        match term.kind(self.db) {
+            TerminatorKind::Return => wln!(self, Default, "!return"),
+            TerminatorKind::Goto(b) => {
                 w!(self, Yellow, "!goto ");
                 self.block_id(Some(*b));
                 wln!(self, Default, "");
             }
-            Terminator::Quantify(q, over, b) => {
+            TerminatorKind::Quantify(q, over, b) => {
                 w!(self, Yellow, "!{q} ");
                 for s in over {
                     self.slot(*s);
@@ -316,12 +319,12 @@ impl<'db, A: Fn(BodyLocation) -> Option<String>> Serializer<'db, A> {
                 self.block_id(Some(*b));
                 wln!(self, Default, "");
             }
-            Terminator::QuantifyEnd(b) => {
+            TerminatorKind::QuantifyEnd(b) => {
                 w!(self, Yellow, ":quatifier-end ");
                 self.block_id(Some(*b));
                 wln!(self, Default, "");
             }
-            Terminator::Switch(cond, switch) => {
+            TerminatorKind::Switch(cond, switch) => {
                 w!(self, Yellow, "!switch ");
                 self.operand(cond);
                 w!(self, Default, " {{");
@@ -334,7 +337,7 @@ impl<'db, A: Fn(BodyLocation) -> Option<String>> Serializer<'db, A> {
                 self.block_id(Some(otherwise));
                 wln!(self, Default, " }}");
             }
-            Terminator::Call { func, args, destination, target } => {
+            TerminatorKind::Call { func, args, destination, target } => {
                 w!(self, Yellow, "!call ");
 
                 self.place(*destination);

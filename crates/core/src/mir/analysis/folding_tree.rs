@@ -126,82 +126,68 @@ impl FoldingTree {
         foldings
     }
 
-    pub fn forwards_instruction_transition(
-        &mut self,
-        db: &dyn crate::Db,
-        body: &mir::Body,
-        inst: mir::InstructionId,
-    ) {
-        match &body[inst] {
-            mir::Instruction::Folding(f) => match f {
-                mir::Folding::Fold { into } => {
-                    self.fold(db, *into);
-                }
-                mir::Folding::Unfold { consume } => {
-                    self.unfold(db, *consume);
+    pub fn forwards_transition(&mut self, db: &dyn crate::Db, body: &mir::Body, act: mir::Action) {
+        match act {
+            mir::Action::Instruction(inst) => match &body[inst] {
+                mir::Instruction::Folding(f) => match f {
+                    mir::Folding::Fold { into } => {
+                        self.fold(db, *into);
+                    }
+                    mir::Folding::Unfold { consume } => {
+                        self.unfold(db, *consume);
+                    }
+                },
+                _ => {
+                    for p in body[inst].places_referenced(db) {
+                        let _ = self.require(db, None, RequireType::Folded, p);
+                    }
+                    for p in body[inst].places_written_to() {
+                        self.drop(db, p);
+                        let _ = self.require(db, None, RequireType::Folded, p);
+                    }
                 }
             },
-            _ => {
-                for p in body[inst].places_referenced(db) {
+            mir::Action::Terminator(t) => {
+                for p in t.places_referenced(db) {
                     let _ = self.require(db, None, RequireType::Folded, p);
                 }
-                for p in body[inst].places_written_to() {
+                for p in t.places_written_to(db) {
                     self.drop(db, p);
                     let _ = self.require(db, None, RequireType::Folded, p);
                 }
             }
         }
     }
-    pub fn forwards_terminator_transition(
-        &mut self,
-        db: &dyn crate::Db,
-        terminator: &mir::Terminator,
-    ) {
-        for p in terminator.places_referenced(db) {
-            let _ = self.require(db, None, RequireType::Folded, p);
-        }
-        for p in terminator.places_written_to() {
-            self.drop(db, p);
-            let _ = self.require(db, None, RequireType::Folded, p);
-        }
-    }
-    pub fn backwards_instruction_transition(
-        &mut self,
-        db: &dyn crate::Db,
-        body: &mir::Body,
-        inst: mir::InstructionId,
-    ) {
-        match &body[inst] {
-            mir::Instruction::Folding(f) => match f {
-                mir::Folding::Fold { into } => {
-                    self.unfold(db, *into);
-                }
-                mir::Folding::Unfold { consume } => {
-                    self.fold(db, *consume);
+    pub fn backwards_transition(&mut self, db: &dyn crate::Db, body: &mir::Body, act: mir::Action) {
+        match act {
+            mir::Action::Instruction(inst) => match &body[inst] {
+                mir::Instruction::Folding(f) => match f {
+                    mir::Folding::Fold { into } => {
+                        self.unfold(db, *into);
+                    }
+                    mir::Folding::Unfold { consume } => {
+                        self.fold(db, *consume);
+                    }
+                },
+                _ => {
+                    for p in body[inst].places_written_to() {
+                        self.drop(db, p);
+                        self.require(db, None, RequireType::Accessible, p);
+                    }
+                    for p in body[inst].places_referenced(db) {
+                        let _ = self.require(db, None, RequireType::Folded, p);
+                    }
                 }
             },
-            _ => {
-                for p in body[inst].places_written_to() {
+            mir::Action::Terminator(t) => {
+                for p in t.places_written_to(db) {
                     self.drop(db, p);
                     self.require(db, None, RequireType::Accessible, p);
                 }
-                for p in body[inst].places_referenced(db) {
+                for p in t.places_referenced(db) {
                     let _ = self.require(db, None, RequireType::Folded, p);
                 }
             }
-        }
-    }
-    pub fn backwards_terminator_transition(
-        &mut self,
-        db: &dyn crate::Db,
-        terminator: &mir::Terminator,
-    ) {
-        for p in terminator.places_written_to() {
-            self.drop(db, p);
-            self.require(db, None, RequireType::Accessible, p);
-        }
-        for p in terminator.places_referenced(db) {
-            let _ = self.require(db, None, RequireType::Folded, p);
         }
     }
 

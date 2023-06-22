@@ -4,7 +4,7 @@ use folding_tree::RequireType;
 use crate::{
     mir::{
         analysis::{cfg::Cfg, folding_tree::FoldingTree, liveness, monotone::MonotoneFramework},
-        BlockLocation, Body, BodyLocation, Folding, Instruction,
+        Body, BodyLocation, Folding, Instruction,
     },
     mono::types::TypeData,
 };
@@ -26,7 +26,7 @@ impl Pass for IsorecursivePass {
         let folding_analysis = liveness::FoldingAnalysisResults::compute(db, body);
         let mut internal_foldings: Vec<InternalFolding> = Vec::new();
 
-        let cfg = Cfg::compute(body);
+        let cfg = Cfg::compute(db, body);
 
         let mut tree_from_params = FoldingTree::default();
         let mut tree_from_returns = FoldingTree::default();
@@ -48,30 +48,25 @@ impl Pass for IsorecursivePass {
             cfg.visit_reverse_post_order(entry, |bid| {
                 let mut current = folding_analysis.entry(body.first_loc_in(bid)).clone();
 
-                for loc in body.locations_in(bid) {
+                for act in body[bid].actions() {
+                    let loc = act.loc().in_block(bid);
                     for folding in current.compute_transition_into(db, folding_analysis.entry(loc))
                     {
                         internal_foldings.push(InternalFolding::new(loc, folding));
                     }
-                    match loc.inner {
-                        BlockLocation::Instruction(inst) => {
-                            current.forwards_instruction_transition(db, body, inst)
-                        }
-                        BlockLocation::Terminator => current
-                            .forwards_terminator_transition(db, body[bid].terminator().unwrap()),
-                    }
+                    current.forwards_transition(db, body, act);
                 }
                 let outgoing = current;
                 let termination_folding = liveness::FoldingAnalysis.initial(db, body);
 
-                if body.succeeding_blocks(bid).next().is_none() {
+                if body.succeeding_blocks(db, bid).next().is_none() {
                     let mut outgoing = outgoing;
                     let foldings = outgoing.compute_transition_into(db, &termination_folding);
                     if !foldings.is_empty() {
                         external_foldings.push((bid, None, foldings));
                     }
                 } else {
-                    for next in body.succeeding_blocks(bid) {
+                    for next in body.succeeding_blocks(db, bid) {
                         let foldings = outgoing.clone().compute_transition_into(
                             db,
                             folding_analysis.entry(body.first_loc_in(next)),
@@ -85,19 +80,14 @@ impl Pass for IsorecursivePass {
         }
 
         for bid in body.entry_blocks() {
-            let first_inst_or_terminator = body[bid].first_loc();
+            let first_loc = body.first_loc_in(bid);
             let mut tree = if body.is_ensures(bid) {
                 tree_from_returns.clone()
             } else {
                 tree_from_params.clone()
             };
-            for folding in
-                tree.compute_transition_into(db, folding_analysis.entry(body.first_loc_in(bid)))
-            {
-                internal_foldings.push(InternalFolding::new(
-                    BodyLocation::new(bid, first_inst_or_terminator),
-                    folding,
-                ))
+            for folding in tree.compute_transition_into(db, folding_analysis.entry(first_loc)) {
+                internal_foldings.push(InternalFolding::new(first_loc, folding))
             }
         }
 
@@ -110,13 +100,14 @@ impl Pass for IsorecursivePass {
                 None => {
                     for f in foldings {
                         body.insert_instruction_before(
-                            BodyLocation::new(from, BlockLocation::Terminator),
+                            BodyLocation::terminator_of(from),
                             Instruction::Folding(f),
                         );
                     }
                 }
                 Some(into) => {
                     body.intersperse_instructions(
+                        db,
                         from,
                         into,
                         foldings.into_iter().map(Instruction::Folding),

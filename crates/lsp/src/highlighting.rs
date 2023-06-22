@@ -53,7 +53,7 @@ pub fn inlay_hints(db: &dyn crate::Db, source: SourceFile) -> Arc<Vec<InlayHint>
                 let mut body = mir.body(db).clone();
                 mir::pass::FullDefaultPass::run(db, &mut body);
 
-                let cfg = mir::analysis::cfg::Cfg::compute(&body);
+                let cfg = mir::analysis::cfg::Cfg::compute(db, &body);
                 for entry in body.entry_blocks() {
                     cfg.visit_reverse_post_order(entry, |bid| {
                         let mut stacked_up = vec![];

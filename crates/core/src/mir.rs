@@ -13,8 +13,9 @@ pub use self::lower::lower_item;
 pub use def::{
     place::{Place, Projection, ProjectionList, Slot, SlotId},
     source_map::BodySourceMap,
-    Block, BlockId, BlockLocation, BlockOrInstruction, Body, BodyLocation, BorrowKind, Folding,
-    Function, Instruction, InstructionId, MExpr, Operand, RangeKind, SwitchTargets, Terminator,
+    Action, Block, BlockId, BlockLocation, BlockOrInstruction, Body, BodyLocation, BorrowKind,
+    Folding, Function, InBlock, Instruction, InstructionId, MExpr, Operand, RangeKind,
+    SwitchTargets, Terminator, TerminatorKind,
 };
 
 #[salsa::tracked]

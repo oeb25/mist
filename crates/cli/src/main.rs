@@ -91,8 +91,8 @@ async fn cli() -> Result<()> {
                     let mir2 = body.clone();
                     println!(
                         "{}",
-                        body.serialize_with_annotation(&db, mir::serialize::Color::Yes, |loc| {
-                            Some(a.try_entry(loc)?.debug_str(&db, &mir2))
+                        body.serialize_with_annotation(&db, mir::serialize::Color::Yes, |act| {
+                            Some(a.try_entry(act.loc())?.debug_str(&db, &mir2))
                         })
                     );
                 }
@@ -106,13 +106,13 @@ async fn cli() -> Result<()> {
                             body.serialize_with_annotation(
                                 &db,
                                 mir::serialize::Color::Yes,
-                                |loc| { Some(a.try_entry(loc)?.debug_str(&db, &mir2)) }
+                                |act| { Some(a.try_entry(act.loc())?.debug_str(&db, &mir2)) }
                             )
                         );
                     }
                 }
                 if dump_cfg {
-                    let cfg = mir::analysis::cfg::Cfg::compute(&body);
+                    let cfg = mir::analysis::cfg::Cfg::compute(&db, &body);
                     let dot = cfg.dot(&db, &body);
                     mir::analysis::cfg::dot_imgcat(&dot);
 

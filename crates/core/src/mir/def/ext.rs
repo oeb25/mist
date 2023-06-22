@@ -1,14 +1,20 @@
 use std::fmt;
 
-use itertools::Either::{self, Left, Right};
+use itertools::{
+    Either::{Left, Right},
+    Itertools,
+};
 use la_arena::{Arena, ArenaMap};
 use tracing::debug;
 
 use crate::{
-    mir,
+    hir::Quantifier,
+    mir::{self, SlotId},
     mono::{types::Type, Item},
     util::IdxArena,
 };
+
+use super::{Operand, SwitchTargets};
 
 impl mir::MExpr {
     pub fn all_slot_usages(&self) -> impl IntoIterator<Item = mir::SlotId> + '_ {
@@ -54,12 +60,26 @@ impl mir::MExpr {
 }
 
 impl mir::Block {
+    pub fn actions(&self) -> impl Iterator<Item = mir::Action> + '_ {
+        self.instructions
+            .iter()
+            .copied()
+            .map(mir::Action::Instruction)
+            .chain(self.terminator.map(mir::Action::Terminator))
+    }
+    pub fn actions_rev(&self) -> impl Iterator<Item = mir::Action> + '_ {
+        self.terminator
+            .map(mir::Action::Terminator)
+            .into_iter()
+            .chain(self.instructions.iter().copied().map(mir::Action::Instruction))
+    }
+
     pub fn instructions(&self) -> &[mir::InstructionId] {
         self.instructions.as_ref()
     }
 
-    pub fn terminator(&self) -> Option<&mir::Terminator> {
-        self.terminator.as_ref()
+    pub fn terminator(&self) -> Option<mir::Terminator> {
+        self.terminator
     }
 
     pub(crate) fn set_terminator(&mut self, term: mir::Terminator) -> Option<mir::Terminator> {
@@ -71,20 +91,11 @@ impl mir::Block {
     }
 
     pub fn first_loc(&self) -> mir::BlockLocation {
-        self.instructions
-            .iter()
-            .copied()
-            .map(mir::BlockLocation::Instruction)
-            .next()
-            .unwrap_or(mir::BlockLocation::Terminator)
+        self.locations().next().unwrap_or(mir::BlockLocation::Terminator(()))
     }
 
     pub fn locations(&self) -> impl Iterator<Item = mir::BlockLocation> + '_ {
-        self.instructions
-            .iter()
-            .copied()
-            .map(mir::BlockLocation::Instruction)
-            .chain(self.terminator.is_some().then_some(mir::BlockLocation::Terminator))
+        self.actions().map(|act| act.loc())
     }
 }
 
@@ -114,88 +125,86 @@ impl mir::SwitchTargets {
 }
 
 impl mir::Terminator {
-    /// If this replaces an existing target, that target is returned
-    pub fn set_target(&mut self, bid: mir::BlockId) -> Option<mir::BlockId> {
-        match self {
-            mir::Terminator::Return => None,
-            mir::Terminator::Goto(t) => Some(std::mem::replace(t, bid)),
-            mir::Terminator::Quantify(_, _, t) => Some(std::mem::replace(t, bid)),
-            mir::Terminator::QuantifyEnd(t) => Some(std::mem::replace(t, bid)),
-            mir::Terminator::Switch(_, _) => {
-                // TODO
-                None
-            }
-            mir::Terminator::Call { target, .. } => std::mem::replace(target, Some(bid)),
-        }
+    pub fn returns(db: &dyn crate::Db) -> mir::Terminator {
+        mir::Terminator::new(db, mir::TerminatorKind::Return)
     }
-    pub fn targets(&self) -> Vec<mir::BlockId> {
-        match self {
-            mir::Terminator::Return => vec![],
-            mir::Terminator::Goto(b) => vec![*b],
-            mir::Terminator::Quantify(_, _, b) => vec![*b],
-            mir::Terminator::QuantifyEnd(b) => vec![*b],
-            mir::Terminator::Switch(_, switch) => {
+    pub fn goto(db: &dyn crate::Db, bid: mir::BlockId) -> mir::Terminator {
+        mir::Terminator::new(db, mir::TerminatorKind::Goto(bid))
+    }
+    pub fn switch(db: &dyn crate::Db, op: Operand, targets: SwitchTargets) -> mir::Terminator {
+        mir::Terminator::new(db, mir::TerminatorKind::Switch(op, targets))
+    }
+    pub fn quantify(
+        db: &dyn crate::Db,
+        quantifier: Quantifier,
+        vars: Vec<SlotId>,
+        bid: mir::BlockId,
+    ) -> mir::Terminator {
+        mir::Terminator::new(db, mir::TerminatorKind::Quantify(quantifier, vars, bid))
+    }
+    pub fn quantify_end(db: &dyn crate::Db, bid: mir::BlockId) -> mir::Terminator {
+        mir::Terminator::new(db, mir::TerminatorKind::QuantifyEnd(bid))
+    }
+    pub fn targets(self, db: &dyn crate::Db) -> Vec<mir::BlockId> {
+        match self.kind(db) {
+            mir::TerminatorKind::Return => vec![],
+            mir::TerminatorKind::Goto(b) => vec![*b],
+            mir::TerminatorKind::Quantify(_, _, b) => vec![*b],
+            mir::TerminatorKind::QuantifyEnd(b) => vec![*b],
+            mir::TerminatorKind::Switch(_, switch) => {
                 switch.targets.values().copied().chain([switch.otherwise]).collect()
             }
-            mir::Terminator::Call { target, .. } => target.iter().copied().collect(),
+            mir::TerminatorKind::Call { target, .. } => target.iter().copied().collect(),
         }
     }
-    pub fn map_targets_mut(&mut self, mut f: impl FnMut(mir::BlockId) -> mir::BlockId) {
-        match self {
-            mir::Terminator::Return => {}
-            mir::Terminator::Goto(b)
-            | mir::Terminator::Quantify(_, _, b)
-            | mir::Terminator::QuantifyEnd(b) => *b = f(*b),
-            mir::Terminator::Switch(_, switch) => {
+    pub fn map_targets(
+        self,
+        db: &dyn crate::Db,
+        mut f: impl FnMut(mir::BlockId) -> mir::BlockId,
+    ) -> mir::Terminator {
+        let mut new = self.kind(db).clone();
+        match &mut new {
+            mir::TerminatorKind::Return => {}
+            mir::TerminatorKind::Goto(b)
+            | mir::TerminatorKind::Quantify(_, _, b)
+            | mir::TerminatorKind::QuantifyEnd(b) => *b = f(*b),
+            mir::TerminatorKind::Switch(_, switch) => {
                 for (_, t) in switch.targets.iter_mut() {
                     *t = f(*t);
                 }
                 switch.otherwise = f(switch.otherwise)
             }
-            mir::Terminator::Call { target, .. } => {
+            mir::TerminatorKind::Call { target, .. } => {
                 if let Some(b) = target {
                     *b = f(*b)
                 }
             }
-        }
+        };
+        mir::Terminator::new(db, new)
     }
 
-    pub fn places_referenced<'a>(
-        &'a self,
-        db: &'a dyn crate::Db,
-    ) -> impl Iterator<Item = mir::Place> + 'a {
-        match self {
-            mir::Terminator::Return
-            | mir::Terminator::Goto(_)
-            | mir::Terminator::Quantify(_, _, _)
-            | mir::Terminator::QuantifyEnd(_) => Left(None.into_iter()),
-            mir::Terminator::Switch(op, _) => Left(op.place().into_iter()),
-            mir::Terminator::Call { args, .. } => Right(args.iter().filter_map(|arg| arg.place())),
+    pub fn places_referenced(self, db: &dyn crate::Db) -> impl Iterator<Item = mir::Place> + '_ {
+        match self.kind(db) {
+            mir::TerminatorKind::Return
+            | mir::TerminatorKind::Goto(_)
+            | mir::TerminatorKind::Quantify(_, _, _)
+            | mir::TerminatorKind::QuantifyEnd(_) => Left(None.into_iter()),
+            mir::TerminatorKind::Switch(op, _) => Left(op.place().into_iter()),
+            mir::TerminatorKind::Call { args, .. } => {
+                Right(args.iter().filter_map(|arg| arg.place()))
+            }
         }
         .flat_map(|p| [p].into_iter().chain(p.nested_places(db)))
     }
 
-    pub fn places_written_to(&self) -> impl Iterator<Item = mir::Place> + '_ {
-        match self {
-            mir::Terminator::Call { destination, .. } => Left([*destination].into_iter()),
-            mir::Terminator::Return
-            | mir::Terminator::Goto(_)
-            | mir::Terminator::Quantify(_, _, _)
-            | mir::Terminator::QuantifyEnd(_)
-            | mir::Terminator::Switch(_, _) => Right([].into_iter()),
-        }
-    }
-
-    fn places(&self) -> impl Iterator<Item = mir::Place> + '_ {
-        match self {
-            mir::Terminator::Return
-            | mir::Terminator::Goto(_)
-            | mir::Terminator::Quantify(_, _, _)
-            | mir::Terminator::QuantifyEnd(_) => Left(None.into_iter()),
-            mir::Terminator::Switch(op, _) => Left(op.place().into_iter()),
-            mir::Terminator::Call { args, destination, .. } => {
-                Right(args.iter().filter_map(|arg| arg.place()).chain([*destination]))
-            }
+    pub fn places_written_to(self, db: &dyn crate::Db) -> impl Iterator<Item = mir::Place> + '_ {
+        match self.kind(db) {
+            mir::TerminatorKind::Call { destination, .. } => Left([*destination].into_iter()),
+            mir::TerminatorKind::Return
+            | mir::TerminatorKind::Goto(_)
+            | mir::TerminatorKind::Quantify(_, _, _)
+            | mir::TerminatorKind::QuantifyEnd(_)
+            | mir::TerminatorKind::Switch(_, _) => Right([].into_iter()),
         }
     }
 }
@@ -253,9 +262,12 @@ impl mir::Body {
         self.slots.idxs()
     }
 
-    pub fn exit_blocks(&self) -> impl Iterator<Item = mir::BlockId> + '_ {
+    pub fn exit_blocks<'a>(
+        &'a self,
+        db: &'a dyn crate::Db,
+    ) -> impl Iterator<Item = mir::BlockId> + 'a {
         self.blocks.iter().filter_map(|(bid, b)| match &b.terminator {
-            Some(t) => t.targets().is_empty().then_some(bid),
+            Some(t) => t.targets(db).is_empty().then_some(bid),
             None => Some(bid),
         })
     }
@@ -282,10 +294,11 @@ impl mir::Body {
             _ => None,
         })
     }
-    pub fn reference_to(
-        &self,
+    pub fn reference_to<'a>(
+        &'a self,
+        db: &'a dyn crate::Db,
         x: mir::SlotId,
-    ) -> impl Iterator<Item = Either<mir::InstructionId, &mir::Terminator>> + '_ {
+    ) -> impl Iterator<Item = mir::Action> + 'a {
         self.instructions
             .iter()
             .filter_map(move |(id, inst)| match inst {
@@ -296,29 +309,29 @@ impl mir::Body {
                 }
                 _ => None,
             })
-            .map(Left)
+            .map(mir::Action::Instruction)
             .chain(
                 self.blocks
                     .iter()
                     .filter_map(move |(_, b)| {
                         let term = b.terminator()?;
-                        match term {
-                            mir::Terminator::Quantify(_, over, _) => {
+                        match term.kind(db) {
+                            mir::TerminatorKind::Quantify(_, over, _) => {
                                 over.contains(&x).then_some(term)
                             }
-                            mir::Terminator::Switch(op, _) => {
+                            mir::TerminatorKind::Switch(op, _) => {
                                 (Some(x) == op.slot()).then_some(term)
                             }
-                            mir::Terminator::Call { args, .. } => {
+                            mir::TerminatorKind::Call { args, .. } => {
                                 args.iter().any(|arg| Some(x) == arg.slot()).then_some(term)
                             }
 
-                            mir::Terminator::Return
-                            | mir::Terminator::Goto(_)
-                            | mir::Terminator::QuantifyEnd(_) => None,
+                            mir::TerminatorKind::Return
+                            | mir::TerminatorKind::Goto(_)
+                            | mir::TerminatorKind::QuantifyEnd(_) => None,
                         }
                     })
-                    .map(Right),
+                    .map_into(),
             )
     }
 
@@ -345,36 +358,44 @@ impl mir::Body {
         self.block_invariants.get(block).map(|invs| invs.as_slice()).unwrap_or_else(|| &[])
     }
 
-    fn intersperse_block(&mut self, from: mir::BlockId, into: mir::BlockId, middle: mir::BlockId) {
-        let Some(t) = &mut self.blocks[from].terminator else { return };
-        t.map_targets_mut(|b| if b == into { middle } else { b });
+    fn intersperse_block(
+        &mut self,
+        db: &dyn crate::Db,
+        from: mir::BlockId,
+        into: mir::BlockId,
+        middle: mir::BlockId,
+    ) {
+        let Some(t) = self.blocks[from].terminator else { return };
+        self.blocks[from].terminator =
+            Some(t.map_targets(db, |b| if b == into { middle } else { b }));
     }
     pub(crate) fn intersperse_instructions(
         &mut self,
+        db: &dyn crate::Db,
         from: mir::BlockId,
         into: mir::BlockId,
         folding: impl Iterator<Item = mir::Instruction>,
     ) {
         let middle = self.blocks.alloc(mir::Block {
             instructions: folding.map(|inst| self.instructions.alloc(inst)).collect(),
-            terminator: Some(mir::Terminator::Goto(into)),
+            terminator: Some(mir::Terminator::new(db, mir::TerminatorKind::Goto(into))),
         });
-        self.intersperse_block(from, into, middle);
+        self.intersperse_block(db, from, into, middle);
         // TODO: It might be useful to append to a current block instead of
         // creating a new everytime:
 
         // match &self.blocks[from].terminator {
         //     Some(term) => match term {
-        //         mir::Terminator::Goto(next) => {
+        //         mir::TerminatorKind::Goto(next) => {
         //             assert_eq!(*next, into);
         //             self.blocks[from]
         //                 .instructions
         //                 .extend(folding.map(|inst| self.instructions.alloc(inst)));
         //         }
-        //         mir::Terminator::Return => todo!(),
-        //         mir::Terminator::Quantify(_, _, _) => todo!(),
-        //         mir::Terminator::QuantifyEnd(_) => todo!(),
-        //         mir::Terminator::Switch(_, targets) => {
+        //         mir::TerminatorKind::Return => todo!(),
+        //         mir::TerminatorKind::Quantify(_, _, _) => todo!(),
+        //         mir::TerminatorKind::QuantifyEnd(_) => todo!(),
+        //         mir::TerminatorKind::Switch(_, targets) => {
         //             if into == targets.otherwise {
         //             } else {
         //                 for (_, next_bid) in targets.targets.iter_mut() {
@@ -383,21 +404,21 @@ impl mir::Body {
         //                             instructions: folding
         //                                 .map(|inst| self.instructions.alloc(inst))
         //                                 .collect(),
-        //                             terminator: Some(mir::Terminator::Goto(into)),
+        //                             terminator: Some(mir::TerminatorKind::Goto(into)),
         //                         });
         //                         *next_bid = middle;
         //                     }
         //                 }
         //             }
         //         }
-        //         mir::Terminator::Call { target, .. } => {
+        //         mir::TerminatorKind::Call { target, .. } => {
         //             assert_eq!(*target, Some(into));
         //             let middle = self.blocks.alloc(mir::Block {
         //                 instructions: folding.map(|inst| self.instructions.alloc(inst)).collect(),
-        //                 terminator: Some(mir::Terminator::Goto(into)),
+        //                 terminator: Some(mir::TerminatorKind::Goto(into)),
         //             });
         //             match &mut self.blocks[from].terminator {
-        //                 Some(mir::Terminator::Call { target, .. }) => *target = Some(middle),
+        //                 Some(mir::TerminatorKind::Call { target, .. }) => *target = Some(middle),
         //                 _ => unreachable!(),
         //             }
         //         }
@@ -408,29 +429,29 @@ impl mir::Body {
 
     pub fn slots_referenced<'a>(
         &'a self,
+        db: &'a dyn crate::Db,
         blocks: &'a [mir::BlockId],
     ) -> impl Iterator<Item = mir::SlotId> + 'a {
         blocks.iter().flat_map(|bid| {
-            self[*bid]
-                .instructions()
-                .iter()
-                .flat_map(|inst| self[inst].places().map(|p| p.slot()))
-                .chain(
-                    self[*bid]
-                        .terminator()
-                        .into_iter()
-                        .flat_map(|term| term.places().map(|p| p.slot())),
-                )
+            self[*bid].actions().flat_map(|act| act.places_referenced(db, self).map(|p| p.slot()))
         })
     }
 
-    pub fn preceding_blocks(&self, bid: mir::BlockId) -> impl Iterator<Item = mir::BlockId> + '_ {
+    pub fn preceding_blocks<'a>(
+        &'a self,
+        db: &'a dyn crate::Db,
+        bid: mir::BlockId,
+    ) -> impl Iterator<Item = mir::BlockId> + 'a {
         self.blocks
             .iter()
-            .filter_map(move |(nbid, b)| b.terminator()?.targets().contains(&bid).then_some(nbid))
+            .filter_map(move |(nbid, b)| b.terminator()?.targets(db).contains(&bid).then_some(nbid))
     }
-    pub fn succeeding_blocks(&self, bid: mir::BlockId) -> impl Iterator<Item = mir::BlockId> + '_ {
-        self.blocks[bid].terminator().into_iter().flat_map(|t| t.targets())
+    pub fn succeeding_blocks<'a>(
+        &'a self,
+        db: &'a dyn crate::Db,
+        bid: mir::BlockId,
+    ) -> impl Iterator<Item = mir::BlockId> + 'a {
+        self.blocks[bid].terminator().into_iter().flat_map(|t| t.targets(db))
     }
 
     /// Returns an iterator over everything that local to the body. This
@@ -445,10 +466,6 @@ impl mir::Body {
     pub fn first_loc_in(&self, bid: mir::BlockId) -> mir::BodyLocation {
         self[bid].first_loc().in_block(bid)
     }
-
-    pub fn locations_in(&self, bid: mir::BlockId) -> impl Iterator<Item = mir::BodyLocation> + '_ {
-        self[bid].locations().map(move |loc| loc.in_block(bid))
-    }
 }
 
 impl mir::Body {
@@ -457,14 +474,16 @@ impl mir::Body {
         loc: mir::BodyLocation,
         inst: mir::Instruction,
     ) -> mir::InstructionId {
-        let insert_idx = match loc.inner {
-            mir::BlockLocation::Instruction(inst) => {
-                self[loc.block].instructions().iter().position(|&i| i == inst).unwrap()
-            }
-            mir::BlockLocation::Terminator => self[loc.block].instructions().len(),
-        };
         let id = self.instructions.alloc(inst);
-        self.blocks[loc.block].instructions.insert(insert_idx, id);
+        let b = &mut self.blocks[loc.block];
+        let insert_at = loc
+            .inner
+            .as_instruction()
+            .and_then(|inst| b.instructions().iter().position(|&i| i == inst));
+        match insert_at {
+            Some(insert_idx) => b.instructions.insert(insert_idx, id),
+            None => b.instructions.push(id),
+        }
         id
     }
 }
@@ -520,20 +539,6 @@ impl fmt::Debug for mir::BlockId {
 impl fmt::Display for mir::BlockId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, ":B{}", self.0.into_raw())
-    }
-}
-
-impl mir::BlockLocation {
-    pub fn in_block(self, bid: mir::BlockId) -> mir::BodyLocation {
-        mir::BodyLocation { block: bid, inner: self }
-    }
-
-    pub fn as_instruction(self) -> Option<mir::InstructionId> {
-        if let Self::Instruction(v) = self {
-            Some(v)
-        } else {
-            None
-        }
     }
 }
 
@@ -603,5 +608,69 @@ impl mir::Operand {
     }
     pub fn slot(&self) -> Option<mir::SlotId> {
         self.place().map(|s| s.slot())
+    }
+}
+
+impl<T> mir::Action<T> {
+    pub fn in_block(self, bid: mir::BlockId) -> mir::InBlock<mir::Action<T>> {
+        mir::InBlock::new(bid, self)
+    }
+    pub fn as_instruction(self) -> Option<mir::InstructionId> {
+        if let Self::Instruction(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+    pub(crate) fn map<S>(self, mut f: impl FnMut(T) -> S) -> mir::Action<S> {
+        match self {
+            mir::Action::Instruction(inst) => mir::Action::Instruction(inst),
+            mir::Action::Terminator(t) => mir::Action::Terminator(f(t)),
+        }
+    }
+}
+impl mir::Action {
+    pub(crate) fn loc(self) -> mir::BlockLocation {
+        self.map(|_| ())
+    }
+
+    pub(crate) fn places_written_to<'a>(
+        self,
+        db: &'a dyn crate::Db,
+        body: &'a mir::Body,
+    ) -> impl Iterator<Item = mir::Place> + 'a {
+        match self {
+            mir::Action::Instruction(inst) => Left(body[inst].places_written_to()),
+            mir::Action::Terminator(t) => Right(t.places_written_to(db)),
+        }
+    }
+
+    pub(crate) fn places_referenced<'a>(
+        self,
+        db: &'a dyn crate::Db,
+        body: &'a mir::Body,
+    ) -> impl Iterator<Item = mir::Place> + 'a {
+        match self {
+            mir::Action::Instruction(inst) => Left(body[inst].places_referenced(db)),
+            mir::Action::Terminator(t) => Right(t.places_referenced(db)),
+        }
+    }
+}
+
+impl<T> mir::InBlock<T> {
+    pub fn map<S>(self, mut f: impl FnMut(T) -> S) -> mir::InBlock<S> {
+        mir::InBlock::new(self.block, f(self.inner))
+    }
+}
+
+impl mir::BodyLocation {
+    pub fn terminator_of(bid: mir::BlockId) -> mir::BodyLocation {
+        mir::BodyLocation::new(bid, mir::Action::Terminator(()))
+    }
+}
+
+impl mir::InBlock<mir::Action> {
+    pub fn loc(self) -> mir::BodyLocation {
+        self.map(|f| f.loc())
     }
 }

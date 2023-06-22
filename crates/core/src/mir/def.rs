@@ -26,8 +26,14 @@ pub struct Block {
     pub(super) terminator: Option<Terminator>,
 }
 
+#[salsa::interned]
+pub struct Terminator {
+    #[return_ref]
+    pub kind: TerminatorKind,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Terminator {
+pub enum TerminatorKind {
     Return,
     Goto(BlockId),
     Quantify(Quantifier, Vec<SlotId>, BlockId),
@@ -128,20 +134,36 @@ pub struct Body {
     pub(super) body_block: Option<BlockId>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, derive_more::From)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, From)]
 pub enum BlockOrInstruction {
     Block(BlockId),
     Instruction(InstructionId),
 }
 
+pub type BodyLocation = InBlock<BlockLocation>;
+
 #[derive(new, Debug, Clone, Copy, PartialEq, Eq, Hash, From)]
-pub struct BodyLocation {
+pub struct InBlock<T> {
     pub block: BlockId,
-    pub inner: BlockLocation,
+    pub inner: T,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, From)]
-pub enum BlockLocation {
+pub type BlockLocation = Action<()>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Action<T = Terminator> {
     Instruction(InstructionId),
-    Terminator,
+    Terminator(T),
+}
+
+impl<T> From<InstructionId> for Action<T> {
+    fn from(inst: InstructionId) -> Self {
+        Action::Instruction(inst)
+    }
+}
+
+impl From<Terminator> for Action {
+    fn from(t: Terminator) -> Self {
+        Action::Terminator(t)
+    }
 }

@@ -61,19 +61,19 @@ impl BodyLower<'_> {
         }
 
         match self.body[block].terminator() {
-            Some(t) => match t {
-                mir::Terminator::Return => {
+            Some(t) => match t.kind(self.db) {
+                mir::TerminatorKind::Return => {
                     insts.push(Stmt::Goto { target: "end".to_string() });
                     Ok(Seqn::new(insts, vec![]))
                 }
-                &mir::Terminator::Goto(b) => {
+                &mir::TerminatorKind::Goto(b) => {
                     if self.should_continue(b, stop_at) {
                         self.block(b, insts, stop_at)
                     } else {
                         Ok(Seqn::new(insts, vec![]))
                     }
                 }
-                mir::Terminator::Quantify(_q, _over, _b) => {
+                mir::TerminatorKind::Quantify(_q, _over, _b) => {
                     Err(ViperLowerError::NotYetImplemented {
                         msg: "lower quantifier in method".to_string(),
                         def: self.body.def(),
@@ -81,10 +81,10 @@ impl BodyLower<'_> {
                         span: None,
                     })
                 }
-                mir::Terminator::QuantifyEnd(_) => {
+                mir::TerminatorKind::QuantifyEnd(_) => {
                     todo!();
                 }
-                mir::Terminator::Switch(test, switch) => {
+                mir::TerminatorKind::Switch(test, switch) => {
                     let next = self.postdominators[block];
 
                     let (mut values, otherwise) = switch.values();
@@ -166,7 +166,7 @@ impl BodyLower<'_> {
                         }
                     }
                 }
-                mir::Terminator::Call { func, args, destination, target } => {
+                mir::TerminatorKind::Call { func, args, destination, target } => {
                     let var = self.place_for_assignment(*destination)?;
                     let f = self.function(block, *func, args)?;
                     let voided = self.body.place_ty(self.db, *destination).is_void(self.db);

@@ -22,32 +22,17 @@ impl MonotoneFramework for LivenessAnalysis {
 
     type Direction = monotone::Backward;
 
-    fn instruction_semantic(
+    fn semantic(
         &self,
         db: &dyn crate::Db,
         body: &mir::Body,
-        inst: mir::InstructionId,
+        act: mir::Action,
         prev: &mut Self::Domain,
     ) {
-        for p in body[inst].places_written_to() {
+        for p in act.places_written_to(db, body) {
             prev.remove(p.slot());
         }
-        for p in body[inst].places_referenced(db) {
-            prev.insert(p.slot());
-        }
-    }
-
-    fn terminator_semantic(
-        &self,
-        db: &dyn crate::Db,
-        _body: &mir::Body,
-        terminator: &mir::Terminator,
-        prev: &mut Self::Domain,
-    ) {
-        for p in terminator.places_written_to() {
-            prev.remove(p.slot());
-        }
-        for p in terminator.places_referenced(db) {
+        for p in act.places_referenced(db, body) {
             prev.insert(p.slot());
         }
     }
@@ -72,24 +57,14 @@ impl MonotoneFramework for FoldingAnalysis {
 
     type Direction = monotone::Backward;
 
-    fn instruction_semantic(
+    fn semantic(
         &self,
         db: &dyn crate::Db,
         body: &mir::Body,
-        inst: mir::InstructionId,
+        act: mir::Action,
         prev: &mut Self::Domain,
     ) {
-        prev.backwards_instruction_transition(db, body, inst)
-    }
-
-    fn terminator_semantic(
-        &self,
-        db: &dyn crate::Db,
-        _body: &mir::Body,
-        terminator: &mir::Terminator,
-        prev: &mut Self::Domain,
-    ) {
-        prev.backwards_terminator_transition(db, terminator)
+        prev.backwards_transition(db, body, act)
     }
 
     fn initial(&self, db: &dyn crate::Db, body: &mir::Body) -> Self::Domain {
@@ -130,18 +105,10 @@ mod tests {
                 let db2 = db.snapshot();
                 let mir2 = mir.clone();
                 let serialized =
-                    mir.serialize_with_annotation(&db, mir::serialize::Color::No, |loc| {
-                        let mut x = a.try_entry(loc)?.clone();
+                    mir.serialize_with_annotation(&db, mir::serialize::Color::No, |act| {
+                        let mut x = a.try_entry(act.loc())?.clone();
                         let incomming = x.debug_str(&*db2, &mir2);
-                        match loc.inner {
-                            mir::BlockLocation::Instruction(inst) => {
-                                x.forwards_instruction_transition(&db, &mir2, inst)
-                            }
-                            mir::BlockLocation::Terminator => x.forwards_terminator_transition(
-                                &db,
-                                mir2[loc.block].terminator.as_ref()?,
-                            ),
-                        }
+                        x.forwards_transition(&db, &mir2, act.inner);
                         let outgoing = x.debug_str(&*db2, &mir2);
                         Some(format!("{incomming}\n> {outgoing}"))
                     });

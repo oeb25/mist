@@ -67,7 +67,7 @@ impl Place {
     }
 
     pub fn replace_projection(&self, projection: ProjectionList) -> Place {
-        Place { slot: self.slot, projection: Some(projection) }
+        Place::new(self.slot, Some(projection))
     }
 
     pub fn parent(&self, db: &dyn crate::Db) -> Option<Place> {

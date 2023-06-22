@@ -32,7 +32,7 @@ pub enum Progress {
 }
 
 pub trait Direction {
-    fn initial_blocks(body: &mir::Body, f: impl FnMut(mir::BlockId));
+    fn initial_blocks(db: &dyn crate::Db, body: &mir::Body, f: impl FnMut(mir::BlockId));
     fn semantic<A: MonotoneFramework>(
         db: &dyn crate::Db,
         a: &A,
@@ -48,14 +48,14 @@ pub trait Direction {
         facts: &mut HashMap<mir::BodyLocation, A::Domain>,
         bid: mir::BlockId,
     ) -> Progress;
-    fn next(body: &mir::Body, bid: mir::BlockId, f: impl FnMut(mir::BlockId));
+    fn next(db: &dyn crate::Db, body: &mir::Body, bid: mir::BlockId, f: impl FnMut(mir::BlockId));
 }
 
 pub struct Forward;
 pub struct Backward;
 
 impl Direction for Forward {
-    fn initial_blocks(body: &mir::Body, mut f: impl FnMut(mir::BlockId)) {
+    fn initial_blocks(_db: &dyn crate::Db, body: &mir::Body, mut f: impl FnMut(mir::BlockId)) {
         for bid in body.entry_blocks() {
             f(bid);
         }
@@ -69,13 +69,10 @@ impl Direction for Forward {
         bid: mir::BlockId,
         mut events: impl for<'a> FnMut(mir::BodyLocation, &'a A::Domain),
     ) {
-        for &inst in body[bid].instructions() {
-            a.instruction_semantic(db, body, inst, prev);
-            events(mir::BodyLocation::new(bid, mir::BlockLocation::Instruction(inst)), prev)
-        }
-        if let Some(term) = body[bid].terminator() {
-            a.terminator_semantic(db, body, term, prev);
-            events(mir::BodyLocation::new(bid, mir::BlockLocation::Terminator), prev)
+        for act in body[bid].actions() {
+            let location = act.loc();
+            a.semantic(db, body, act, prev);
+            events(mir::BodyLocation::new(bid, location), prev)
         }
     }
 
@@ -88,9 +85,9 @@ impl Direction for Forward {
     ) -> Progress {
         let mut progress = Progress::No;
 
-        for d in body.preceding_blocks(bid) {
+        for d in body.preceding_blocks(db, bid) {
             let mut prev = facts
-                .entry(mir::BodyLocation::new(d, mir::BlockLocation::Terminator))
+                .entry(mir::BodyLocation::terminator_of(d))
                 .or_insert_with(|| A::Domain::bottom(body))
                 .clone();
             Self::semantic(db, a, body, &mut prev, bid, |loc, d| {
@@ -105,15 +102,20 @@ impl Direction for Forward {
         progress
     }
 
-    fn next(body: &mir::Body, bid: mir::BlockId, mut f: impl FnMut(mir::BlockId)) {
-        for b in body.succeeding_blocks(bid) {
+    fn next(
+        db: &dyn crate::Db,
+        body: &mir::Body,
+        bid: mir::BlockId,
+        mut f: impl FnMut(mir::BlockId),
+    ) {
+        for b in body.succeeding_blocks(db, bid) {
             f(b);
         }
     }
 }
 impl Direction for Backward {
-    fn initial_blocks(body: &mir::Body, mut f: impl FnMut(mir::BlockId)) {
-        for bid in body.exit_blocks() {
+    fn initial_blocks(db: &dyn crate::Db, body: &mir::Body, mut f: impl FnMut(mir::BlockId)) {
+        for bid in body.exit_blocks(db) {
             f(bid);
         }
     }
@@ -126,13 +128,10 @@ impl Direction for Backward {
         bid: mir::BlockId,
         mut events: impl for<'a> FnMut(mir::BodyLocation, &'a A::Domain),
     ) {
-        if let Some(term) = body[bid].terminator() {
-            a.terminator_semantic(db, body, term, prev);
-            events(mir::BodyLocation::new(bid, mir::BlockLocation::Terminator), prev)
-        }
-        for &inst in body[bid].instructions().iter().rev() {
-            a.instruction_semantic(db, body, inst, prev);
-            events(mir::BodyLocation::new(bid, mir::BlockLocation::Instruction(inst)), prev)
+        for op in body[bid].actions_rev() {
+            let location = op.loc();
+            a.semantic(db, body, op, prev);
+            events(mir::BodyLocation::new(bid, location), prev)
         }
     }
 
@@ -145,7 +144,7 @@ impl Direction for Backward {
     ) -> Progress {
         let mut progress = Progress::No;
 
-        for d in body.succeeding_blocks(bid) {
+        for d in body.succeeding_blocks(db, bid) {
             let initial_loc = body[d].first_loc();
             let mut prev = facts
                 .entry(mir::BodyLocation::new(d, initial_loc))
@@ -163,8 +162,13 @@ impl Direction for Backward {
         progress
     }
 
-    fn next(body: &mir::Body, bid: mir::BlockId, mut f: impl FnMut(mir::BlockId)) {
-        for b in body.preceding_blocks(bid) {
+    fn next(
+        db: &dyn crate::Db,
+        body: &mir::Body,
+        bid: mir::BlockId,
+        mut f: impl FnMut(mir::BlockId),
+    ) {
+        for b in body.preceding_blocks(db, bid) {
             f(b);
         }
     }
@@ -173,18 +177,11 @@ impl Direction for Backward {
 pub trait MonotoneFramework {
     type Domain: Lattice<mir::Body> + fmt::Debug;
     type Direction: Direction;
-    fn instruction_semantic(
+    fn semantic(
         &self,
         db: &dyn crate::Db,
         body: &mir::Body,
-        inst: mir::InstructionId,
-        prev: &mut Self::Domain,
-    );
-    fn terminator_semantic(
-        &self,
-        db: &dyn crate::Db,
-        body: &mir::Body,
-        terminator: &mir::Terminator,
+        act: mir::Action,
         prev: &mut Self::Domain,
     );
     fn initial(&self, db: &dyn crate::Db, body: &mir::Body) -> Self::Domain;
@@ -251,7 +248,7 @@ pub fn mono_analysis<A: MonotoneFramework, W: Worklist>(
     }
 
     let initial = a.initial(db, body);
-    A::Direction::initial_blocks(body, |bid| {
+    A::Direction::initial_blocks(db, body, |bid| {
         let mut called = false;
         let mut prev = initial.clone();
         A::Direction::semantic(db, &a, body, &mut prev, bid, |loc, d| {
@@ -270,7 +267,7 @@ pub fn mono_analysis<A: MonotoneFramework, W: Worklist>(
 
         match A::Direction::semantics(db, &a, body, &mut facts, n) {
             Progress::No => {}
-            Progress::Yes => A::Direction::next(body, n, |b| worklist.insert(b)),
+            Progress::Yes => A::Direction::next(db, body, n, |b| worklist.insert(b)),
         }
     }
 

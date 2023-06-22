@@ -155,8 +155,8 @@ impl BodyLower<'_> {
         }
 
         let start = match self.body[block].terminator() {
-            Some(t) => match t {
-                mir::Terminator::Return => {
+            Some(t) => match t.kind(self.db) {
+                mir::TerminatorKind::Return => {
                     return Err(ViperLowerError::NotYetImplemented {
                         msg: "return terminator".to_string(),
                         def: self.body.def(),
@@ -164,7 +164,9 @@ impl BodyLower<'_> {
                         span: None,
                     })
                 }
-                mir::Terminator::Quantify(q, over, next) => match self.pure_block(*next, None)? {
+                mir::TerminatorKind::Quantify(q, over, next) => match self
+                    .pure_block(*next, None)?
+                {
                     PureLowerResult::UnassignedExpression(exp, place, stopped_before) => {
                         for s in over {
                             self.internally_bound_slots.insert(*s, ());
@@ -201,17 +203,17 @@ impl BodyLower<'_> {
                         })
                     }
                 },
-                mir::Terminator::QuantifyEnd(next) => {
+                mir::TerminatorKind::QuantifyEnd(next) => {
                     PureLowerResult::Empty { stopped_before: Some(*next) }
                 }
-                &mir::Terminator::Goto(next) => {
+                &mir::TerminatorKind::Goto(next) => {
                     if stop_at == Some(next) {
                         PureLowerResult::Empty { stopped_before: Some(next) }
                     } else {
                         self.pure_block(next, stop_at)?
                     }
                 }
-                mir::Terminator::Switch(test, switch) => {
+                mir::TerminatorKind::Switch(test, switch) => {
                     let Some(next) = self.postdominators.get(block) else {
                         return Err(ViperLowerError::NotYetImplemented {
                             msg: format!("block {block} did not have a postdominator"),
@@ -273,7 +275,7 @@ impl BodyLower<'_> {
 
                     self.conditional_continue(stop_at, next, block, slot, exp)?
                 }
-                mir::Terminator::Call { func, args, destination, target } => {
+                mir::TerminatorKind::Call { func, args, destination, target } => {
                     let f = self.function(block, *func, args)?;
                     let f_application = self.alloc(block, f);
 

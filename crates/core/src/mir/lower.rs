@@ -19,7 +19,7 @@ use crate::{
 
 use super::{
     BlockId, Body, BodySourceMap, BorrowKind, Function, Instruction, InstructionId, ItemMir, MExpr,
-    Place, Projection, RangeKind, Slot, SlotId, SwitchTargets, Terminator,
+    Place, Projection, RangeKind, Slot, SlotId, SwitchTargets, Terminator, TerminatorKind,
 };
 
 #[salsa::tracked]
@@ -266,12 +266,11 @@ impl MirLower<'_> {
             }
         };
 
-        self.body.blocks[bid].set_terminator(Terminator::Call {
-            func,
-            args,
-            destination,
-            target: Some(next_bid),
-        });
+        let term = Terminator::new(
+            self.db,
+            TerminatorKind::Call { func, args, destination, target: Some(next_bid) },
+        );
+        self.body.blocks[bid].set_terminator(term);
 
         match assertion {
             Some(kind) => {
@@ -281,7 +280,8 @@ impl MirLower<'_> {
                     Instruction::Assertion(kind, MExpr::Use(Operand::Copy(destination))),
                 );
                 let final_bid = target.unwrap_or_else(|| self.alloc_block(None));
-                self.body.blocks[next_bid].terminator = Some(Terminator::Goto(final_bid));
+                let goto = Terminator::goto(self.db, final_bid);
+                self.body.blocks[next_bid].terminator = Some(goto);
                 final_bid
             }
             None => next_bid,
@@ -537,7 +537,7 @@ impl MirLower<'_> {
             ExprData::Block(block) => {
                 let next_bid = self.alloc_block(None);
                 assert_ne!(bid, next_bid);
-                self.body.blocks[bid].set_terminator(Terminator::Goto(next_bid));
+                self.body.blocks[bid].set_terminator(Terminator::goto(self.db, next_bid));
                 self.block(&block, next_bid, target, dest)
             }
             ExprData::Field { expr: base, field } => match field {
@@ -695,8 +695,8 @@ impl MirLower<'_> {
                 assert_ne!(bid, next_bid);
 
                 self.body.blocks[bid]
-                    .set_terminator(Terminator::Quantify(quantifier, vars, q_body));
-                self.body.blocks[q_end].set_terminator(Terminator::QuantifyEnd(next_bid));
+                    .set_terminator(Terminator::quantify(self.db, quantifier, vars, q_body));
+                self.body.blocks[q_end].set_terminator(Terminator::quantify_end(self.db, next_bid));
 
                 next_bid
             }
@@ -748,7 +748,7 @@ impl MirLower<'_> {
                     self.assign(bid, Some(expr), result_place, MExpr::Use(result_operand));
                     // TODO: dest is unused?
                 }
-                self.body.blocks[bid].set_terminator(Terminator::Return);
+                self.body.blocks[bid].set_terminator(Terminator::returns(self.db));
                 target.unwrap_or_else(|| self.alloc_block(None))
             }
             ExprData::Builtin(b) => match b {
@@ -821,13 +821,16 @@ impl MirLower<'_> {
         };
         if then_block_final != final_block {
             assert_ne!(then_block_final, final_block);
-            self.body.blocks[then_block_final].set_terminator(Terminator::Goto(final_block));
+            self.body.blocks[then_block_final]
+                .set_terminator(Terminator::goto(self.db, final_block));
         }
         if else_block_final != final_block {
             assert_ne!(else_block_final, final_block);
-            self.body.blocks[else_block_final].set_terminator(Terminator::Goto(final_block));
+            self.body.blocks[else_block_final]
+                .set_terminator(Terminator::goto(self.db, final_block));
         }
-        self.body.blocks[bid].set_terminator(Terminator::Switch(
+        self.body.blocks[bid].set_terminator(Terminator::switch(
+            self.db,
             cond,
             SwitchTargets::new([(1, then_block)], else_block),
         ));
@@ -842,7 +845,7 @@ impl MirLower<'_> {
     fn while_expr(&mut self, it: &WhileExpr, mut bid: BlockId) -> BlockId {
         let cond_block = self.alloc_block(None);
         assert_ne!(bid, cond_block);
-        self.body.blocks[bid].set_terminator(Terminator::Goto(cond_block));
+        self.body.blocks[bid].set_terminator(Terminator::goto(self.db, cond_block));
         bid = cond_block;
         let cond_place = self.alloc_tmp(Type::bool(self.db));
         bid = self.expr(it.expr, bid, None, Placement::Assign(cond_place));
@@ -896,8 +899,9 @@ impl MirLower<'_> {
         }
         let exit_bid = self.alloc_block(None);
         assert_ne!(body_bid_last, cond_block);
-        self.body.blocks[body_bid_last].set_terminator(Terminator::Goto(cond_block));
-        self.body.blocks[cond_bid_last].set_terminator(Terminator::Switch(
+        self.body.blocks[body_bid_last].set_terminator(Terminator::goto(self.db, cond_block));
+        self.body.blocks[cond_bid_last].set_terminator(Terminator::switch(
+            self.db,
             Operand::Copy(cond_place),
             SwitchTargets::new([(1, body_bid)], exit_bid),
         ));

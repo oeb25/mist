@@ -219,7 +219,7 @@ impl<'a> BodyLower<'a> {
         viper_body: &'a mut ViperBody,
         source_map: &'a mut ViperSourceMap,
     ) -> Self {
-        let cfg = cfg::Cfg::compute(body);
+        let cfg = cfg::Cfg::compute(db, body);
         Self {
             db,
             body,
@@ -319,7 +319,7 @@ impl<'a> BodyLower<'a> {
     fn can_inline(&self, x: mir::Place, exp: VExprId) -> bool {
         // TODO: This entire thing should be better specified
         // return false;
-        let n = self.body.reference_to(x.slot()).count();
+        let n = self.body.reference_to(self.db, x.slot()).count();
         match &*self.viper_body[exp] {
             _ if n < 2 && Some(x.slot()) != self.body.result_slot() => true,
             // Exp::Literal(_) => true,
