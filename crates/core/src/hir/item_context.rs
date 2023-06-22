@@ -10,7 +10,7 @@ use tracing::info;
 
 use crate::{
     def::{Name, StructField},
-    types::{Adt, AdtField, TypeData, TypeId, TypeProvider, TypePtr, TypeTable},
+    types::{Adt, AdtField, TypeData, TypeId, TypeProvider, TypeTable},
     util::{IdxArena, IdxMap, IdxWrap},
     VariableDeclaration,
 };
@@ -102,8 +102,8 @@ impl ItemContext {
     pub fn var(&self, var: VariableIdx) -> Variable {
         self.declarations.arena[var]
     }
-    pub fn var_ty(&self, db: &dyn crate::Db, var: VariableIdx) -> TypePtr<Self> {
-        self.var(var).ty(db).wrap(self)
+    pub fn var_ty(&self, db: &dyn crate::Db, var: VariableIdx) -> TypeId {
+        self.var(var).ty(db)
     }
     /// Returns the original expr, without going through the desugared table
     pub fn original_expr(&self, expr: ExprIdx) -> &Expr {
@@ -116,8 +116,8 @@ impl ItemContext {
             &self.expr_arena[expr]
         }
     }
-    pub fn expr_ty(&self, expr: ExprIdx) -> TypePtr<Self> {
-        self.expr_arena[expr].ty.wrap(self)
+    pub fn expr_ty(&self, expr: ExprIdx) -> TypeId {
+        self.expr_arena[expr].ty
     }
     pub fn decl(&self, var: VariableIdx) -> &VariableDeclaration {
         &self.declarations.map[var]

@@ -8,7 +8,7 @@ use mist_core::{
     hir::{self, ExprIdx, SourceFile, TypeRefKind, VariableIdx},
     mir::{self, pass::Pass},
     mono, salsa,
-    types::TDK,
+    types::{TypeProvider, TDK},
     util::Position,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
 };
@@ -235,7 +235,7 @@ impl<'src> Visitor for Highlighter<'src> {
                 let ty = vcx.cx.var_ty(self.db, var);
                 self.inlay_hints.push(InlayHint {
                     position: Position::from_byte_offset(self.src, span.end()),
-                    label: format!(": {}", vcx.cx.pretty_ty(self.db, ty.id())),
+                    label: format!(": {}", vcx.cx.pretty_ty(self.db, ty)),
                     kind: None,
                     padding_left: None,
                     padding_right: None,
@@ -251,7 +251,7 @@ impl<'src> Visitor for Highlighter<'src> {
         let e = vcx.cx.original_expr(expr);
         match &e.data {
             hir::ExprData::Literal(_) => {
-                let tt = match vcx.cx.expr_ty(expr).kind() {
+                let tt = match vcx.cx.ty_data(vcx.cx.expr_ty(expr)).kind {
                     TDK::Function { .. } => TT::Function,
                     TDK::Primitive(_) => TT::Number,
                     TDK::Null => TT::Number,

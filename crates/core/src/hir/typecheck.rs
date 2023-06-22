@@ -335,7 +335,7 @@ impl<'a> TypeChecker<'a> {
         self.scope = self.scope_stack.pop().expect("tried to pop scope while none was pushed");
     }
     pub fn expr_ty(&self, expr: ExprIdx) -> TypeId {
-        self.cx.expr_ty(expr).id()
+        self.cx.expr_ty(expr)
     }
     pub fn expr_span(&self, expr: ExprIdx) -> SourceSpan {
         self.source_map.expr_span(&self.cx, expr)
@@ -516,7 +516,7 @@ impl<'a> TypeChecker<'a> {
         var
     }
     pub fn var_ty(&self, var: VariableIdx) -> TypeId {
-        self.cx.var_ty(self.db, var).id()
+        self.cx.var_ty(self.db, var)
     }
     pub fn lookup_name(&mut self, name: &ast::NameRef) -> VariableIdx {
         if let Some(var) = self.scope.get(&name.clone().into()) {
@@ -677,7 +677,7 @@ impl hir::pretty::PrettyPrint for ItemContext {
     }
 
     fn resolve_var_ty(&self, db: &dyn crate::Db, idx: VariableIdx) -> TypeId {
-        self.var_ty(db, idx).id()
+        self.var_ty(db, idx)
     }
 
     fn resolve_expr(&self, idx: ExprIdx) -> &Expr {

@@ -59,11 +59,11 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
     }
     pub(super) fn lower_var(&mut self, var: VariableIdx) -> VariablePtr {
         let ty = self.cx.var_ty(self.db, var);
-        VariablePtr { def: self.cx.def(), id: var, ty: self.lower_ty(ty.id()) }
+        VariablePtr { def: self.cx.def(), id: var, ty: self.lower_ty(ty) }
     }
     pub(super) fn lower_expr(&mut self, expr: ExprIdx) -> ExprPtr {
         let ty = self.cx.expr_ty(expr);
-        ExprPtr { def: self.cx.def(), id: expr, ty: self.lower_ty(ty.id()) }
+        ExprPtr { def: self.cx.def(), id: expr, ty: self.lower_ty(ty) }
     }
     fn lower_fn(&mut self, f: def::Function) -> Function {
         let attrs = f.attrs(self.db);
@@ -132,9 +132,9 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
             return t;
         };
 
-        let data = ty.wrap(self.cx).data();
+        let data = self.cx.ty_data(ty);
 
-        let kind = match data.map(|inner| self.lower_ty(inner.id())).kind {
+        let kind = match data.map(|inner| self.lower_ty(*inner)).kind {
             TDK::Error => TypeData::Error,
             TDK::Void => TypeData::Void,
             TDK::Ref { is_mut, inner } => TypeData::Ref { is_mut, inner },

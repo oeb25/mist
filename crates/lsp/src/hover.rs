@@ -66,17 +66,14 @@ impl<'a> Visitor for HoverFinder<'a> {
         if reference.contains_pos(self.byte_offset) {
             match field {
                 Field::AdtField(af) => {
-                    let ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx.field_ty_ptr(field).id());
+                    let ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx.field_ty(field));
+                    let kind = match af.adt().kind() {
+                        AdtKind::Struct(_) => Name::new("struct"),
+                        AdtKind::Enum => todo!(),
+                    };
                     break_code(
                         [
-                            format!(
-                                "{} {}",
-                                match af.adt().kind() {
-                                    AdtKind::Struct(_) => Name::new("struct"),
-                                    AdtKind::Enum => todo!(),
-                                },
-                                af.adt().name(self.db)
-                            ),
+                            format!("{} {}", kind, af.adt().name(self.db)),
                             format!("{}: {ty}", field.name(self.db)),
                         ],
                         Some(reference.span()),
@@ -87,8 +84,7 @@ impl<'a> Visitor for HoverFinder<'a> {
                     | BuiltinField::Set(list_ty, _)
                     | BuiltinField::MultiSet(list_ty, _) => {
                         let list_ty = pretty::ty(&*vcx.cx, self.db, false, list_ty);
-                        let ty =
-                            pretty::ty(&*vcx.cx, self.db, false, vcx.cx.field_ty_ptr(field).id());
+                        let ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx.field_ty(field));
                         break_code(
                             [format!("{list_ty}"), format!("{}: {ty}", bf.name())],
                             Some(reference.span()),
@@ -134,7 +130,7 @@ impl<'a> Visitor for HoverFinder<'a> {
     ) -> ControlFlow<Option<HoverResult>> {
         if span.contains_pos(self.byte_offset) {
             let name = vcx.cx.var_name(var);
-            let ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx.var_ty(self.db, var).id());
+            let ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx.var_ty(self.db, var));
 
             break_code(
                 [match vcx.cx.decl(var).kind() {

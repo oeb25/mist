@@ -1,7 +1,6 @@
 mod builtin;
 mod data;
 mod provider;
-mod ptr;
 mod table;
 mod unification;
 
@@ -11,6 +10,5 @@ pub use data::{
     StructPrototype, TypeData, TypeDataIdx, TypeDataKind, TypeDataKind as TDK,
 };
 pub use provider::TypeProvider;
-pub use ptr::{TypeDataPtr, TypePtr};
 pub use table::TypeTable;
 pub use unification::{primitive, TypeId, Typer};
