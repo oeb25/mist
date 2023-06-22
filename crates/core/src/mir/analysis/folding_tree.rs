@@ -71,7 +71,7 @@ impl FoldingTree {
 
         let mut foldings = vec![];
 
-        let ft = self.inner.entry(place.slot).or_default();
+        let ft = self.inner.entry(place.slot()).or_default();
         ft.soft_require(
             |kind, path| {
                 let p = if let Some(pl) = path.last() {
@@ -96,7 +96,7 @@ impl FoldingTree {
     /// This is useful when performing an assignment to a place, where all
     /// previous unfoldings into that place are lost.
     pub fn drop(&mut self, db: &dyn crate::Db, place: mir::Place) {
-        if let Some(ft) = self.inner.get_mut(place.slot) {
+        if let Some(ft) = self.inner.get_mut(place.slot()) {
             ft.drop(place.projection_path_iter(db).skip(1))
         }
     }
@@ -227,12 +227,12 @@ impl FoldingTree {
     }
 
     fn fold(&mut self, db: &dyn crate::Db, p: mir::Place) {
-        let ft = self.inner.entry(p.slot).or_default();
+        let ft = self.inner.entry(p.slot()).or_default();
         // TODO: Perhaps we should check that these are valid
         let _ = ft.fold(p.projection_path_iter(db).skip(1));
     }
     fn unfold(&mut self, db: &dyn crate::Db, p: mir::Place) {
-        let ft = self.inner.entry(p.slot).or_default();
+        let ft = self.inner.entry(p.slot()).or_default();
         // TODO: Perhaps we should check that these are valid
         let _ = ft.unfold(p.projection_path_iter(db).skip(1));
     }
@@ -357,7 +357,7 @@ mod test {
              projection in prop::sample::select(Vec::new()))
             -> Place
         {
-            Place { slot, projection }
+            Place::new(slot, Some(projection))
         }
     }
     prop_compose! {

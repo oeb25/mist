@@ -30,10 +30,10 @@ impl MonotoneFramework for LivenessAnalysis {
         prev: &mut Self::Domain,
     ) {
         for p in body[inst].places_written_to() {
-            prev.remove(p.slot);
+            prev.remove(p.slot());
         }
         for p in body[inst].places_referenced(db) {
-            prev.insert(p.slot);
+            prev.insert(p.slot());
         }
     }
 
@@ -45,10 +45,10 @@ impl MonotoneFramework for LivenessAnalysis {
         prev: &mut Self::Domain,
     ) {
         for p in terminator.places_written_to() {
-            prev.remove(p.slot);
+            prev.remove(p.slot());
         }
         for p in terminator.places_referenced(db) {
-            prev.insert(p.slot);
+            prev.insert(p.slot());
         }
     }
 

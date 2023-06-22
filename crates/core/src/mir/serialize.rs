@@ -201,9 +201,9 @@ impl<'db, A: Fn(BodyLocation) -> Option<String>> Serializer<'db, A> {
 
     fn place(&mut self, s: Place) {
         if !s.has_projection(self.db) {
-            self.slot(s.slot);
+            self.slot(s.slot());
         } else {
-            self.slot(s.slot);
+            self.slot(s.slot());
             for p in s.projection_iter(self.db) {
                 match p {
                     Projection::Field(f, _) => {

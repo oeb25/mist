@@ -313,7 +313,7 @@ impl MirLower<'_> {
                 let dest = if let Some(var) = variable {
                     self.alloc_local(var)
                 } else {
-                    self.alloc_tmp(initializer.ty()).slot
+                    self.alloc_tmp(initializer.ty()).slot()
                 };
                 self.expr(initializer, bid, target, Placement::Assign(dest.into()))
             }
@@ -470,7 +470,7 @@ impl MirLower<'_> {
                 let idx = self.alloc_tmp(index.ty());
                 let bid = self.expr(index, bid, None, Placement::Assign(idx));
                 let (bid, place) = self.lhs_expr(base, bid, None);
-                (bid, place.project_deeper(self.db, &[Projection::Index(idx.slot, expr.ty())]))
+                (bid, place.project_deeper(self.db, &[Projection::Index(idx.slot(), expr.ty())]))
             }
             ExprData::List { .. } => todo!(),
             ExprData::Quantifier { .. } => todo!(),

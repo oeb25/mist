@@ -26,7 +26,7 @@ impl MExpr {
         match self {
             MExpr::Use(s) => s.slot().into_iter().collect(),
             MExpr::BinaryOp(_, l, r) => l.slot().into_iter().chain(r.slot()).collect(),
-            MExpr::Ref(_, p) => vec![p.slot],
+            MExpr::Ref(_, p) => vec![p.slot()],
             MExpr::UnaryOp(_, o) => o.slot().into_iter().collect(),
         }
     }
