@@ -91,8 +91,8 @@ pub fn accumulated_errors(
             ),
             MistError::ViperLower(err) => {
                 err.populate_spans(|item, block_or_instr| {
-                    let item_mir = mir::lower_item(db, item).unwrap();
-                    let expr = item_mir.source_map(db).trace_expr(block_or_instr).unwrap();
+                    let item_mir = mir::lower_item(db, item)?;
+                    let expr = item_mir.source_map(db).trace_expr(block_or_instr)?;
                     Some(expr.ast(db).span())
                 });
             }

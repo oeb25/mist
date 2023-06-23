@@ -15,7 +15,3 @@ fn f(b: &mut Box[int]) -> int
 fn g(b: &mut Box[bool]) -> bool {
     b.inner
 }
-
-// invariant[T] Box[T] {
-//     true
-// }

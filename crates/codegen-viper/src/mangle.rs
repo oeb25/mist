@@ -6,15 +6,10 @@ use mist_core::{
 
 pub fn mangled_adt(db: &dyn crate::Db, adt: Adt) -> String {
     match adt.kind(db) {
-        AdtKind::Struct(s) => {
-            format!(
-                "${}{}",
-                s.name(db),
-                adt.generic_args(db)
-                    .iter()
-                    .map(|ty| format!("$_{}", ty.display(db).to_string()))
-                    .format("")
-            )
+        AdtKind::Struct(_, s) => {
+            let generic_args =
+                adt.generic_args(db).iter().map(|ty| format!("$_{}", ty.display(db))).format("");
+            format!("${}{}", s.name(db), generic_args)
         }
         AdtKind::Enum => todo!(),
     }

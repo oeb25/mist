@@ -16,9 +16,9 @@ impl BodyLower<'_> {
     pub fn method_lower(&mut self, entry: mir::BlockId) -> Result<Seqn<VExprId>> {
         self.postdominators = Default::default();
         // TODO: Should we really compute for all entry blocks?
-        // for bid in self.ib.entry_blocks() {
-        self.postdominators.merge(&self.cfg.postdominators(entry));
-        // }
+        for bid in self.ib.entry_blocks() {
+            self.postdominators.merge(&self.cfg.postdominators(bid));
+        }
         self.final_block(entry)
     }
 

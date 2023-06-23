@@ -1,14 +1,17 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    def::{self, Def, DefKind},
+    def::{self, Def, DefKind, Name},
     hir::{self, ExprIdx, Param, VariableIdx},
-    types::{BuiltinKind, TypeId, TypeProvider, TDK},
+    types::{AdtKind, BuiltinKind, TypeId, TypeProvider, TDK},
 };
 
 use super::{
-    exprs::{ExprPtr, VariablePtr},
-    types::{Adt, BuiltinType, FunctionType, Type, TypeData},
+    exprs::{
+        Block, BuiltinExpr, Decreases, ExprData, ExprDataWrapper, ExprPtr, Field, ForExpr, IfExpr,
+        QuantifierOver, StatementPtr, VariablePtr, WhileExpr,
+    },
+    types::{Adt, AdtField, BuiltinType, FunctionType, Type, TypeData},
     Condition, Function, Item, ItemKind, MonoSourceMap, Monomorphized,
 };
 
@@ -61,9 +64,140 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
         let ty = self.cx.var_ty(self.db, var);
         VariablePtr { def: self.cx.def(), id: var, ty: self.lower_ty(ty) }
     }
-    pub(super) fn lower_expr(&mut self, expr: ExprIdx) -> ExprPtr {
-        let ty = self.cx.expr_ty(expr);
-        ExprPtr { def: self.cx.def(), id: expr, ty: self.lower_ty(ty) }
+    pub(super) fn lower_expr(&mut self, expr_id: ExprIdx) -> ExprPtr {
+        let ty = self.cx.expr_ty(expr_id);
+
+        let expr = self.cx.expr(expr_id);
+
+        let data = match &expr.data {
+            hir::ExprData::Literal(it) => ExprData::Literal(it.clone()),
+            hir::ExprData::Self_ => ExprData::Self_,
+            hir::ExprData::Ident(var) => ExprData::Ident(self.lower_var(*var)),
+            hir::ExprData::Block(it) => ExprData::Block(Block {
+                stmts: it
+                    .stmts
+                    .iter()
+                    .map(|stmt| StatementPtr { def: self.cx.def(), id: *stmt })
+                    .collect(),
+                tail_expr: it.tail_expr.map(|expr| self.lower_expr(expr)),
+            }),
+            hir::ExprData::Field { expr, field } => ExprData::Field {
+                expr: self.lower_expr(*expr),
+                field: match field {
+                    crate::types::Field::AdtField(adt_field) => Field::AdtField(
+                        self.lower_adt(adt_field.adt()),
+                        AdtField::new(
+                            self.db,
+                            adt_field.name(self.db),
+                            self.lower_ty(adt_field.ty()),
+                        ),
+                    ),
+                    crate::types::Field::Builtin(bf) => {
+                        Field::Builtin(bf.map(|ty| self.lower_ty(*ty)))
+                    }
+                    crate::types::Field::Undefined => Field::Undefined,
+                },
+            },
+            hir::ExprData::Adt { adt, fields } => ExprData::Adt {
+                adt: self.lower_adt(*adt),
+                fields: fields
+                    .iter()
+                    .map(|f| {
+                        (
+                            AdtField::new(
+                                self.db,
+                                f.decl.name(self.db),
+                                self.lower_ty(f.decl.ty()),
+                            ),
+                            self.lower_expr(f.value),
+                        )
+                    })
+                    .collect(),
+            },
+            hir::ExprData::Missing => ExprData::Missing,
+            hir::ExprData::If(it) => ExprData::If(IfExpr {
+                condition: self.lower_expr(it.condition),
+                then_branch: self.lower_expr(it.then_branch),
+                else_branch: it.else_branch.map(|expr| self.lower_expr(expr)),
+            }),
+            hir::ExprData::While(it) => ExprData::While(WhileExpr {
+                expr: self.lower_expr(it.expr),
+                invariants: it
+                    .invariants
+                    .iter()
+                    .map(|invs| invs.iter().map(|expr| self.lower_expr(*expr)).collect())
+                    .collect(),
+                decreases: match it.decreases {
+                    hir::Decreases::Unspecified => Decreases::Unspecified,
+                    hir::Decreases::Expr(expr) => Decreases::Expr(self.lower_expr(expr)),
+                    hir::Decreases::Inferred => Decreases::Inferred,
+                },
+                body: self.lower_expr(it.body),
+            }),
+            hir::ExprData::For(it) => ExprData::For(ForExpr {
+                is_ghost: it.is_ghost,
+                variable: self.lower_var(it.variable),
+                in_expr: self.lower_expr(it.in_expr),
+                invariants: it
+                    .invariants
+                    .iter()
+                    .map(|invs| invs.iter().map(|expr| self.lower_expr(*expr)).collect())
+                    .collect(),
+                body: self.lower_expr(it.body),
+            }),
+            hir::ExprData::Call { expr, args } => ExprData::Call {
+                expr: self.lower_expr(*expr),
+                args: args.iter().map(|expr| self.lower_expr(*expr)).collect(),
+            },
+            &hir::ExprData::Unary { op, inner } => {
+                ExprData::Unary { op, inner: self.lower_expr(inner) }
+            }
+            &hir::ExprData::Bin { lhs, op, rhs } => {
+                ExprData::Bin { lhs: self.lower_expr(lhs), op, rhs: self.lower_expr(rhs) }
+            }
+            &hir::ExprData::Ref { is_mut, expr } => {
+                ExprData::Ref { is_mut, expr: self.lower_expr(expr) }
+            }
+            &hir::ExprData::Index { base, index } => {
+                ExprData::Index { base: self.lower_expr(base), index: self.lower_expr(index) }
+            }
+            hir::ExprData::List { elems } => {
+                ExprData::List { elems: elems.iter().map(|&id| self.lower_expr(id)).collect() }
+            }
+            hir::ExprData::Quantifier { quantifier, over, expr } => ExprData::Quantifier {
+                quantifier: *quantifier,
+                over: match over {
+                    hir::QuantifierOver::Vars(vars) => {
+                        QuantifierOver::Vars(vars.iter().map(|var| self.lower_var(*var)).collect())
+                    }
+                    hir::QuantifierOver::In(var, expr) => {
+                        QuantifierOver::In(self.lower_var(*var), self.lower_expr(*expr))
+                    }
+                },
+                expr: self.lower_expr(*expr),
+            },
+            hir::ExprData::Result => ExprData::Result,
+            hir::ExprData::Range { lhs, rhs } => ExprData::Range {
+                lhs: lhs.map(|it| self.lower_expr(it)),
+                rhs: rhs.map(|it| self.lower_expr(it)),
+            },
+            hir::ExprData::Return(it) => ExprData::Return(it.map(|it| self.lower_expr(it))),
+            hir::ExprData::NotNull(it) => ExprData::NotNull(self.lower_expr(*it)),
+            hir::ExprData::Builtin(it) => ExprData::Builtin(match it {
+                hir::BuiltinExpr::RangeMin(it) => BuiltinExpr::RangeMin(self.lower_expr(*it)),
+                hir::BuiltinExpr::RangeMax(it) => BuiltinExpr::RangeMax(self.lower_expr(*it)),
+                hir::BuiltinExpr::InRange(lhs, rhs) => {
+                    BuiltinExpr::InRange(self.lower_expr(*lhs), self.lower_expr(*rhs))
+                }
+            }),
+        };
+
+        ExprPtr {
+            def: self.cx.def(),
+            id: expr_id,
+            ty: self.lower_ty(ty),
+            inner_data: ExprDataWrapper::new(self.db, data),
+        }
     }
     fn lower_fn(&mut self, f: def::Function) -> Function {
         let attrs = f.attrs(self.db);
@@ -115,15 +249,10 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
             return adt;
         }
 
+        let kind = adt.kind();
         let generic_args = adt.generic_args(self.db).map(|g| self.lower_ty(g)).collect();
-        let fields = self
-            .cx
-            .fields_of(adt)
-            .into_iter()
-            .map(|af| (af, self.cx.def(), self.cx.field_ty(af.into())))
-            .collect();
 
-        let new_adt = Adt::new(self.db, adt.kind(), generic_args, fields);
+        let new_adt = Adt::new(self.db, kind, generic_args);
         self.adt_cache.insert(adt, new_adt);
         new_adt
     }
@@ -151,12 +280,35 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
                     return_ty,
                 ))
             }
-            // TODO: this should not be an error i think
-            TDK::Generic(_) => TypeData::Error,
+            TDK::Generic(g) => TypeData::Generic(g),
             TDK::Free => TypeData::Error,
         };
         let new_ty = Type::new(self.db, data.is_ghost, kind);
         self.ty_cache.insert(ty, new_ty);
         new_ty
+    }
+
+    pub(super) fn add_substitution(&mut self, id: TypeId, fixed: Type) {
+        self.ty_cache.insert(id, fixed);
+    }
+}
+
+#[salsa::tracked]
+pub fn adt_kind_prototype_fields(db: &dyn crate::Db, def: Def) -> Vec<(Name, Type)> {
+    match def.kind(db) {
+        DefKind::Struct(s) => {
+            let adt_kind = AdtKind::Struct(def, s);
+
+            let hir = def.hir(db).unwrap();
+            let cx = hir.cx(db);
+
+            let crate::types::AdtPrototype::StructPrototype(prototype) =
+                cx.adt_prototype(adt_kind).unwrap();
+
+            let mut mdl = MonoDefLower::new(db, cx);
+
+            prototype.fields.iter().map(|(sf, ty)| (sf.name(db), mdl.lower_ty(*ty))).collect()
+        }
+        _ => Vec::new(),
     }
 }

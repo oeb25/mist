@@ -69,7 +69,7 @@ impl<'a> Visitor for HoverFinder<'a> {
                 Field::AdtField(af) => {
                     let ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx.field_ty(field));
                     let kind = match af.adt().kind() {
-                        AdtKind::Struct(_) => Name::new("struct"),
+                        AdtKind::Struct(_, _) => Name::new("struct"),
                         AdtKind::Enum => todo!(),
                     };
                     break_code(

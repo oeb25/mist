@@ -23,12 +23,14 @@ pub struct Jar(
     crate::file::SourceFile_ast_map,
     // def
     crate::def::Def,
+    crate::def::Generic,
     crate::def::Function,
     crate::def::Struct,
     crate::def::StructField,
     crate::def::Enum,
     crate::def::TypeInvariant,
     crate::def::SourceFile_definitions,
+    crate::def::ext::Def_generics,
     // types
     crate::types::GenericArgs,
     // hir
@@ -40,12 +42,14 @@ pub struct Jar(
     crate::hir::lower_def,
     crate::hir::typecheck::TypeCheckErrors,
     // mono
+    crate::mono::lower::adt_kind_prototype_fields,
     crate::mono::types::Type,
     crate::mono::types::BuiltinType,
     crate::mono::types::Adt,
     crate::mono::types::Adt_invariants,
     crate::mono::types::AdtField,
     crate::mono::types::FunctionType,
+    crate::mono::exprs::ExprDataWrapper,
     crate::mono::Function,
     crate::mono::monomorphized_items,
     crate::mono::Monomorphized,

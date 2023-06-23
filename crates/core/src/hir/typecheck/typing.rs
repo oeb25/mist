@@ -1,11 +1,11 @@
 use mist_syntax::ast::{self, HasName, Spanned};
 
 use crate::{
-    def::Name,
+    def::{Def, Generic, Name},
     hir::{typecheck::TypeCheckErrorKind, Path, SpanOrAstPtr, TypeRef, TypeRefKind, TypeSrc},
     types::{
         primitive::{bool, error, int},
-        Adt, AdtKind, AdtPrototype, BuiltinKind, Generic, GenericArgs, Primitive, TypeData, TypeId,
+        Adt, AdtKind, AdtPrototype, BuiltinKind, GenericArgs, Primitive, TypeData, TypeId,
         TypeProvider, TDK,
     },
     TypeCheckError,
@@ -25,7 +25,7 @@ pub(crate) trait TypingMut: TypeProvider {
 
     fn lookup_named_ty(&self, name: Name) -> Option<NamedType>;
     fn new_free(&mut self) -> TypeId;
-    fn new_generic(&mut self, name: Name, generic: Generic) -> TypeId;
+    fn new_generic(&mut self, generic: Generic) -> TypeId;
 
     fn create_adt_prototype(&mut self, kind: AdtKind, prototype: AdtPrototype);
     fn instantiate_adt(&mut self, kind: AdtKind, generic_args: GenericArgs) -> Adt;
@@ -80,11 +80,8 @@ pub(crate) trait TypingMutExt: TypingMut + Sized {
         }
     }
 
-    fn register_generics(&mut self, generic_param_list: &ast::GenericParamList) -> Vec<TypeId> {
-        generic_param_list
-            .generic_params()
-            .filter_map(|arg| Some(self.new_generic(arg.name()?.into(), Generic::default())))
-            .collect()
+    fn register_generics(&mut self, def: Def) -> Vec<TypeId> {
+        def.generics(self.db()).iter().map(|&generic| self.new_generic(generic)).collect()
     }
 }
 

@@ -6,7 +6,7 @@ mod unification;
 
 pub use builtin::{BuiltinField, BuiltinKind, ListField, MultiSetField, SetField};
 pub use data::{
-    Adt, AdtField, AdtFieldKind, AdtKind, AdtPrototype, Field, Generic, GenericArgs, Primitive,
+    Adt, AdtField, AdtFieldKind, AdtKind, AdtPrototype, Field, GenericArgs, Primitive,
     StructPrototype, TypeData, TypeDataIdx, TypeDataKind, TypeDataKind as TDK,
 };
 pub use provider::TypeProvider;

@@ -4,11 +4,11 @@ use ena::unify::InPlaceUnificationTable;
 use itertools::Itertools;
 use tracing::{debug, info};
 
-use crate::util::IdxWrap;
+use crate::{def::Generic, util::IdxWrap};
 
 use super::{
-    data::{Generic, Primitive},
-    Adt, AdtField, AdtKind, AdtPrototype, GenericArgs, StructPrototype, TypeData, TypeDataIdx, TDK,
+    data::Primitive, Adt, AdtField, AdtKind, AdtPrototype, GenericArgs, StructPrototype, TypeData,
+    TypeDataIdx, TDK,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -55,23 +55,27 @@ pub struct AdtInstantiation {
 }
 
 #[derive(Debug, Default)]
-struct AdtProtoTypes {
+pub struct AdtPrototypes {
     data: HashMap<AdtKind, AdtPrototype>,
 }
 
-impl AdtProtoTypes {
+impl AdtPrototypes {
     fn insert(&mut self, kind: AdtKind, prototype: AdtPrototype) -> Option<AdtPrototype> {
         match kind {
-            AdtKind::Struct(_) => self.data.insert(kind, prototype),
+            AdtKind::Struct(_, _) => self.data.insert(kind, prototype),
             AdtKind::Enum => todo!(),
         }
     }
 
     fn get(&self, kind: AdtKind) -> Option<AdtPrototype> {
         match kind {
-            AdtKind::Struct(_) => self.data.get(&kind).cloned(),
+            AdtKind::Struct(_, _) => self.data.get(&kind).cloned(),
             AdtKind::Enum => todo!(),
         }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (AdtKind, &AdtPrototype)> {
+        self.data.iter().map(|(k, v)| (*k, v))
     }
 }
 
@@ -80,7 +84,7 @@ pub struct Typer {
     ty_table: Mutex<InPlaceUnificationTable<TypeId>>,
     ty_cache: HashMap<TypeData, TypeId>,
     ty_keys: Vec<TypeId>,
-    adt_prototypes: AdtProtoTypes,
+    adt_prototypes: AdtPrototypes,
     adt_tys: HashMap<Adt, TypeId>,
     adt_instantiations: HashMap<Adt, AdtInstantiation>,
 }
@@ -168,19 +172,24 @@ impl Typer {
     }
     pub fn canonicalized(
         &self,
-    ) -> (impl Iterator<Item = (TypeId, TypeData)> + '_, &HashMap<Adt, AdtInstantiation>) {
+    ) -> (
+        impl Iterator<Item = (TypeId, TypeData)> + '_,
+        &AdtPrototypes,
+        &HashMap<Adt, AdtInstantiation>,
+    ) {
         (
             self.ty_keys.iter().map(move |&ty| {
                 let td = self.ty_table.lock().unwrap().probe_value(ty);
                 (ty, td)
             }),
+            &self.adt_prototypes,
             &self.adt_instantiations,
         )
     }
     pub fn create_adt_prototype(&mut self, kind: AdtKind, prototype: AdtPrototype) {
         debug!(?kind, "creating adt prototype");
         match self.adt_prototypes.insert(kind, prototype) {
-            Some(AdtPrototype::Delayed) | None => {}
+            None => {}
             _ => todo!("repopulation of adt prototype"),
         }
     }
@@ -200,15 +209,11 @@ impl Typer {
         let ty = self.ty_id(TDK::Adt(adt).into());
         self.adt_tys.insert(adt, ty);
 
-        let prototype = self
-            .adt_prototypes
-            .get(kind)
-            .expect("tried to instantiate ADT which did not have a registred prototype");
-        match prototype {
-            AdtPrototype::Delayed => {
+        match self.adt_prototypes.get(kind) {
+            None => {
                 info!("ADT {} was delayed!", adt.name(db));
             }
-            AdtPrototype::StructPrototype(sp) => self.finish_instantiation(db, adt, sp, ty),
+            Some(AdtPrototype::StructPrototype(sp)) => self.finish_instantiation(db, adt, sp, ty),
         }
         adt
     }
@@ -218,13 +223,10 @@ impl Typer {
         }
 
         let ty = self.adt_tys[&adt];
-
+        // NOTE: Attempt to finish the instantiation
         match self.adt_prototypes.get(adt.kind()) {
-            Some(AdtPrototype::Delayed) => {
-                info!("ADT {} still delayed...", adt.name(db));
-            }
+            None => info!("ADT {} still delayed...", adt.name(db)),
             Some(AdtPrototype::StructPrototype(sp)) => self.finish_instantiation(db, adt, sp, ty),
-            None => todo!("should never happen"),
         }
         ty
     }

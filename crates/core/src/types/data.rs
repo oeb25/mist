@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::{
-    def::{Name, Struct, StructField},
+    def::{Def, Generic, Name, Struct, StructField},
     hir::{Param, TypeSrc},
     util::impl_idx,
 };
@@ -48,7 +48,7 @@ pub struct Adt {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AdtKind {
-    Struct(Struct),
+    Struct(Def, Struct),
     Enum,
 }
 
@@ -57,22 +57,17 @@ pub struct GenericArgs {
     #[return_ref]
     pub args: Vec<TypeId>,
 }
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Generic {
-    _filler: (),
-}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AdtPrototype {
-    Delayed,
     StructPrototype(StructPrototype),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StructPrototype {
     pub parent: Struct,
     pub generics: Vec<TypeId>,
-    pub fields: HashMap<StructField, TypeId>,
+    pub fields: BTreeMap<StructField, TypeId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -149,7 +144,7 @@ impl Adt {
     }
     pub fn struct_(&self) -> Option<Struct> {
         match self.kind {
-            AdtKind::Struct(s) => Some(s),
+            AdtKind::Struct(_, s) => Some(s),
             AdtKind::Enum => todo!(),
         }
     }
@@ -167,15 +162,21 @@ impl Adt {
     }
 }
 impl AdtKind {
+    pub fn def(&self) -> Def {
+        match self {
+            AdtKind::Struct(def, _) => *def,
+            AdtKind::Enum => todo!(),
+        }
+    }
     pub fn name(&self, db: &dyn crate::Db) -> Name {
         match self {
-            AdtKind::Struct(s) => s.name(db),
+            AdtKind::Struct(_, s) => s.name(db),
             AdtKind::Enum => todo!(),
         }
     }
     pub fn arity(&self, db: &dyn crate::Db) -> usize {
         match self {
-            AdtKind::Struct(s) => {
+            AdtKind::Struct(_, s) => {
                 s.ast_node(db).generic_param_list().map_or(0, |g| g.generic_params().count())
             }
             AdtKind::Enum => todo!(),
@@ -244,6 +245,13 @@ impl<T> TypeData<T> {
     }
     pub fn is_error(&self) -> bool {
         matches!(self.kind, TDK::Error)
+    }
+    pub fn adt(&self) -> Option<Adt> {
+        if let TDK::Adt(adt) = self.kind {
+            Some(adt)
+        } else {
+            None
+        }
     }
 }
 impl TypeData<TypeId> {

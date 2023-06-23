@@ -16,14 +16,14 @@ use thiserror::Error;
 use tracing::error;
 
 use crate::{
-    def::Name,
+    def::{Generic, Name},
     hir::{
         self, AssertionKind, Block, Condition, Decreases, Expr, ExprData, ExprIdx, Param,
         Statement, StatementData, Variable, VariableIdx,
     },
     types::{
         primitive::{error, ghost_bool, void},
-        Adt, AdtField, AdtKind, AdtPrototype, BuiltinKind, Generic, GenericArgs, TypeData, TypeId,
+        Adt, AdtField, AdtKind, AdtPrototype, BuiltinKind, GenericArgs, TypeData, TypeId,
         TypeProvider, TypeTable, Typer,
     },
 };
@@ -179,9 +179,12 @@ pub(crate) struct TypeChecker<'w> {
 
 impl hir::DefinitionHir {
     pub(crate) fn from_tc(db: &dyn crate::Db, mut tc: TypeChecker<'_>) -> Self {
-        let (type_data, adt_instantiations) = tc.typer.canonicalized();
-        tc.cx.ty_table =
-            Some(Arc::new(TypeTable::new(type_data.collect_vec(), adt_instantiations.clone())));
+        let (type_data, adt_prototypes, adt_instantiations) = tc.typer.canonicalized();
+        tc.cx.ty_table = Some(Arc::new(TypeTable::new(
+            type_data.collect_vec(),
+            adt_prototypes.iter().map(|(k, v)| (k, v.clone())),
+            adt_instantiations.clone(),
+        )));
         desugar::desugar(db, &mut tc.cx);
 
         hir::DefinitionHir::new(tc.db, tc.cx.def(), tc.cx, tc.source_map)
@@ -285,10 +288,7 @@ impl<'a> TypeChecker<'a> {
 
             if !f_ast.is_ghost() && f_ast.body().is_none() {
                 checker.ty_error(
-                    f_ast
-                        .semicolon_token()
-                        .map(|t| t.span())
-                        .unwrap_or_else(|| f_ast.name().unwrap().span()),
+                    Spanned::span((f_ast.semicolon_token(), f_ast.name().as_ref(), f_ast.span())),
                     None,
                     None,
                     TypeCheckErrorKind::NonGhostFunctionWithoutBody,
@@ -298,14 +298,9 @@ impl<'a> TypeChecker<'a> {
 
         checker.cx.invariant_ty = match def.kind(db) {
             hir::DefKind::TypeInvariant(ty_inv) => {
-                // TODO: store these somewhere, so that we can instanitate it
-                // for ADT's later
-                let _generics: Vec<_> = ty_inv
-                    .ast_node(db)
-                    .generic_param_list()
-                    .into_iter()
-                    .flat_map(|generic_params| checker.register_generics(&generic_params))
-                    .collect();
+                // TODO: do we need to store these somewhere, so that we can instanitate it
+                // for ADT's later? Seems to work output doing so?
+                let _generics: Vec<_> = checker.register_generics(def);
 
                 Some(checker.expect_find_type_src(&ty_inv.ty(db)))
             }
@@ -612,9 +607,11 @@ impl<'a> TypingMut for TypeChecker<'a> {
         self.typer.adt_ty(self.db, adt)
     }
 
-    fn new_generic(&mut self, name: Name, generic: Generic) -> TypeId {
+    fn new_generic(&mut self, generic: Generic) -> TypeId {
         let ty = self.typer.new_generic(generic);
-        self.scope.insert_ty(name, ty);
+        if let Some(name) = generic.name(self.db) {
+            self.scope.insert_ty(name, ty);
+        }
         ty
     }
 

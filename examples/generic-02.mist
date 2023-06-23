@@ -1,0 +1,26 @@
+struct Tuple[T, S] {
+    fst: T,
+    snd: S,
+}
+
+invariant[X] Tuple[X, X] {
+    self.fst == self.snd
+}
+
+invariant[X] Tuple[bool, X] {
+    self.fst
+}
+
+fn f(t: Tuple[bool, bool]) {
+    assert t.snd;
+}
+
+// pure fn sum(t: Tuple[&Tuple[int, int], &Tuple[int, int]]) -> int {
+//     t.fst.fst + t.fst.snd + t.snd.fst + t.snd.snd
+// }
+
+// fn client() {
+//     let a = Tuple { fst: 4, snd: 4 };
+//     let c = Tuple { fst: &a, snd: &a };
+//     assert sum(c) == 16;
+// }

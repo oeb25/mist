@@ -6,14 +6,14 @@ use mist_syntax::{
 };
 
 use crate::{
-    def::{Function, Name},
+    def::{Function, Generic, Name},
     hir::{
         self,
         typecheck::{TypeCheckErrorKind, Typed, TypingMutExt},
         ItemSourceMap, Param, SpanOrAstPtr, TypeSrc,
     },
     types::{
-        primitive::void, Adt, AdtField, AdtKind, AdtPrototype, BuiltinKind, Generic, GenericArgs,
+        primitive::void, Adt, AdtField, AdtKind, AdtPrototype, BuiltinKind, GenericArgs,
         StructPrototype, TypeData, TypeId, TypeProvider, Typer, TDK,
     },
     TypeCheckError, TypeCheckErrors,
@@ -47,7 +47,7 @@ fn initialize_file_context_inner(
         if let hir::DefKind::Struct(s) = def.kind(db) {
             let s_ast = s.ast_node(db);
 
-            if let Some(_old) = b.fc.adts.insert(s.name(db), AdtKind::Struct(s)) {
+            if let Some(_old) = b.fc.adts.insert(s.name(db), AdtKind::Struct(def, s)) {
                 b.ty_error(
                     s_ast.span(),
                     None,
@@ -57,7 +57,6 @@ fn initialize_file_context_inner(
                     ),
                 );
             }
-            b.create_adt_prototype(AdtKind::Struct(s), AdtPrototype::Delayed);
         }
     }
     for def in file.definitions(db) {
@@ -105,12 +104,7 @@ fn initialize_file_context_inner(
                 }
             }
             hir::DefKind::Struct(s) => {
-                let generics = s
-                    .ast_node(db)
-                    .generic_param_list()
-                    .into_iter()
-                    .flat_map(|generic_params| b.register_generics(&generic_params))
-                    .collect();
+                let generics = b.register_generics(def);
 
                 let fields = s
                     .fields(db)
@@ -126,7 +120,7 @@ fn initialize_file_context_inner(
                     })
                     .collect();
                 b.create_adt_prototype(
-                    AdtKind::Struct(s),
+                    AdtKind::Struct(def, s),
                     AdtPrototype::StructPrototype(StructPrototype { parent: s, generics, fields }),
                 );
             }
@@ -227,10 +221,12 @@ impl<'a> TypingMut for FileContextBuilder<'a> {
         self.typer.new_free()
     }
 
-    fn new_generic(&mut self, name: Name, generic: Generic) -> TypeId {
+    fn new_generic(&mut self, generic: Generic) -> TypeId {
         self.fc.events.push(FileContextBuilderEvent::NewGeneric(generic));
         let ty = self.typer.new_generic(generic);
-        self.generics.insert(name, ty);
+        if let Some(name) = generic.name(self.db) {
+            self.generics.insert(name, ty);
+        }
         ty
     }
 

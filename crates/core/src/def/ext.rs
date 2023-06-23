@@ -8,7 +8,7 @@ use crate::{
     hir::{self, Param},
 };
 
-use super::{Def, DefKind, Function, Name, Struct, StructField, TypeInvariant};
+use super::{Def, DefKind, Function, Generic, Name, Struct, StructField, TypeInvariant};
 
 impl Def {
     pub fn file(&self, db: &dyn crate::Db) -> SourceFile {
@@ -67,6 +67,27 @@ impl Def {
 
     pub fn hir(&self, db: &dyn crate::Db) -> Option<hir::DefinitionHir> {
         hir::lower_def(db, *self)
+    }
+}
+
+#[salsa::tracked]
+impl Def {
+    #[salsa::tracked]
+    pub fn generics(self, db: &dyn crate::Db) -> Vec<Generic> {
+        let gpl = match self.kind(db) {
+            DefKind::Function(_) => return Vec::new(),
+            DefKind::StructField(_) => return Vec::new(),
+            DefKind::Struct(it) => it.ast_node(db).generic_param_list(),
+            DefKind::TypeInvariant(it) => it.ast_node(db).generic_param_list(),
+        };
+        gpl.map(|params| {
+            params
+                .generic_params()
+                .enumerate()
+                .map(|(idx, ast)| Generic::new(db, self, ast.name().map(|name| name.into()), idx))
+                .collect()
+        })
+        .unwrap_or_default()
     }
 }
 

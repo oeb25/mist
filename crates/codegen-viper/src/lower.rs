@@ -238,15 +238,18 @@ impl<'a> BodyLower<'a> {
     pub fn lower_type(&mut self, ty: Type) -> Result<ViperType> {
         Ok(match ty.kind(self.db) {
             TypeData::Error => {
+                error!(ty=?ty.display(self.db).to_string(), "lowered invalid type data");
                 // TODO: Perhaps this should be handeld at a previous stage?
                 VTy::int().into()
             }
             TypeData::Void => {
+                error!(ty=?ty.display(self.db).to_string(), "lowered invalid type data");
                 // TODO: Perhaps this should be handeld at a previous stage?
                 // VTy::internal_type().into()
                 VTy::int().into()
             }
             TypeData::Generic(_) => {
+                error!(ty=?ty.display(self.db).to_string(), "lowered invalid type data");
                 // TODO: Perhaps this should be handeld at a previous stage?
                 // VTy::internal_type().into()
                 VTy::int().into()
@@ -287,7 +290,7 @@ impl<'a> BodyLower<'a> {
                 }
             }
             TypeData::Adt(adt) => match adt.kind(self.db) {
-                AdtKind::Struct(_) => ViperType {
+                AdtKind::Struct(_, _) => ViperType {
                     vty: VTy::ref_(),
                     optional: false,
                     is_mut: false,

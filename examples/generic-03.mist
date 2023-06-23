@@ -1,0 +1,12 @@
+struct Box[T] {
+    inner: T,
+}
+
+invariant[T] Box[T] {
+    1 == 2
+}
+
+fn f(b: Box[bool]) ens false {}
+fn g(b: Box[bool]) ens false {
+    let x = b.inner;
+}

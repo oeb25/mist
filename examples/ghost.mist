@@ -6,7 +6,6 @@ fn im_not_ghost() -> bool {
     im_ghost()
 }
 
-// TODO: Maybe this should be okay
 fn implicit_ghost_cast_in_non_ghost() -> ghost bool {
     true
 }

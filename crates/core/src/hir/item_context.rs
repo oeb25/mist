@@ -7,7 +7,7 @@ use mist_syntax::{ast::Spanned, ptr::AstPtr, SourceSpan};
 
 use crate::{
     def::{Name, StructField},
-    types::{Adt, AdtField, TypeData, TypeId, TypeProvider, TypeTable},
+    types::{Adt, AdtField, AdtKind, AdtPrototype, TypeData, TypeId, TypeProvider, TypeTable},
     util::{IdxArena, IdxMap, IdxWrap},
     VariableDeclaration,
 };
@@ -128,6 +128,10 @@ impl ItemContext {
 
     pub fn ty_table(&self) -> Arc<TypeTable> {
         Arc::clone(self.ty_table.as_ref().expect("TypeTable was not yet built"))
+    }
+
+    pub(crate) fn adt_prototype(&self, adt_kind: AdtKind) -> Option<AdtPrototype> {
+        self.ty_table().adt_prototype(adt_kind).cloned()
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

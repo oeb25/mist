@@ -433,7 +433,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 let field = Name::from(&field_ast);
                 (field_ast, field)
             } else {
-                todo!()
+                return Right(Expr { ty: error(), data: ExprData::Missing });
             };
 
             let expr_ty = tc.expr_ty(expr);
@@ -545,8 +545,11 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             let named_type = tc.find_named_type(&name_ref, (&name_ref).into());
             let adt = match named_type {
                 Ok(NamedType::AdtKind(kind)) => {
-                    // TODO: instantiate new struct type instance
-                    tc.instantiate_adt(kind, GenericArgs::none(tc.db))
+                    let generic_args = GenericArgs::new(
+                        tc.db,
+                        (0..kind.arity(tc.db)).map(|_| tc.new_free()).collect(),
+                    );
+                    tc.instantiate_adt(kind, generic_args)
                 }
                 Ok(NamedType::Builtin(_)) | Ok(NamedType::TypeId(_)) | Err(_) => {
                     // NOTE: Still check the types of the fields

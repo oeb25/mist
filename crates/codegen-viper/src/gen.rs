@@ -87,10 +87,12 @@ fn internal_viper_item(
 ) -> Result<Vec<ViperItem<VExprId>>> {
     match item.kind(db) {
         mono::ItemKind::Adt(adt) => {
-            // TODO: we should lower the actual instantications of structs, not
-            // those found in the file necessarily.
-            let mut lower = lowerer.body_lower(db, ib, false);
-            lower.adt_lower(ib.self_slot().unwrap(), adt, ib.invariants().iter().copied())
+            if adt.is_monomophic(db) {
+                let mut lower = lowerer.body_lower(db, ib, false);
+                lower.adt_lower(ib.self_slot().unwrap(), adt, ib.invariants().iter().copied())
+            } else {
+                Ok(Vec::new())
+            }
         }
         mono::ItemKind::Function(function) => {
             let is_method = !function.attrs(db).is_pure();
@@ -124,6 +126,7 @@ fn internal_viper_item(
 
             let return_ty = ib
                 .result_slot()
+                .and_then(|s| if s.ty(db, ib).is_void(db) { None } else { Some(s) })
                 .map(|s| {
                     // TODO: Don't lower explicitly from 0
                     let bid = mir::BlockId::from_raw(0.into());

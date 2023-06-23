@@ -2,7 +2,7 @@ use mist_syntax::ast;
 
 use crate::file::{AstId, SourceFile};
 
-mod ext;
+pub(crate) mod ext;
 mod name;
 
 pub use name::Name;
@@ -68,6 +68,13 @@ impl DefKind {
             None
         }
     }
+}
+
+#[salsa::interned]
+pub struct Generic {
+    pub def: Def,
+    pub name: Option<Name>,
+    idx: usize,
 }
 
 #[salsa::interned]

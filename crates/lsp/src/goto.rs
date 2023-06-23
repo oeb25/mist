@@ -110,7 +110,7 @@ impl Visitor for DeclarationFinder<'_> {
                             // TODO
                             return ControlFlow::Continue(());
                         }
-                        hir::Path::Adt(AdtKind::Struct(s)) => {
+                        hir::Path::Adt(AdtKind::Struct(_, s)) => {
                             s.ast_node(self.db).name().unwrap().span()
                         }
                         hir::Path::Adt(AdtKind::Enum) => todo!(),
