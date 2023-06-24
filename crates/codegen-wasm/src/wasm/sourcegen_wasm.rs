@@ -29,7 +29,7 @@ fn sourcegen_wasm() -> Result<()> {
 
     let output_path = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src/wasm/ast.rs"));
     let mut output = fs::File::create(output_path).into_diagnostic()?;
-    writeln!(output, "{code}").into_diagnostic()?;
+    write!(output, "{code}").into_diagnostic()?;
 
     Ok(())
 }

@@ -12,16 +12,17 @@ jobs:
         include:
           - rust: nightly
     steps:
-      - uses: actions/checkout@3
+      - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
+          components: rustfmt
       - uses: taiki-e/install-action@v2
         with:
-          tool: just cargo-nextest
+          tool: just,cargo-nextest
       - name: Tests
         run: |
-          cargo build --verbose
+          cargo build
           cargo nextest run --workspace --all
   fmt:
     runs-on: ubuntu-latest

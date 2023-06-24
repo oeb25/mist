@@ -87,7 +87,7 @@ impl<'a> Visitor for HoverFinder<'a> {
                         let list_ty = pretty::ty(&*vcx.cx, self.db, false, list_ty);
                         let ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx.field_ty(field));
                         break_code(
-                            [format!("{list_ty}"), format!("{}: {ty}", bf.name())],
+                            [list_ty, format!("{}: {ty}", bf.name())],
                             Some(reference.span()),
                         )
                     }
