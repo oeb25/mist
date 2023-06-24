@@ -5,6 +5,13 @@
 watch-sourcegen-ast:
     cargo watch --ignore generated.* --clear -s "cargo test sourcegen_ast -- --nocapture; rustfmt src/generated.rs"
 
+# General
+
+test:
+    cargo fmt --all -- --check
+    cargo clippy
+    cargo nextest run --workspace --exclude mist-codegen-wasm
+
 # UI
 
 app-typeshare:
