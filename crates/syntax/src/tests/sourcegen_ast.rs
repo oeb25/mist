@@ -9,6 +9,7 @@ use ungrammar::{Grammar, Rule};
 use super::ast_src::{AstEnumSrc, AstNodeSrc, AstSrc, Cardinality, Field, KindsSrc, KINDS_SRC};
 
 #[test]
+#[ignore]
 fn sourcegen_ast() -> color_eyre::Result<()> {
     let grammar: Grammar =
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/mist.ungram")).parse().unwrap();

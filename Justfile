@@ -3,7 +3,7 @@
     just --choose
 
 watch-sourcegen-ast:
-    cargo watch --ignore generated.* --clear -s "cargo test sourcegen_ast -- --nocapture; rustfmt src/generated.rs"
+    cargo watch --ignore generated.* --clear -s "cargo test sourcegen_ast -- --ignored --nocapture; rustfmt src/generated.rs"
 
 # General
 
