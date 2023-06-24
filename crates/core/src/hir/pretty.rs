@@ -49,7 +49,7 @@ pub fn ty(pp: &impl PrettyPrint, db: &dyn crate::Db, strip_ghost: bool, ty: Type
         TDK::Builtin(b, args) => {
             format!(
                 "{}[{}]",
-                b.name().to_string(),
+                b.name(),
                 args.args(db).iter().map(|arg| pp_ty(pp, db, false, *arg)).format(", ")
             )
         }

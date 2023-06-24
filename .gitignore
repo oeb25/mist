@@ -1,3 +1,6 @@
 tmp/
 target/
 .env
+
+# macOS-specific files
+.DS_Store
