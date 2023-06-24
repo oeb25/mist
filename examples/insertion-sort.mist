@@ -26,15 +26,15 @@ ghost fn lemma_total_order(xs: [int], i: int, j: int)
     }
 }
 
-pure ghost fn to_multiset(xs: [int]) -> Multiset<int>
-    dec xs.len
-{
-    if xs.len == 0 {
-        Multiset::empty()
-    } else {
-        Multiset::union(Multiset::singleton(xs[0]), to_multiset(xs))
-    }
-}
+pure ghost fn to_multiset(xs: [int]) -> MultiSet[int]
+    dec xs.len;
+// {
+//     if xs.len == 0 {
+//         MultiSet::empty()
+//     } else {
+//         MultiSet::union(MultiSet::singleton(xs[0]), to_multiset(xs))
+//     }
+// }
 
 pure ghost fn same_elements(xs: [int], ys: [int]) -> bool {
     to_multiset(xs) == to_multiset(ys)

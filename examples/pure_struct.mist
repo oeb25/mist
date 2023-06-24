@@ -1,0 +1,25 @@
+pure struct Pos {
+    x: int,
+    z: int,
+}
+
+invariant Pos {
+    self.x > self.z
+}
+
+pure fn pos(x: int, z: int) -> Pos
+    req x > z
+{
+    Pos { x: x, z: z }
+}
+
+pure fn add(a: Pos, b: Pos) -> Pos {
+    pos(a.x + b.x, a.z + b.z)
+}
+
+fn lemma_add_commute(a: Pos, b: Pos)
+    ens add(a, b) == add(b, a)
+{}
+fn lemma_add_assoc(a: Pos, b: Pos, c: Pos)
+    ens add(a, add(b, c)) == add(add(a, b), c)
+{}

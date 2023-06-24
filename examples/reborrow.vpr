@@ -58,6 +58,13 @@ method f(x: Ref, p: Perm)
   // apply acc(T(y), p/2) --* acc(T(x), p/2)
 }
 
+// acc(x, write)
+
+// let y = &*x;
+// y := x
+// acc(y, write)[1/2]
+// unfold acc(y, write * 1/2)
+
 define ptrAcc(T, x, p) acc(T(fst(x)), snd(x) * p)
 define ptrUnfold(T, x, p) { unfold acc(T(fst(x)), snd(x) * p) }
 define ptrFold(T, x, p) { fold acc(T(fst(x)), snd(x) * p) }
@@ -107,3 +114,20 @@ method h(y: Tuple[Ref, Perm])
     ptrAcc(T, y, write)
   ensures ptrAcc(T, y, write)
 {}
+
+method q(x: Ref)
+  requires T(x)
+{
+  var y: Ref
+  y := x
+  exhale acc(T(x), 1/3)
+  inhale acc(T(y), 1/3) && (acc(T(y), 1/3) --* acc(T(x), 1/3))
+  unfold T(x)
+  // assert perm(T(x)) == write
+  // apply acc(T(y), 1/3) --* acc(T(x), 1/3)
+  // assert perm(T(x)) == write
+  assert x == y
+  assert perm(T(x)) == perm(T(y))
+  // y.n := 5
+  // fold T(y)
+}

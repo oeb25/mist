@@ -1,0 +1,6 @@
+ghost fn f() -> Set[bool];
+
+fn g() -> ghost int {
+    let x = f();
+    x.cardinality
+}

@@ -1,0 +1,4 @@
+struct T {}
+fn f() {
+    let t = T {};
+}

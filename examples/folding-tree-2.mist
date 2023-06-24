@@ -1,0 +1,20 @@
+struct ProjectionElement {
+    field_idx: int,
+}
+
+struct ProjectionList {
+    elements: [ProjectionElement],
+}
+
+struct Place {
+    slot: int,
+    projection: ProjectionList,
+}
+
+struct FoldingTree {
+    nodes: [FoldingNode],
+}
+
+struct FoldingNode {
+
+}
