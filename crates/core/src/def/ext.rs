@@ -124,6 +124,9 @@ impl Struct {
     pub fn ast_node(&self, db: &dyn crate::Db) -> ast::Struct {
         self.id(db).to_node(db)
     }
+    pub fn attrs(&self, db: &dyn crate::Db) -> ast::AttrFlags {
+        self.id(db).to_node(db).attr_flags()
+    }
     pub fn name(&self, db: &dyn crate::Db) -> Name {
         self.ast_node(db).name().unwrap().into()
     }

@@ -208,6 +208,7 @@ pub struct BodyLower<'a> {
     /// without unfolding.
     pre_unfolded: HashSet<mir::Place>,
     inlined: IdxMap<VExprId, VExprId>,
+    place_alias: HashMap<mir::Place, VExprId>,
     internally_bound_slots: IdxMap<mir::SlotId, ()>,
 }
 
@@ -231,8 +232,20 @@ impl<'a> BodyLower<'a> {
             var_refs: Default::default(),
             pre_unfolded: Default::default(),
             inlined: Default::default(),
+            place_alias: Default::default(),
             internally_bound_slots: Default::default(),
         }
+    }
+
+    pub fn begin_scope<T>(&mut self, mut f: impl FnMut(&mut Self) -> T) -> T {
+        let prev = self.place_alias.clone();
+        let res = f(self);
+        self.place_alias = prev;
+        res
+    }
+
+    pub fn alias(&mut self, place: mir::Place, into: VExprId) {
+        self.place_alias.insert(place, into);
     }
 
     pub fn lower_type(&mut self, ty: Type) -> Result<ViperType> {
@@ -290,6 +303,17 @@ impl<'a> BodyLower<'a> {
                 }
             }
             TypeData::Adt(adt) => match adt.kind(self.db) {
+                AdtKind::Struct(_, _) if adt.is_pure(self.db) => ViperType {
+                    vty: VTy::Domain {
+                        domain_name: mangle::mangled_adt(self.db, adt),
+                        partial_typ_vars_map: Default::default(),
+                    },
+                    optional: false,
+                    is_mut: false,
+                    is_ref: false,
+                    inner: None,
+                    adt: Some(adt),
+                },
                 AdtKind::Struct(_, _) => ViperType {
                     vty: VTy::ref_(),
                     optional: false,
@@ -442,6 +466,10 @@ impl BodyLower<'_> {
         source: impl Into<mir::BlockOrInstruction> + Copy,
         p: mir::Place,
     ) -> Result<VExprId> {
+        if let Some(alias) = self.place_alias.get(&p).copied() {
+            return Ok(alias);
+        }
+
         let var = self.slot_to_var(p.slot())?;
         if !p.has_projection(self.db) {
             if let Some(exp) = self.var_refs.get(p.slot()).copied() {
@@ -486,12 +514,19 @@ impl BodyLower<'_> {
                             }
                         },
                         Field::AdtField(adt, af) => {
-                            let exp = VField::new(
-                                mangle::mangled_adt_field(self.db, adt, af),
-                                // TODO: Should we look at the contraints?
-                                self.lower_type(ty)?.vty,
-                            )
-                            .access_exp(base);
+                            let exp = if adt.is_pure(self.db) {
+                                Exp::FuncApp {
+                                    funcname: mangle::mangled_adt_field(self.db, adt, af),
+                                    args: vec![base],
+                                }
+                            } else {
+                                VField::new(
+                                    mangle::mangled_adt_field(self.db, adt, af),
+                                    // TODO: Should we look at the contraints?
+                                    self.lower_type(ty)?.vty,
+                                )
+                                .access_exp(base)
+                            };
                             self.alloc(source, exp)
                         }
                         Field::Undefined => todo!(),
@@ -576,23 +611,26 @@ impl BodyLower<'_> {
         ty: Type,
     ) -> Result<(Option<VExprId>, Option<VExprId>)> {
         let ty = self.lower_type(ty)?;
-        if let Some(st) = ty.adt {
-            let perm = self.alloc(source, PermExp::Full);
-            let pred = self.alloc(
-                source,
-                AccessPredicate::Predicate(PredicateAccessPredicate::new(
-                    PredicateAccess::new(mangle::mangled_adt(self.db, st), vec![place]),
-                    perm,
-                )),
-            );
-            let pred = if ty.optional {
-                let null = self.alloc(source, Exp::null());
-                let cond = self.alloc(source, Exp::bin(place, BinOp::NeCmp, null));
-                self.alloc(source, Exp::bin(cond, BinOp::Implies, pred))
-            } else {
-                pred
-            };
-            return Ok((Some(pred), None));
+        match ty.adt {
+            Some(adt) if !adt.is_pure(self.db) => {
+                let perm = self.alloc(source, PermExp::Full);
+                let pred = self.alloc(
+                    source,
+                    AccessPredicate::Predicate(PredicateAccessPredicate::new(
+                        PredicateAccess::new(mangle::mangled_adt(self.db, adt), vec![place]),
+                        perm,
+                    )),
+                );
+                let pred = if ty.optional {
+                    let null = self.alloc(source, Exp::null());
+                    let cond = self.alloc(source, Exp::bin(place, BinOp::NeCmp, null));
+                    self.alloc(source, Exp::bin(cond, BinOp::Implies, pred))
+                } else {
+                    pred
+                };
+                return Ok((Some(pred), None));
+            }
+            _ => (),
         }
         if let Some(inner) = ty.inner {
             if ty.is_ref {

@@ -303,7 +303,7 @@ mod write_impl {
             FieldAccess, FieldAccessPredicate, LocalVar, MagicWand, OldExp, PermExp,
             PredicateAccess, PredicateAccessPredicate, SetExp,
         },
-        program::{AnyLocalVarDecl, LocalVarDecl, Method, Program},
+        program::{AnyLocalVarDecl, DomainAxiom, DomainFunc, LocalVarDecl, Method, Program},
         statement::{Seqn, Stmt},
     };
 
@@ -701,7 +701,7 @@ mod write_impl {
     impl<Cx> ViperWrite<Cx> for AnyLocalVarDecl {
         fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
             match elem {
-                AnyLocalVarDecl::UnnamedLocalVarDecl { .. } => todo!(),
+                AnyLocalVarDecl::UnnamedLocalVarDecl { typ } => w!(w, typ),
                 AnyLocalVarDecl::LocalVarDecl(v) => w!(w, v),
             }
         }
@@ -731,7 +731,48 @@ mod write_impl {
     impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for Domain<E> {
         fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
             let name = &elem.name;
-            wln!(w, "domain {name} {{\n  // TODO: Domains\n}}");
+            if !elem.typ_vars.is_empty() {
+                wln!(w, "// TODO: Domain typ_vars");
+            }
+            wln!(w, "domain {name} {{");
+            w.indent(|w| {
+                for f in &elem.functions {
+                    wln!(w, f);
+                }
+                for a in &elem.axioms {
+                    wln!(w, a);
+                }
+            });
+            wln!(w, "}}");
+        }
+    }
+
+    impl<Cx> ViperWrite<Cx> for DomainFunc {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
+            let name = &elem.name;
+            w!(w, "function {name}(");
+            let mut first = true;
+            for arg in &elem.formal_args {
+                if !first {
+                    w!(w, ", ");
+                }
+                first = false;
+                w!(w, arg);
+            }
+            w!(w, "): ", &elem.typ);
+        }
+    }
+    impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for DomainAxiom<E> {
+        fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
+            if let Some(name) = &elem.name {
+                wln!(w, "axiom {name} {{");
+            } else {
+                wln!(w, "axiom {{");
+            }
+            w.indent(|w| {
+                wln!(w, &elem.exp);
+            });
+            wln!(w, "}}");
         }
     }
 

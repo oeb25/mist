@@ -150,7 +150,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 if let Some(op) = it.op_details() { op } else { todo!("{it:#?}") };
             let inner = check_inner(tc, it);
             let inner_span = tc.expr_span(inner);
-            let inner_ty = tc.expr_ty(inner);
+            let inner_ty = tc.expr_ty(inner).strip_ghost(tc);
 
             let is_ghost = tc.is_ghost(inner);
 

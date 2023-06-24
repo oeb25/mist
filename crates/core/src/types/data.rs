@@ -182,6 +182,13 @@ impl AdtKind {
             AdtKind::Enum => todo!(),
         }
     }
+
+    pub fn is_pure(&self, db: &dyn crate::Db) -> bool {
+        match self {
+            AdtKind::Struct(_, s) => s.attrs(db).is_pure(),
+            AdtKind::Enum => todo!(),
+        }
+    }
 }
 
 impl GenericArgs {

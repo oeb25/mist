@@ -46,9 +46,11 @@
 //!       potentially perform an assignment, in which case we must introduce
 //!       a `let-in` expression, wrapping the tail of the fold.
 
-use mist_core::{hir, mir};
+use mist_core::{
+    hir, mir,
+    mono::types::{Adt, AdtField},
+};
 use silvers::expression::{Exp, PermExp, PredicateAccess, PredicateAccessPredicate, QuantifierExp};
-use tracing::warn;
 
 use crate::{gen::VExprId, mangle};
 
@@ -312,13 +314,9 @@ impl BodyLower<'_> {
                 let exp = self.expr(inst, e)?;
                 acc.wrap_in_assignment(self, inst, *x, exp)?
             }
-            mir::Instruction::NewAdt(_, _, _) => {
-                return Err(ViperLowerError::NotYetImplemented {
-                    msg: "struct initialization in pure context".to_string(),
-                    def: self.ib.item(),
-                    block_or_inst: Some(inst.into()),
-                    span: None,
-                });
+            mir::Instruction::NewAdt(x, adt, fields) => {
+                let exp = self.pure_new_adt(adt, inst, fields)?;
+                acc.wrap_in_assignment(self, inst, *x, exp)?
             }
             mir::Instruction::Assertion(_, _) | mir::Instruction::PlaceMention(_) => acc,
             mir::Instruction::Folding(folding) => {
@@ -330,22 +328,47 @@ impl BodyLower<'_> {
                     }
                     _ => return Ok(acc),
                 };
-                if let Some(s) = unfolding_place.ty().ty_adt(self.db) {
-                    acc.try_map_exp(|exp| {
+                match unfolding_place.ty().ty_adt(self.db) {
+                    Some(adt) if !adt.is_pure(self.db) => acc.try_map_exp(|exp| {
                         let place_ref = self.place_to_ref(inst, unfolding_place)?;
                         let pred_acc = PredicateAccessPredicate::new(
-                            PredicateAccess::new(mangle::mangled_adt(self.db, s), vec![place_ref]),
+                            PredicateAccess::new(
+                                mangle::mangled_adt(self.db, adt),
+                                vec![place_ref],
+                            ),
                             self.alloc(inst, PermExp::Wildcard),
                         );
 
                         Ok(self.alloc(inst, Exp::new_unfolding(pred_acc, exp)))
-                    })?
-                } else {
-                    warn!("no struct found for '{}'", unfolding_place.ty().display(self.db));
-                    acc
+                    })?,
+                    _ => acc,
                 }
             }
         })
+    }
+
+    pub(super) fn pure_new_adt(
+        &mut self,
+        adt: &Adt,
+        inst: mir::InstructionId,
+        fields: &[(AdtField, mir::Operand)],
+    ) -> Result<VExprId> {
+        if !adt.is_pure(self.db) {
+            return Err(ViperLowerError::NotYetImplemented {
+                msg: "non-pure struct initialization in pure context".to_string(),
+                def: self.ib.item(),
+                block_or_inst: Some(inst.into()),
+                span: None,
+            });
+        }
+        let exp = Exp::FuncApp {
+            funcname: mangle::mangled_adt(self.db, *adt) + "_init",
+            args: fields
+                .iter()
+                .map(|(_, op)| self.operand_to_ref(inst, op))
+                .collect::<Result<_>>()?,
+        };
+        Ok(self.alloc(inst, exp))
     }
 
     fn conditional_continue(

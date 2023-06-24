@@ -123,6 +123,9 @@ impl ItemSourceMap {
             self.expr_map_back[expr].span()
         }
     }
+    pub fn expr_ast(&self, ast: SpanOrAstPtr<ast::Expr>) -> Option<ExprIdx> {
+        self.expr_map.get(&ast).copied()
+    }
     pub fn name_var(&self, name: &AstPtr<ast::NameOrNameRef>) -> Option<Named> {
         self.name_map.get(name).cloned()
     }

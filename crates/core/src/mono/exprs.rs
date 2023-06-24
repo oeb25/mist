@@ -190,4 +190,7 @@ impl Field {
             Field::Builtin(bf) => bf.name(),
         }
     }
+    pub fn from_adt_field(db: &dyn crate::Db, adt_field: AdtField) -> Field {
+        Field::AdtField(adt_field.adt(db), adt_field)
+    }
 }

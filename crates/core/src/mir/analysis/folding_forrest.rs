@@ -225,12 +225,12 @@ impl FoldingForrest {
     }
 }
 
-impl Lattice<mir::Body> for FoldingForrest {
-    fn bottom(_body: &mir::Body) -> Self {
+impl<T> Lattice<T> for FoldingForrest {
+    fn bottom(_body: &T) -> Self {
         Default::default()
     }
 
-    fn lub(&self, _body: &mir::Body, other: &Self) -> Self {
+    fn lub(&self, _body: &T, other: &Self) -> Self {
         let inner = self
             .zip(other)
             .filter_map(|(slot, a_ft, b_ft)| {
@@ -246,7 +246,7 @@ impl Lattice<mir::Body> for FoldingForrest {
         FoldingForrest { inner }
     }
 
-    fn contains(&self, _body: &mir::Body, other: &Self) -> bool {
+    fn contains(&self, _body: &T, other: &Self) -> bool {
         self.zip(other).all(|(_, a_ft, b_ft)| match (a_ft, b_ft) {
             (Some(a_ft), Some(b_ft)) => a_ft.contains(b_ft),
             (None, Some(_)) => false,
@@ -272,13 +272,18 @@ mod test {
     use itertools::Itertools;
     use proptest::prelude::*;
 
-    use crate::{file::SourceFile, mir::Place, mono};
+    use crate::{
+        file::SourceFile,
+        mir::{Place, Projection, ProjectionList},
+        mono::{self, exprs::Field, types::Adt, Item},
+    };
 
     use super::*;
 
     #[derive(Clone)]
     struct Context {
         db: Arc<crate::db::Database>,
+        items: Vec<Item>,
         ib: mir::ItemBody,
     }
     impl fmt::Debug for Context {
@@ -292,6 +297,15 @@ mod test {
         }
         fn body(&self) -> &mir::Body {
             &self.ib
+        }
+        fn adts(&self) -> Vec<Adt> {
+            self.items
+                .iter()
+                .filter_map(|item| match item.kind(self.db()) {
+                    mono::ItemKind::Adt(adt) => Some(adt),
+                    mono::ItemKind::Function(_) => None,
+                })
+                .collect()
         }
     }
 
@@ -321,10 +335,11 @@ mod test {
             }";
             let file = SourceFile::new(&db, source.to_string());
             let mono = mono::monomorphized_items(&db, file);
-            let item = mono.items(&db)[1];
+            let items = mono.items(&db);
+            let item = items[1];
             let ib = mir::lower_item(&db, item).unwrap().ib(&db).clone();
 
-            Context { db: Arc::new(db), ib }
+            Context { db: Arc::new(db), items, ib }
         }
     }
     fn debug_folding_tree_ctx(ctx: &Context, tree: &FoldingForrest) -> String {
@@ -345,11 +360,34 @@ mod test {
         }
     }
     prop_compose! {
+        fn arb_adt(ctx: Context)(adt in prop::sample::select(ctx.adts())) -> Adt
+        { adt }
+    }
+    prop_compose! {
+        fn arb_projection(ctx: Context)
+            (adt in arb_adt(ctx.clone()),
+             ctx in Just(ctx)
+            )
+            (field in prop::sample::select(adt.fields(ctx.db())),
+             adt in Just(adt),
+             ctx in Just(ctx))
+            -> Projection
+        {
+            Projection::Field(Field::AdtField(adt, field), field.ty(ctx.db()))
+        }
+    }
+    prop_compose! {
+        fn arb_projection_list(ctx: Context)
+            (projections in prop::collection::vec(arb_projection(ctx.clone()), 0..10))
+            -> ProjectionList
+        {
+            ProjectionList::new(ctx.db(), projections)
+        }
+    }
+    prop_compose! {
         fn arb_place(ctx: Context)
             (slot in prop::sample::select(ctx.body().slots().collect_vec()),
-            // TODO: find a way to generate projections now
-            //  projection in prop::sample::select(ctx.body.projections.idxs().collect_vec())
-             projection in prop::sample::select(Vec::new()),
+             projection in arb_projection_list(ctx.clone()),
              ctx in Just(ctx)
             )
             -> Place

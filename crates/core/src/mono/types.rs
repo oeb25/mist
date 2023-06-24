@@ -6,7 +6,10 @@ use crate::{
     types::{AdtKind, BuiltinKind, Primitive, TypeProvider, TDK},
 };
 
-use super::{exprs::ExprPtr, lower::MonoDefLower};
+use super::{
+    exprs::{ExprPtr, Field},
+    lower::MonoDefLower,
+};
 
 #[salsa::interned]
 pub struct Type {
@@ -52,6 +55,7 @@ pub struct Adt {
 
 #[salsa::interned]
 pub struct AdtField {
+    pub adt: Adt,
     pub name: Name,
     pub ty: Type,
 }
@@ -76,7 +80,7 @@ impl Adt {
     pub fn name(&self, db: &dyn crate::Db) -> Name {
         self.kind(db).name(db)
     }
-    pub fn fields(&self, db: &dyn crate::Db) -> Vec<AdtField> {
+    pub fn fields(self, db: &dyn crate::Db) -> Vec<AdtField> {
         match self.kind(db) {
             AdtKind::Struct(def, _) => super::lower::adt_kind_prototype_fields(db, def)
                 .iter()
@@ -89,7 +93,7 @@ impl Adt {
                             .and_then(|idx| self.generic_args(db).get(idx).copied())
                             .unwrap_or(ty)
                     });
-                    AdtField::new(db, name.clone(), new_ty)
+                    AdtField::new(db, self, name.clone(), new_ty)
                 })
                 .collect(),
             AdtKind::Enum => todo!(),
@@ -100,6 +104,10 @@ impl Adt {
     }
     pub fn is_monomophic(self, db: &dyn crate::Db) -> bool {
         self.fields(db).iter().all(|f| f.ty(db).is_monomophic(db))
+    }
+    pub fn is_pure(self, db: &dyn crate::Db) -> bool {
+        self.kind(db).is_pure(db)
+            && self.fields(db).iter().all(|f| f.ty(db).is_pure(db).is_some_and(|pure| pure))
     }
 }
 #[salsa::tracked]
@@ -156,6 +164,12 @@ impl Adt {
     }
 }
 
+impl AdtField {
+    pub fn into_field(self, db: &dyn crate::Db) -> Field {
+        Field::from_adt_field(db, self)
+    }
+}
+
 impl Type {
     pub fn error(db: &dyn crate::Db) -> Type {
         Type::new(db, false, TypeData::Error)
@@ -194,6 +208,21 @@ impl Type {
             TypeData::Builtin(b) => b.generic_args(db).iter().all(|ty| ty.is_monomophic(db)),
         }
     }
+    /// A type is pure if all it contains is pure. If it contains unresolved
+    /// types, such as [`TypeData::Error`], it returns [`None`].
+    pub fn is_pure(self, db: &dyn crate::Db) -> Option<bool> {
+        match self.kind(db) {
+            TypeData::Generic(_) | TypeData::Error => None,
+            TypeData::Void | TypeData::Primitive(_) | TypeData::Null | TypeData::Function(_) => {
+                Some(true)
+            }
+            TypeData::Ref { inner, .. } | TypeData::Optional(inner) => inner.is_pure(db),
+            TypeData::Adt(adt) => Some(adt.is_pure(db)),
+            TypeData::Builtin(b) => {
+                b.generic_args(db).iter().fold(Some(true), |acc, ty| Some(acc? && ty.is_pure(db)?))
+            }
+        }
+    }
 
     pub fn builtin(&self, db: &dyn crate::Db) -> Option<BuiltinType> {
         match self.kind(db) {
@@ -212,11 +241,14 @@ impl Type {
             _ => None,
         }
     }
+    pub fn ghosted(self, db: &dyn crate::Db) -> Type {
+        Type::new(db, true, self.kind(db))
+    }
 
     pub fn display(&self, db: &dyn crate::Db) -> impl std::fmt::Display {
         use TypeData::*;
 
-        match self.kind(db) {
+        let s = match self.kind(db) {
             Error => "error".to_string(),
             Void => "void".to_string(),
             Ref { is_mut, inner } => {
@@ -255,6 +287,11 @@ impl Type {
 
                 format!("{attrs}fn{name}{params}{ret}")
             }
+        };
+        if self.is_ghost(db) {
+            format!("ghost {s}")
+        } else {
+            s
         }
     }
 

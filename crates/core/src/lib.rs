@@ -6,6 +6,8 @@ pub mod file;
 pub mod hir;
 pub mod mir;
 pub mod mono;
+#[cfg(test)]
+pub mod testing;
 pub mod types;
 pub mod util;
 pub mod visit;
