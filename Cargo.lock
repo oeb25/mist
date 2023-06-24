@@ -123,7 +123,7 @@ checksum = "b9ccdd8f2a161be9bd5c023df56f1b2a0bd1d83872ae53b71a84a12c9bf6e842"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.18",
+ "syn 2.0.20",
 ]
 
 [[package]]
@@ -284,9 +284,9 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "clap"
-version = "4.3.5"
+version = "4.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2686c4115cb0810d9a984776e197823d08ec94f176549a89a9efded477c456dc"
+checksum = "d9394150f5b4273a1763355bd1c2ec54cc5a2593f790587bcd6b2c947cfa9211"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -295,9 +295,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.3.5"
+version = "4.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e53afce1efce6ed1f633cf0e57612fe51db54a1ee4fd8f8503d078fe02d69ae"
+checksum = "9a78fbdd3cc2914ddf37ba444114bc7765bbdcb55ec9cbe6fa054f0137400717"
 dependencies = [
  "anstream",
  "anstyle",
@@ -315,7 +315,7 @@ dependencies = [
  "heck",
  "proc-macro2",
  "quote",
- "syn 2.0.18",
+ "syn 2.0.20",
 ]
 
 [[package]]
@@ -627,7 +627,7 @@ dependencies = [
  "ident_case",
  "proc-macro2",
  "quote",
- "syn 2.0.18",
+ "syn 2.0.20",
 ]
 
 [[package]]
@@ -649,7 +649,7 @@ checksum = "29a358ff9f12ec09c3e61fef9b5a9902623a695a46a917b07f269bff1445611a"
 dependencies = [
  "darling_core 0.20.1",
  "quote",
- "syn 2.0.18",
+ "syn 2.0.20",
 ]
 
 [[package]]
@@ -805,7 +805,7 @@ dependencies = [
  "darling 0.20.1",
  "proc-macro2",
  "quote",
- "syn 2.0.18",
+ "syn 2.0.20",
 ]
 
 [[package]]
@@ -965,7 +965,7 @@ checksum = "89ca545a94061b6365f2c7355b4b32bd20df3ff95f02da9329b34ccc3bd6ee72"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.18",
+ "syn 2.0.20",
 ]
 
 [[package]]
@@ -1227,9 +1227,9 @@ dependencies = [
 
 [[package]]
 name = "insta"
-version = "1.29.0"
+version = "1.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a28d25139df397cbca21408bb742cf6837e04cdbebf1b07b760caf971d6a972"
+checksum = "28491f7753051e5704d4d0ae7860d45fae3238d7d235bc4289dcd45c48d3cec3"
 dependencies = [
  "console",
  "lazy_static",
@@ -1287,6 +1287,15 @@ name = "itertools"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1c173a5686ce8bfa551b3563d0c2170bf24ca44da99c7ca4bfdab5418c3fe57"
 dependencies = [
  "either",
 ]
@@ -1384,7 +1393,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "regex-syntax 0.6.29",
- "syn 2.0.18",
+ "syn 2.0.20",
 ]
 
 [[package]]
@@ -1495,7 +1504,7 @@ checksum = "4901771e1d44ddb37964565c654a3223ba41a594d02b8da471cc4464912b5cfa"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.18",
+ "syn 2.0.20",
 ]
 
 [[package]]
@@ -1532,7 +1541,7 @@ dependencies = [
  "color-backtrace",
  "dotenvy",
  "futures-util",
- "itertools",
+ "itertools 0.11.0",
  "miette",
  "mist-codegen-viper",
  "mist-core",
@@ -1552,7 +1561,7 @@ version = "0.1.0"
 dependencies = [
  "derive-new",
  "derive_more",
- "itertools",
+ "itertools 0.11.0",
  "la-arena",
  "miette",
  "mist-core",
@@ -1569,7 +1578,7 @@ name = "mist-codegen-wasm"
 version = "0.1.0"
 dependencies = [
  "heck",
- "itertools",
+ "itertools 0.11.0",
  "la-arena",
  "miette",
  "mist-core",
@@ -1599,7 +1608,7 @@ dependencies = [
  "folding-tree",
  "indexmap 2.0.0",
  "insta",
- "itertools",
+ "itertools 0.11.0",
  "la-arena",
  "miette",
  "mist-syntax",
@@ -1620,7 +1629,7 @@ dependencies = [
  "dashmap",
  "derive-new",
  "futures-util",
- "itertools",
+ "itertools 0.11.0",
  "miette",
  "mist-cli",
  "mist-codegen-viper",
@@ -1644,7 +1653,7 @@ dependencies = [
  "color-eyre",
  "derive_more",
  "heck",
- "itertools",
+ "itertools 0.11.0",
  "logos",
  "miette",
  "proc-macro2",
@@ -1759,7 +1768,7 @@ checksum = "a948666b637a0f465e8564c73e89d4dde00d72d4d473cc972f390fc3dcee7d9c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.18",
+ "syn 2.0.20",
 ]
 
 [[package]]
@@ -1848,7 +1857,7 @@ checksum = "39407670928234ebc5e6e580247dd567ad73a3578460c5990f9503df207e8f07"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.18",
+ "syn 2.0.20",
 ]
 
 [[package]]
@@ -2352,14 +2361,14 @@ checksum = "d9735b638ccc51c28bf6914d90a2e9725b377144fc612c49a611fddd1b631d68"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.18",
+ "syn 2.0.20",
 ]
 
 [[package]]
 name = "serde_json"
-version = "1.0.97"
+version = "1.0.99"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bdf3bf93142acad5821c99197022e170842cdbc1c30482b98750c688c640842a"
+checksum = "46266871c240a00b8f503b877622fe33430b3c7d963bdc0f2adc511e54a1eae3"
 dependencies = [
  "itoa",
  "ryu",
@@ -2374,7 +2383,7 @@ checksum = "bcec881020c684085e55a25f7fd888954d56609ef363479dc5a1305eb0d40cab"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.18",
+ "syn 2.0.20",
 ]
 
 [[package]]
@@ -2410,10 +2419,11 @@ dependencies = [
 [[package]]
 name = "silvers"
 version = "0.1.0"
+source = "git+https://github.com/oeb25/vipers.git#8b7d8f551b216ff216beb1a3b741cb40dffa4854"
 dependencies = [
  "derive-new",
  "derive_more",
- "itertools",
+ "itertools 0.10.5",
 ]
 
 [[package]]
@@ -2566,9 +2576,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.18"
+version = "2.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32d41677bcbe24c20c52e7c70b0d8db04134c5d1066bf98662e2871ad200ea3e"
+checksum = "fcb8d4cebc40aa517dfb69618fa647a346562e67228e2236ae0042ee6ac14775"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2654,7 +2664,7 @@ checksum = "f9456a42c5b0d803c8cd86e73dd7cc9edd429499f37a3550d286d5e86720569f"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.18",
+ "syn 2.0.20",
 ]
 
 [[package]]
@@ -2709,7 +2719,7 @@ checksum = "630bdcf245f78637c13ec01ffae6187cca34625e8c63150d424b59e55af2675e"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.18",
+ "syn 2.0.20",
 ]
 
 [[package]]
@@ -2822,13 +2832,13 @@ dependencies = [
 
 [[package]]
 name = "tracing-attributes"
-version = "0.1.25"
+version = "0.1.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8803eee176538f94ae9a14b55b2804eb7e1441f8210b1c31290b3bccdccff73b"
+checksum = "5f4f31f56159e98206da9efd823404b79b6ef3143b4a7ab76e67b1751b25a4ab"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.18",
+ "syn 2.0.20",
 ]
 
 [[package]]
@@ -3003,12 +3013,13 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 [[package]]
 name = "viperserver"
 version = "0.1.0"
+source = "git+https://github.com/oeb25/vipers.git#8b7d8f551b216ff216beb1a3b741cb40dffa4854"
 dependencies = [
  "command-group",
  "derive_builder",
  "derive_more",
  "futures",
- "itertools",
+ "itertools 0.10.5",
  "reqwest",
  "serde",
  "serde_json",
@@ -3065,7 +3076,7 @@ dependencies = [
  "once_cell",
  "proc-macro2",
  "quote",
- "syn 2.0.18",
+ "syn 2.0.20",
  "wasm-bindgen-shared",
 ]
 
@@ -3122,7 +3133,7 @@ checksum = "54681b18a46765f095758388f2d0cf16eb8d4169b639ab575a8f5693af210c7b"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.18",
+ "syn 2.0.20",
  "wasm-bindgen-backend",
  "wasm-bindgen-shared",
 ]
