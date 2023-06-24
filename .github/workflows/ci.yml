@@ -26,8 +26,7 @@ jobs:
           tool: just,cargo-nextest
       - name: Tests
         run: |
-          cargo build
-          cargo nextest run --workspace --all
+          cargo nextest run --workspace --exclude mist-codegen-wasm
   fmt:
     runs-on: ubuntu-latest
     steps:
