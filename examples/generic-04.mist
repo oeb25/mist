@@ -1,21 +1,24 @@
-// At the time of writing, this is broken to some folding of `let`s, and due to
-// equality of references
-
-struct Tuple[T, S] {
+pure struct Tuple[T, S] {
     fst: T,
     snd: S,
 }
 
-invariant[X] Tuple[X, X] {
+// invariant[X] Tuple[X, X] {
+//     self.fst == self.snd
+// }
+
+invariant Tuple[int, int] {
     self.fst == self.snd
 }
 
-pure fn sum(t: Tuple[&Tuple[int, int], &Tuple[int, int]]) -> int {
+pure fn sum(t: Tuple[Tuple[int, int], Tuple[int, int]]) -> int
+    ens result == 2 * t.fst.snd + 2 * t.snd.snd
+{
     t.fst.fst + t.fst.snd + t.snd.fst + t.snd.snd
 }
 
 fn client() {
     let a = Tuple { fst: 4, snd: 4 };
-    let c = Tuple { fst: &a, snd: &a };
+    let c = Tuple { fst: a, snd: a };
     assert sum(c) == 16;
 }

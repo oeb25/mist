@@ -5,7 +5,6 @@ use silvers::{
     program::{AnyLocalVarDecl, Field as VField},
     statement::{Label, Seqn, Stmt},
 };
-use tracing::warn;
 
 use crate::{gen::VExprId, lower::pure::PureLowerResult, mangle};
 
@@ -224,59 +223,15 @@ impl BodyLower<'_> {
         match inst.data(self.ib).clone() {
             mir::Instruction::Assign(t, x) => {
                 let rhs = self.expr(inst, &x)?;
-                match t.projections(self.db) {
-                    [] => {
-                        insts
-                            .push(Stmt::LocalVarAssign { lhs: self.place_for_assignment(t)?, rhs });
-                    }
-                    &[.., mir::Projection::Field(f, ty)] => {
-                        match f {
-                            Field::AdtField(adt, af) => insts.push(Stmt::FieldAssign {
-                                lhs: FieldAccess::new(
-                                    self.place_to_ref(inst, t.parent(self.db).unwrap())?,
-                                    VField::new(
-                                        mangle::mangled_adt_field(self.db, adt, af),
-                                        // TODO: should we respect the extra constraints in such a scenario?
-                                        self.lower_type(ty)?.vty,
-                                    ),
-                                ),
-                                rhs,
-                            }),
-                            Field::Builtin(_) | Field::Undefined => {}
-                        };
-                    }
-                    &[mir::Projection::Index(index, _)] => {
-                        let idx = self.place_to_ref(inst, index.place(self.db, self.ib))?;
-                        let seq = self.place_to_ref(inst, t.parent(self.db).unwrap())?;
-                        let new_rhs = self.alloc(inst, SeqExp::Update { s: seq, idx, elem: rhs });
-                        let lhs = self.place_for_assignment(t.without_projection(self.db))?;
-                        insts.push(Stmt::LocalVarAssign { lhs, rhs: new_rhs })
-                    }
-                    &[.., mir::Projection::Field(f, ty), mir::Projection::Index(index, _)] => {
-                        let idx = self.place_to_ref(inst, index.place(self.db, self.ib))?;
-                        let parent = t.parent(self.db).unwrap();
-                        let grand_parent = parent.parent(self.db).unwrap();
-                        let seq = self.place_to_ref(inst, parent)?;
-                        let new_rhs = self.alloc(inst, SeqExp::Update { s: seq, idx, elem: rhs });
-                        match f {
-                            Field::AdtField(adt, af) => {
-                                let lhs = FieldAccess::new(
-                                    self.place_to_ref(inst, grand_parent)?,
-                                    VField::new(
-                                        mangle::mangled_adt_field(self.db, adt, af),
-                                        // TODO: should we respect the extra constraints in such a scenario?
-                                        self.lower_type(ty)?.vty,
-                                    ),
-                                );
-                                insts.push(Stmt::FieldAssign { lhs, rhs: new_rhs });
-                            }
-                            Field::Builtin(_) | Field::Undefined => {}
-                        }
-                    }
-                    _ => todo!(),
-                }
+                self.perform_assignment(t, insts, rhs, inst)?;
             }
             mir::Instruction::NewAdt(t, adt, fields) => {
+                if adt.is_pure(self.db) {
+                    let exp = self.pure_new_adt(&adt, inst, &fields)?;
+                    self.perform_assignment(t, insts, exp, inst)?;
+                    return Ok(());
+                }
+
                 let base = self.place_to_ref(inst, t)?;
                 let mut new_fields = Vec::with_capacity(fields.len());
                 let mut field_insts = Vec::with_capacity(fields.len());
@@ -322,19 +277,81 @@ impl BodyLower<'_> {
                     mir::Folding::Unfold { consume, .. } => consume,
                 };
                 if let Some(adt) = place.ty().ty_adt(self.db) {
-                    let name = mangle::mangled_adt(self.db, adt);
-                    let place_ref = self.place_to_ref(inst, place)?;
-                    let acc = PredicateAccessPredicate::new(
-                        PredicateAccess::new(name, vec![place_ref]),
-                        self.alloc(inst, PermExp::Full),
-                    );
+                    if !adt.is_pure(self.db) {
+                        let name = mangle::mangled_adt(self.db, adt);
+                        let place_ref = self.place_to_ref(inst, place)?;
+                        let acc = PredicateAccessPredicate::new(
+                            PredicateAccess::new(name, vec![place_ref]),
+                            self.alloc(inst, PermExp::Full),
+                        );
 
-                    insts.push(match folding {
-                        mir::Folding::Fold { .. } => Stmt::Fold { acc },
-                        mir::Folding::Unfold { .. } => Stmt::Unfold { acc },
-                    });
+                        insts.push(match folding {
+                            mir::Folding::Fold { .. } => Stmt::Fold { acc },
+                            mir::Folding::Unfold { .. } => Stmt::Unfold { acc },
+                        });
+                    }
                 }
             }
+        }
+        Ok(())
+    }
+
+    fn perform_assignment(
+        &mut self,
+        t: mir::Place,
+        insts: &mut Vec<Stmt<VExprId>>,
+        rhs: VExprId,
+        inst: mir::InstructionId,
+    ) -> Result<()> {
+        match t.projections(self.db) {
+            [] => {
+                insts.push(Stmt::LocalVarAssign { lhs: self.place_for_assignment(t)?, rhs });
+            }
+            &[.., mir::Projection::Field(f, ty)] => {
+                match f {
+                    Field::AdtField(adt, af) => insts.push(Stmt::FieldAssign {
+                        lhs: FieldAccess::new(
+                            self.place_to_ref(inst, t.parent(self.db).unwrap())?,
+                            VField::new(
+                                mangle::mangled_adt_field(self.db, adt, af),
+                                // TODO: should we respect the extra constraints in such a scenario?
+                                self.lower_type(ty)?.vty,
+                            ),
+                        ),
+                        rhs,
+                    }),
+                    Field::Builtin(_) | Field::Undefined => {}
+                };
+            }
+            &[mir::Projection::Index(index, _)] => {
+                let idx = self.place_to_ref(inst, index.place(self.db, self.ib))?;
+                let seq = self.place_to_ref(inst, t.parent(self.db).unwrap())?;
+                let new_rhs = self.alloc(inst, SeqExp::Update { s: seq, idx, elem: rhs });
+                let lhs = self.place_for_assignment(t.without_projection(self.db))?;
+                insts.push(Stmt::LocalVarAssign { lhs, rhs: new_rhs })
+            }
+            &[.., mir::Projection::Field(f, ty), mir::Projection::Index(index, _)] => {
+                let idx = self.place_to_ref(inst, index.place(self.db, self.ib))?;
+                let parent = t.parent(self.db).unwrap();
+                let grand_parent = parent.parent(self.db).unwrap();
+                let seq = self.place_to_ref(inst, parent)?;
+                let new_rhs = self.alloc(inst, SeqExp::Update { s: seq, idx, elem: rhs });
+                match f {
+                    Field::AdtField(adt, af) => {
+                        let lhs = FieldAccess::new(
+                            self.place_to_ref(inst, grand_parent)?,
+                            VField::new(
+                                mangle::mangled_adt_field(self.db, adt, af),
+                                // TODO: should we respect the extra constraints in such a scenario?
+                                self.lower_type(ty)?.vty,
+                            ),
+                        );
+                        insts.push(Stmt::FieldAssign { lhs, rhs: new_rhs });
+                    }
+                    Field::Builtin(_) | Field::Undefined => {}
+                }
+            }
+            _ => todo!(),
         }
         Ok(())
     }

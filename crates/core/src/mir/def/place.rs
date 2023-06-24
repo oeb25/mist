@@ -1,5 +1,7 @@
 use std::fmt;
 
+use itertools::Itertools;
+
 use crate::{
     mono::{
         exprs::{Field, VariablePtr},
@@ -106,6 +108,26 @@ impl Place {
             Projection::Field(_, _) => None,
             Projection::Index(s, ty) => Some(Place::new(s, None, ty)),
         })
+    }
+
+    pub fn display(self, db: &dyn crate::Db) -> String {
+        if !self.has_projection(db) {
+            self.slot().to_string()
+        } else {
+            let projection = self
+                .projection_iter(db)
+                .map(|p| match p {
+                    Projection::Field(f, _) => {
+                        let name = f.name(db);
+                        format!(".{name}")
+                    }
+                    Projection::Index(idx, _) => {
+                        format!("[{idx}]")
+                    }
+                })
+                .format("");
+            format!("{}{}", self.slot(), projection)
+        }
     }
 }
 

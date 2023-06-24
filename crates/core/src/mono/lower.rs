@@ -1,4 +1,6 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+
+use indexmap::IndexSet;
 
 use crate::{
     def::{self, Def, DefKind, Name},
@@ -17,7 +19,7 @@ use super::{
 
 pub(super) struct MonoLower<'db> {
     db: &'db dyn crate::Db,
-    items: HashSet<Item>,
+    items: IndexSet<Item>,
     source_map: MonoSourceMap,
 }
 
@@ -49,7 +51,7 @@ impl<'db> MonoLower<'db> {
     }
 }
 
-pub(super) struct MonoDefLower<'db, 'a> {
+pub(crate) struct MonoDefLower<'db, 'a> {
     db: &'db dyn crate::Db,
     cx: &'a hir::ItemContext,
 
@@ -57,7 +59,7 @@ pub(super) struct MonoDefLower<'db, 'a> {
     ty_cache: HashMap<TypeId, Type>,
 }
 impl<'db, 'a> MonoDefLower<'db, 'a> {
-    pub(super) fn new(db: &'db dyn crate::Db, cx: &'a hir::ItemContext) -> MonoDefLower<'db, 'a> {
+    pub(crate) fn new(db: &'db dyn crate::Db, cx: &'a hir::ItemContext) -> MonoDefLower<'db, 'a> {
         MonoDefLower { db, cx, adt_cache: Default::default(), ty_cache: Default::default() }
     }
     pub(super) fn lower_var(&mut self, var: VariableIdx) -> VariablePtr {
@@ -84,36 +86,32 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
             hir::ExprData::Field { expr, field } => ExprData::Field {
                 expr: self.lower_expr(*expr),
                 field: match field {
-                    crate::types::Field::AdtField(adt_field) => Field::AdtField(
-                        self.lower_adt(adt_field.adt()),
-                        AdtField::new(
-                            self.db,
-                            adt_field.name(self.db),
-                            self.lower_ty(adt_field.ty()),
-                        ),
-                    ),
+                    crate::types::Field::AdtField(adt_field) => {
+                        let adt = self.lower_adt(adt_field.adt());
+                        let ty = self.lower_ty(adt_field.ty());
+                        let adt_field = AdtField::new(self.db, adt, adt_field.name(self.db), ty);
+                        Field::AdtField(adt, adt_field)
+                    }
                     crate::types::Field::Builtin(bf) => {
                         Field::Builtin(bf.map(|ty| self.lower_ty(*ty)))
                     }
                     crate::types::Field::Undefined => Field::Undefined,
                 },
             },
-            hir::ExprData::Adt { adt, fields } => ExprData::Adt {
-                adt: self.lower_adt(*adt),
-                fields: fields
-                    .iter()
-                    .map(|f| {
-                        (
-                            AdtField::new(
-                                self.db,
-                                f.decl.name(self.db),
-                                self.lower_ty(f.decl.ty()),
-                            ),
-                            self.lower_expr(f.value),
-                        )
-                    })
-                    .collect(),
-            },
+            hir::ExprData::Adt { adt, fields } => {
+                let adt = self.lower_adt(*adt);
+                ExprData::Adt {
+                    adt,
+                    fields: fields
+                        .iter()
+                        .map(|f| {
+                            let ty = self.lower_ty(f.decl.ty());
+                            let adt_field = AdtField::new(self.db, adt, f.decl.name(self.db), ty);
+                            (adt_field, self.lower_expr(f.value))
+                        })
+                        .collect(),
+                }
+            }
             hir::ExprData::Missing => ExprData::Missing,
             hir::ExprData::If(it) => ExprData::If(IfExpr {
                 condition: self.lower_expr(it.condition),
@@ -256,7 +254,7 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
         self.adt_cache.insert(adt, new_adt);
         new_adt
     }
-    pub(super) fn lower_ty(&mut self, ty: TypeId) -> Type {
+    pub(crate) fn lower_ty(&mut self, ty: TypeId) -> Type {
         if let Some(t) = self.ty_cache.get(&ty).copied() {
             return t;
         };

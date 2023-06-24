@@ -147,19 +147,19 @@ mod tests {
         "#;
         insta::assert_display_snapshot!(generate_annotated_mir(src), @r###"
         :B0
-          {%result: @, %2_x: @}
-        > {%result: @, %2_x: @}
+          {%1_x: @}
+        > {%1_x: @}
           !goto :B1
         :B1
-          {%result: @, %2_x: @}
-        > {%result: @, %2_x: X}
-          %2_x := T { n: $12 }
-          {%result: @, %2_x: { .n X }}
-        > {%result: @, %2_x: { .n X }}
-          assert (== %2_x.n $12)
-          {%result: @, %2_x: X}
-        > {%result: X, %2_x: X}
-          %result := %2_x
+          {%1_x: @}
+        > {%1_x: X}
+          %1_x := T { n: $12 }
+          {%1_x: { .n X }}
+        > {%1_x: { .n X }}
+          assert (== %1_x.n $12)
+          {%result: @, %1_x: X}
+        > {%result: X, %1_x: X}
+          %result := %1_x
         "###)
     }
 
@@ -180,7 +180,7 @@ mod tests {
           {%1_p: { .n X }, %2: @}
         > {%1_p: { .n X }, %2: X}
           %2 := (+ %1_p.n $1)
-          {%1_p: { .n X }, %2: X}
+          {%1_p: { .n @ }, %2: X}
         > {%1_p: { .n X }, %2: X}
           %1_p.n := %2
         "###)
@@ -198,21 +198,21 @@ mod tests {
         "#;
         insta::assert_display_snapshot!(generate_annotated_mir(src), @r###"
         :B0
-          {%1_p: X, %2: @}
-        > {%1_p: X, %2: @}
+          {%1_p: X}
+        > {%1_p: X}
           !goto :B1
         :B1
-          {%1_p: X, %2: @}
-        > {%1_p: { .t X .n X }, %2: @}
+          {%1_p: X}
+        > {%1_p: { .t X }}
           %1_p.t := %1_p
-          {%1_p: { .t { .n X } .n X }, %2: @}
-        > {%1_p: { .t { .n X } .n X }, %2: X}
+          {%1_p: { .t X .n X }, %2: @}
+        > {%1_p: { .t X .n X }, %2: X}
           %2 := (+ %1_p.n $1)
-          {%1_p: { .t { .n X } .n @ }, %2: X}
-        > {%1_p: { .t { .n X } .n X }, %2: X}
+          {%1_p: { .t X .n @ }, %2: X}
+        > {%1_p: { .t X .n X }, %2: X}
           %1_p.n := %2
-          {%1_p: { .t { .n X } .n X }}
-        > {%1_p: { .t { .n X } .n X }}
+          {%1_p: { .t { .n X } .n X }, %2: X}
+        > {%1_p: { .t { .n X } .n X }, %2: X}
           %1_p.t.n := %1_p.n
         "###)
     }
@@ -239,11 +239,11 @@ mod tests {
         > {%1_ts: X, %2: X, %3: @}
           !call %1_ts := (#list %2) -> :B2
         :B2
-          {%1_ts: { [%3] { .n X } }, %3: @}
-        > {%1_ts: { [%3] { .n X } }, %3: X}
+          {%3: @}
+        > {%3: X}
           %3 := $0
-          {%1_ts: { [%3] { .n X } }}
-        > {%1_ts: { [%3] { .n X } }}
+          {%1_ts: { [%3] { .n X } }, %3: @}
+        > {%1_ts: { [%3] { .n X } }, %3: @}
           %1_ts[%3].n := $15
         "###)
     }

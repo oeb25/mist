@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Mutex};
 
 use ena::unify::InPlaceUnificationTable;
+use indexmap::IndexMap;
 use itertools::Itertools;
 use tracing::{debug, info};
 
@@ -56,7 +57,7 @@ pub struct AdtInstantiation {
 
 #[derive(Debug, Default)]
 pub struct AdtPrototypes {
-    data: HashMap<AdtKind, AdtPrototype>,
+    data: IndexMap<AdtKind, AdtPrototype>,
 }
 
 impl AdtPrototypes {
@@ -85,8 +86,8 @@ pub struct Typer {
     ty_cache: HashMap<TypeData, TypeId>,
     ty_keys: Vec<TypeId>,
     adt_prototypes: AdtPrototypes,
-    adt_tys: HashMap<Adt, TypeId>,
-    adt_instantiations: HashMap<Adt, AdtInstantiation>,
+    adt_tys: IndexMap<Adt, TypeId>,
+    adt_instantiations: IndexMap<Adt, AdtInstantiation>,
 }
 
 macro_rules! type_prelude {
@@ -175,7 +176,7 @@ impl Typer {
     ) -> (
         impl Iterator<Item = (TypeId, TypeData)> + '_,
         &AdtPrototypes,
-        &HashMap<Adt, AdtInstantiation>,
+        &IndexMap<Adt, AdtInstantiation>,
     ) {
         (
             self.ty_keys.iter().map(move |&ty| {
