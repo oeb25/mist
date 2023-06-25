@@ -2,7 +2,7 @@
 
 pub mod db;
 
-use mist_codegen_viper::gen::ViperOutput;
+use mist_cg_vpr::gen::ViperOutput;
 use mist_core::{file::SourceFile, util::Position};
 use serde::{Deserialize, Serialize};
 use typeshare::typeshare;
@@ -36,13 +36,13 @@ pub fn type_check(src: &str) -> String {
 
     let parse_errors = parse.errors();
     let (viper_program, viper_body, _viper_source_map) =
-        match mist_codegen_viper::gen::viper_file(&db, file) {
+        match mist_cg_vpr::gen::viper_file(&db, file) {
             Ok(res) => res,
             Err(e) => return format!("viper error: {e:?}"),
         };
     let viper_src = ViperOutput::generate(&viper_body, &viper_program).buf;
     let type_errors =
-        mist_codegen_viper::gen::viper_file::accumulated::<mist_core::TypeCheckErrors>(&db, file);
+        mist_cg_vpr::gen::viper_file::accumulated::<mist_core::TypeCheckErrors>(&db, file);
     let markers = parse_errors
         .iter()
         .cloned()

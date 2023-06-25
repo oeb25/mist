@@ -6,7 +6,7 @@ use std::{
 use dashmap::DashMap;
 use itertools::Itertools;
 use miette::IntoDiagnostic;
-use mist_codegen_viper::gen::ViperHints;
+use mist_cg_vpr::gen::ViperHints;
 use mist_core::{
     file::SourceFile,
     salsa::{ParallelDatabase, Snapshot},
@@ -225,7 +225,7 @@ impl Backend {
         let db = &*self.db();
         let inlay_hints = crate::highlighting::inlay_hints(db, file);
 
-        let hints = mist_codegen_viper::gen::viper_file::accumulated::<ViperHints>(db, file);
+        let hints = mist_cg_vpr::gen::viper_file::accumulated::<ViperHints>(db, file);
 
         Ok(Some(
             inlay_hints

@@ -11,7 +11,7 @@ folding-tree = { path = "./crates/folding-tree" }
 itertools = "0.11.0"
 miette = { version = "5.5.0", features = ["fancy"] }
 mist-cli = { path = "./crates/cli" }
-mist-codegen-viper = { path = "./crates/codegen-viper" }
+mist-cg-vpr = { path = "./crates/cg-vpr" }
 mist-codegen-wasm = { path = "./crates/codegen-wasm" }
 mist-core = { path = "./crates/core" }
 mist-syntax = { path = "./crates/syntax" }

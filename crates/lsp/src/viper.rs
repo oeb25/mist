@@ -7,8 +7,8 @@ use std::{
 use crossbeam_channel::{RecvTimeoutError, SendError};
 use futures_util::StreamExt;
 use miette::{Context, IntoDiagnostic};
+use mist_cg_vpr::gen::ViperOutput;
 use mist_cli::VerificationContext;
-use mist_codegen_viper::gen::ViperOutput;
 use mist_core::file::SourceFile;
 use tracing::info;
 use viperserver::{verification::DetailsError, ViperServerError};
@@ -25,7 +25,7 @@ pub struct VerifyFile<'a> {
 impl VerifyFile<'_> {
     pub(crate) fn run(&self, db: &dyn crate::Db) -> miette::Result<Vec<miette::Report>> {
         let (viper_program, viper_body, viper_source_map) =
-            mist_codegen_viper::gen::viper_file(db, self.file)?;
+            mist_cg_vpr::gen::viper_file(db, self.file)?;
         let viper_output = ViperOutput::generate(&viper_body, &viper_program);
         let viper_src = &viper_output.buf;
 
