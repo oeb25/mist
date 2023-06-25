@@ -37,11 +37,7 @@ pub fn monomorphized_items(db: &dyn crate::Db, file: SourceFile) -> Monomorphize
 #[salsa::tracked]
 pub struct Monomorphized {
     pub items: Vec<Item>,
-    pub source_map: MonoSourceMap,
 }
-
-#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
-pub struct MonoSourceMap {}
 
 #[salsa::interned]
 pub struct Function {

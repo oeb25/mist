@@ -14,18 +14,17 @@ use super::{
         QuantifierOver, StatementPtr, VariablePtr, WhileExpr,
     },
     types::{Adt, AdtField, AdtFieldKind, BuiltinType, FunctionType, Type, TypeData},
-    Condition, Function, Item, ItemKind, MonoSourceMap, Monomorphized,
+    Condition, Function, Item, ItemKind, Monomorphized,
 };
 
 pub(super) struct MonoLower<'db> {
     db: &'db dyn crate::Db,
     items: IndexSet<Item>,
-    source_map: MonoSourceMap,
 }
 
 impl<'db> MonoLower<'db> {
     pub fn new(db: &'db dyn crate::Db) -> MonoLower<'db> {
-        MonoLower { db, items: Default::default(), source_map: Default::default() }
+        MonoLower { db, items: Default::default() }
     }
     pub fn lower_def(&mut self, def: Def) {
         let Some(cx) = def.hir(self.db).map(|hir| hir.cx(self.db)) else { return };
@@ -47,7 +46,7 @@ impl<'db> MonoLower<'db> {
         }
     }
     pub fn finish(self) -> Monomorphized {
-        Monomorphized::new(self.db, self.items.into_iter().collect(), self.source_map)
+        Monomorphized::new(self.db, self.items.into_iter().collect())
     }
 }
 
