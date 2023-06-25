@@ -1,6 +1,6 @@
-use std::fmt;
+use std::{collections::HashMap, fmt};
 
-use mist_syntax::{ast, AstNode, SyntaxToken};
+use mist_syntax::{ast, AstNode, SourceSpan, SyntaxToken};
 
 use crate::{
     def::{Def, DefKind},
@@ -11,25 +11,31 @@ use crate::{
     },
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fixture {
     file: SourceFile,
-    markers: Vec<Marker>,
+    markers: HashMap<usize, Marker>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Marker {
     byte_offset: usize,
+    end_offset: Option<usize>,
 }
 
 impl Fixture {
     pub fn new(db: &dyn crate::Db, src: impl fmt::Display) -> Fixture {
         let mut src = src.to_string();
-        let mut markers = Vec::new();
+        let mut markers = HashMap::<usize, Marker>::new();
 
-        while let Some((pre, post)) = src.rsplit_once("$0") {
-            markers.push(Marker { byte_offset: pre.len() });
-            src = format!("{pre}{post}")
+        while let Some((pre, post)) = src.split_once('$') {
+            let n = post[0..1].parse().unwrap();
+            if let Some(m) = markers.get_mut(&n) {
+                m.end_offset = Some(pre.len());
+            } else {
+                markers.insert(n, Marker { byte_offset: pre.len(), end_offset: None });
+            }
+            src = format!("{pre}{}", &post[1..])
         }
 
         let file = SourceFile::new(db, src);
@@ -42,7 +48,11 @@ impl Fixture {
     }
 
     pub fn marker(&self, idx: usize) -> Marker {
-        self.markers[idx]
+        self.markers[&idx]
+    }
+    pub fn span(&self, idx: usize) -> SourceSpan {
+        let m = self.marker(idx);
+        SourceSpan::new_start_end(m.byte_offset, m.end_offset.unwrap())
     }
 
     pub fn token_at(&self, db: &dyn crate::Db, m: Marker) -> SyntaxToken {

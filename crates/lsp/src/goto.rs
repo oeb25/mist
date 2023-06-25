@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use std::ops::ControlFlow;
 
 use derive_new::new;

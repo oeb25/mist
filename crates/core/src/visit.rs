@@ -14,7 +14,7 @@ use crate::{
         StatementData, StatementId, TypeSrc, VariableIdx, WhileExpr,
     },
     mono::{lower::MonoDefLower, types::Type},
-    types::{Field, TypeId},
+    types::{AdtFieldKind, Field, TypeId},
 };
 
 pub trait Walker<'db>: Sized {
@@ -62,10 +62,28 @@ pub trait Walker<'db>: Sized {
                             }
                         }
                     }
-                    if let Some(t) = ast::Type::cast(node) {
+                    if let Some(t) = ast::Type::cast(node.clone()) {
                         if let Some(ts) = source_map.ty_ast((&t).into()) {
                             let ty = mdl.lower_ty(ts.ty(db));
                             visitor.visit_ty(&vcx, ts, ty)?;
+                        }
+                    }
+                    if let Some(t) = ast::FieldExpr::cast(node) {
+                        if let Some(expr) =
+                            source_map.expr_ast((&ast::Expr::from(t.clone())).into())
+                        {
+                            if let ExprData::Field { field, .. } = &vcx.cx.expr(expr).data {
+                                let reference = t.field().unwrap().into();
+                                visitor.visit_field(&vcx, *field, &reference)?;
+
+                                if let Field::AdtField(adt_field) = field {
+                                    match adt_field.kind() {
+                                        AdtFieldKind::StructField(sf) => {
+                                            visitor.visit_struct_field(&vcx, sf, &reference)?;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
