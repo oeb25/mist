@@ -1,5 +1,5 @@
 [package]
-name = "mist-codegen-wasm"
+name = "mist-cg-wasm"
 version = "0.1.0"
 edition = "2021"
 

@@ -10,7 +10,7 @@ watch-sourcegen-ast:
 test:
     cargo fmt --all -- --check
     cargo clippy
-    cargo nextest run --workspace --exclude mist-codegen-wasm
+    cargo nextest run --workspace --exclude mist-cg-wasm
 
 # UI
 

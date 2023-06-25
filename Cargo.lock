@@ -1552,29 +1552,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mist-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "color-backtrace",
- "dotenvy",
- "futures-util",
- "itertools 0.11.0",
- "miette",
- "mist-cg-vpr",
- "mist-core",
- "mist-syntax",
- "spinners",
- "tempfile",
- "thiserror",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "viperserver",
-]
-
-[[package]]
-name = "mist-codegen-wasm"
+name = "mist-cg-wasm"
 version = "0.1.0"
 dependencies = [
  "heck",
@@ -1595,6 +1573,28 @@ dependencies = [
  "wasmer-compiler",
  "wasmer-compiler-cranelift",
  "wasmer-types",
+]
+
+[[package]]
+name = "mist-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "color-backtrace",
+ "dotenvy",
+ "futures-util",
+ "itertools 0.11.0",
+ "miette",
+ "mist-cg-vpr",
+ "mist-core",
+ "mist-syntax",
+ "spinners",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "viperserver",
 ]
 
 [[package]]
