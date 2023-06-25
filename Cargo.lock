@@ -1539,6 +1539,7 @@ version = "0.1.0"
 dependencies = [
  "derive-new",
  "derive_more",
+ "insta",
  "itertools 0.11.0",
  "la-arena",
  "miette",

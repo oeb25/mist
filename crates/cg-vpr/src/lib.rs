@@ -3,6 +3,8 @@
 pub mod gen;
 pub mod lower;
 pub mod mangle;
+#[cfg(test)]
+mod tests;
 
 pub use silvers;
 

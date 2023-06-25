@@ -257,11 +257,19 @@ impl ViperOutput {
         writer.emit(x);
         writer.finish()
     }
+    pub fn generate_without_prelude<Cx, E: ViperWrite<Cx>>(cx: Cx, x: &E) -> ViperOutput {
+        let mut writer = ViperWriter::new(cx);
+        writer.emit(x);
+        writer.finish_without_prelude()
+    }
 }
 
 impl<Cx> ViperWriter<Cx> {
     pub(crate) fn finish(mut self) -> ViperOutput {
         write!(self.output.buf, "{}", include_str!("./prelude.vpr")).unwrap();
+        self.output
+    }
+    pub(crate) fn finish_without_prelude(self) -> ViperOutput {
         self.output
     }
     pub(crate) fn emit<E: ViperWrite<Cx>>(&mut self, elem: &E) {
@@ -615,7 +623,7 @@ mod write_impl {
                 }
                 Stmt::Label(l) => {
                     let name = &l.name;
-                    wln!(w, "label {name}");
+                    w!(w, "label {name}");
                     w.indent(|w| {
                         for e in &l.invs {
                             wln!(w, "invariant");
@@ -795,17 +803,22 @@ mod write_impl {
                 first = false;
                 w!(w, arg);
             }
-            wln!(w, "): ", &elem.typ);
-            w.indent(|w| {
-                for e in &elem.pres {
-                    wln!(w, "requires");
-                    w.indent(|w| wln!(w, e));
-                }
-                for e in &elem.posts {
-                    wln!(w, "ensures");
-                    w.indent(|w| wln!(w, e));
-                }
-            });
+            w!(w, "): ", &elem.typ);
+            if !elem.pres.is_empty() || !elem.posts.is_empty() {
+                wln!(w, "");
+                w.indent(|w| {
+                    for e in &elem.pres {
+                        wln!(w, "requires");
+                        w.indent(|w| wln!(w, e));
+                    }
+                    for e in &elem.posts {
+                        wln!(w, "ensures");
+                        w.indent(|w| wln!(w, e));
+                    }
+                });
+            } else {
+                w!(w, " ");
+            }
             if let Some(b) = &elem.body {
                 wln!(w, "{{");
                 w.indent(|w| {
@@ -864,21 +877,25 @@ mod write_impl {
                 }
                 w!(w, ")");
             }
-            wln!(w, "");
-            w.indent(|w| {
-                for e in &elem.pres {
-                    wln!(w, "requires");
-                    w.indent(|w| wln!(w, e));
-                }
-                for e in &elem.posts {
-                    wln!(w, "ensures");
-                    w.indent(|w| wln!(w, e));
-                }
-            });
+            if !elem.pres.is_empty() || !elem.posts.is_empty() {
+                wln!(w, "");
+                w.indent(|w| {
+                    for e in &elem.pres {
+                        wln!(w, "requires");
+                        w.indent(|w| wln!(w, e));
+                    }
+                    for e in &elem.posts {
+                        wln!(w, "ensures");
+                        w.indent(|w| wln!(w, e));
+                    }
+                });
+            } else {
+                w!(w, " ");
+            }
             if let Some(b) = &elem.body {
                 wln!(w, "{{");
                 w.indent(|w| {
-                    wln!(w, b);
+                    w!(w, b);
                 });
                 wln!(w, "}}");
             }
@@ -905,22 +922,22 @@ mod write_impl {
     impl<Cx, E: ViperWrite<Cx>> ViperWrite<Cx> for Program<E> {
         fn emit(elem: &Self, w: &mut ViperWriter<Cx>) {
             for it in &elem.domains {
-                wln!(w, it);
+                w!(w, it);
             }
             for it in &elem.fields {
-                wln!(w, it);
+                w!(w, it);
             }
             for it in &elem.functions {
-                wln!(w, it);
+                w!(w, it);
             }
             for it in &elem.predicates {
-                wln!(w, it);
+                w!(w, it);
             }
             for it in &elem.methods {
-                wln!(w, it);
+                w!(w, it);
             }
             for it in &elem.extensions {
-                wln!(w, it);
+                w!(w, it);
             }
         }
     }
