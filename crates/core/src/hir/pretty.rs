@@ -39,13 +39,24 @@ pub fn ty(pp: &impl PrettyPrint, db: &dyn crate::Db, strip_ghost: bool, ty: Type
         TDK::Error => "Error".to_string(),
         TDK::Void => "void".to_string(),
         TDK::Free => "free".to_string(),
-        TDK::Generic(_) => "generic".to_string(),
+        TDK::Generic(g) => {
+            if let Some(g) = g.name(db) {
+                g.to_string()
+            } else {
+                "<generic>".to_string()
+            }
+        }
         TDK::Ref { is_mut, inner } => {
             format!("&{}{}", if is_mut { "mut " } else { "" }, pp_ty(pp, db, false, inner))
         }
         TDK::Optional(inner) => format!("?{}", pp_ty(pp, db, false, inner)),
         TDK::Primitive(t) => format!("{t:?}").to_lowercase(),
-        TDK::Adt(s) => s.name(db).to_string(),
+        TDK::Adt(s) => {
+            let name = s.name(db);
+            let gargs = s.generic_args(db).map(|ty| pp_ty(pp, db, false, ty)).join(", ");
+            let gargs = if gargs.is_empty() { gargs } else { format!("[{gargs}]") };
+            format!("{name}{gargs}")
+        }
         TDK::Builtin(b, args) => {
             format!(
                 "{}[{}]",

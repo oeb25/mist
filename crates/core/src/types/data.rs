@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
 
 use crate::{
     def::{Def, Generic, Name, Struct, StructField},
@@ -6,6 +6,7 @@ use crate::{
     util::impl_idx,
 };
 use derive_more::From;
+use itertools::Itertools;
 use mist_syntax::ast::AttrFlags;
 use tracing::error;
 
@@ -180,6 +181,16 @@ impl AdtKind {
                 s.ast_node(db).generic_param_list().map_or(0, |g| g.generic_params().count())
             }
             AdtKind::Enum => todo!(),
+        }
+    }
+    pub fn display(self, db: &dyn crate::Db) -> impl fmt::Display {
+        let name = self.name(db);
+        let params = self.generic_params(db);
+        if params.is_empty() {
+            name.to_string()
+        } else {
+            let params = params.iter().map(|p| p.display(db)).format(", ");
+            format!("{name}[{params}]")
         }
     }
 

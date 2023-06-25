@@ -1630,6 +1630,7 @@ dependencies = [
  "dashmap",
  "derive-new",
  "futures-util",
+ "insta",
  "itertools 0.11.0",
  "miette",
  "mist-cli",

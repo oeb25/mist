@@ -267,7 +267,13 @@ impl Type {
                 b.generic_args(db).iter().map(|arg| arg.display(db)).format(", ")
             ),
             Null => "null".to_string(),
-            Generic(_) => "<generic>".to_string(),
+            Generic(g) => {
+                if let Some(name) = g.name(db) {
+                    name.to_string()
+                } else {
+                    "<generic>".to_string()
+                }
+            }
             Function(f) => {
                 let attrs = f.attrs(db);
 

@@ -151,7 +151,7 @@ impl SourceSpan {
     }
     #[must_use]
     pub fn contains(&self, byte_offset: usize) -> bool {
-        self.offset() <= byte_offset && byte_offset < self.end()
+        self.offset() <= byte_offset && byte_offset <= self.end()
     }
 
     #[must_use]

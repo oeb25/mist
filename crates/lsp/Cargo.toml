@@ -22,3 +22,6 @@ tracing.workspace = true
 viperserver.workspace = true
 salsa.workspace = true
 crossbeam-channel = "0.5.8"
+
+[dev-dependencies]
+insta.workspace = true

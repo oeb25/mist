@@ -25,6 +25,10 @@ tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 tracing-test = "0.2.4"
 viperserver = { git = "https://github.com/oeb25/vipers.git" }
+# dev-dependencies
+insta = "1.29.0"
+proptest = "1.1.0"
+
 
 # [patch."https://github.com/oeb25/vipers.git"]
 # silvers = { path = "../vipers/silvers" }

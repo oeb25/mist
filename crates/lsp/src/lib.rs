@@ -5,6 +5,8 @@ mod db;
 mod goto;
 mod highlighting;
 mod hover;
+#[cfg(test)]
+mod tests;
 mod viper;
 
 #[salsa::jar(db=Db)]

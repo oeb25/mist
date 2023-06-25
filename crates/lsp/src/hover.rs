@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use std::ops::ControlFlow;
 
 use derive_new::new;
@@ -74,7 +77,7 @@ impl<'a> Visitor for HoverFinder<'a> {
                     };
                     break_code(
                         [
-                            format!("{} {}", kind, af.adt().name(self.db)),
+                            format!("{} {}", kind, af.adt().kind().display(self.db)),
                             format!("{}: {ty}", field.name(self.db)),
                         ],
                         Some(reference.span()),
