@@ -8,7 +8,8 @@ use mist_core::{
     file::SourceFile,
     hir::{self, ExprIdx, TypeRefKind, VariableIdx},
     mir::{self, pass::Pass},
-    mono, salsa,
+    mono::{self, types::Type},
+    salsa,
     types::{TypeProvider, TDK},
     util::Position,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
@@ -289,7 +290,7 @@ impl<'src> Visitor for Highlighter<'src> {
         ControlFlow::Continue(())
     }
 
-    fn visit_ty(&mut self, vcx: &VisitContext, ts: hir::TypeSrc) -> ControlFlow<()> {
+    fn visit_ty(&mut self, vcx: &VisitContext, ts: hir::TypeSrc, _ty: Type) -> ControlFlow<()> {
         match ts.type_ref(self.db) {
             Some(TypeRefKind::Primitive(_)) => {
                 self.push_opt(Some(vcx.source_map[ts].span()), TT::Type, Some(TM::DefaultLibrary));

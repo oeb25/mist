@@ -564,6 +564,9 @@ impl<'a> TypeProvider for TypeChecker<'a> {
     fn ty_data(&self, ty: TypeId) -> TypeData {
         self.typer.probe_type(ty)
     }
+    fn adt_ty(&self, adt: Adt) -> Option<TypeId> {
+        self.typer.try_adt_ty(adt)
+    }
     fn fields_of(&self, adt: Adt) -> Vec<AdtField> {
         self.typer.adt_fields(adt).to_vec()
     }

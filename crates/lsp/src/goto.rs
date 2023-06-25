@@ -6,6 +6,7 @@ use mist_core::{
     def::StructField,
     file::SourceFile,
     hir::{self, TypeRefKind, VariableIdx},
+    mono::types::Type,
     salsa,
     types::AdtKind,
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
@@ -99,11 +100,12 @@ impl Visitor for DeclarationFinder<'_> {
     fn visit_ty(
         &mut self,
         vcx: &VisitContext,
-        ty: hir::TypeSrc,
+        ts: hir::TypeSrc,
+        _ty: Type,
     ) -> ControlFlow<Option<DeclarationSpans>> {
-        let original_span = vcx.source_map[ty].span();
+        let original_span = vcx.source_map[ts].span();
         if original_span.contains(self.byte_offset) {
-            match ty.type_ref(self.db) {
+            match ts.type_ref(self.db) {
                 Some(TypeRefKind::Path(s)) => {
                     let target_span = match s {
                         hir::Path::Name(_) => {

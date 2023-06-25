@@ -143,6 +143,9 @@ impl TypeProvider for ItemContext {
     fn ty_data(&self, ty: TypeId) -> TypeData {
         self.ty_table.as_ref().expect("TypeTable was not yet set").ty_data(ty)
     }
+    fn adt_ty(&self, adt: Adt) -> Option<TypeId> {
+        self.ty_table.as_ref().expect("TypeTable was not yet set").adt_ty(adt)
+    }
     fn fields_of(&self, adt: Adt) -> Vec<AdtField> {
         self.ty_table.as_ref().expect("TypeTable was not yet set").fields_of(adt)
     }

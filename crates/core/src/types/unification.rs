@@ -218,6 +218,9 @@ impl Typer {
         }
         adt
     }
+    pub fn try_adt_ty(&self, adt: Adt) -> Option<TypeId> {
+        Some(self.adt_instantiations.get(&adt)?.ty)
+    }
     pub fn adt_ty(&mut self, db: &dyn crate::Db, adt: Adt) -> TypeId {
         if let Some(ty) = self.adt_instantiations.get(&adt) {
             return ty.ty;

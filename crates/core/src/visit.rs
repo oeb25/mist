@@ -13,7 +13,8 @@ use crate::{
         self, Block, Decreases, ExprData, ExprIdx, IfExpr, ItemContext, ItemSourceMap,
         StatementData, StatementId, TypeSrc, VariableIdx, WhileExpr,
     },
-    types::Field,
+    mono::{lower::MonoDefLower, types::Type},
+    types::{Field, TypeId},
 };
 
 pub trait Walker<'db>: Sized {
@@ -41,7 +42,9 @@ pub trait Walker<'db>: Sized {
         let Some(hir) = def.hir(db) else { return ControlFlow::Continue(()) };
         let cx = Arc::new(hir.cx(db).clone());
         let source_map = Arc::new(hir.source_map(db).clone());
-        let vcx = VisitContext { cx, source_map: source_map.clone() };
+        let vcx = VisitContext { cx: Arc::clone(&cx), source_map: source_map.clone() };
+
+        let mut mdl = MonoDefLower::new(db, &cx);
 
         for event in def.syntax(db).preorder() {
             match event {
@@ -60,8 +63,9 @@ pub trait Walker<'db>: Sized {
                         }
                     }
                     if let Some(t) = ast::Type::cast(node) {
-                        if let Some(ty) = source_map.ty_ast((&t).into()) {
-                            visitor.visit_ty(&vcx, ty)?;
+                        if let Some(ts) = source_map.ty_ast((&t).into()) {
+                            let ty = mdl.lower_ty(ts.ty(db));
+                            visitor.visit_ty(&vcx, ts, ty)?;
                         }
                     }
                 }
@@ -145,6 +149,15 @@ pub struct VisitContext {
     pub source_map: Arc<ItemSourceMap>,
 }
 
+impl VisitContext {
+    pub fn lower_ty(&self, db: &dyn crate::Db, ty: TypeId) -> Type {
+        self.mdl(db).lower_ty(ty)
+    }
+    pub(crate) fn mdl<'db, 'a>(&'a self, db: &'db dyn crate::Db) -> MonoDefLower<'db, 'a> {
+        MonoDefLower::new(db, &self.cx)
+    }
+}
+
 #[allow(unused)]
 pub trait Visitor {
     type Item;
@@ -209,7 +222,7 @@ pub trait Visitor {
         ControlFlow::Continue(())
     }
     #[must_use]
-    fn visit_ty(&mut self, vcx: &VisitContext, ty: TypeSrc) -> ControlFlow<Self::Item> {
+    fn visit_ty(&mut self, vcx: &VisitContext, ts: TypeSrc, ty: Type) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
     }
     #[must_use]

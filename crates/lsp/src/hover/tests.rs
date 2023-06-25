@@ -56,12 +56,12 @@ invariant[T] $0Test[T] {}
     check_hover_at(
         r#"
 struct Test[T] { field: T }
-invariant[T] Test[T] { self.field$0 == 5 }
+invariant[S] Test[S] { self.field$0 == 5 }
 "#,
         expect!(@r###"
-        > struct Test[T]
+        > struct Test[S]
         ---
-        > field: T
+        > field: S
         "###),
     );
     check_hover_at(
@@ -70,9 +70,61 @@ struct Test[T] { field: T }
 invariant Test[int] { self.field$0 == 5 }
 "#,
         expect!(@r###"
-        > struct Test[T]
+        > struct Test[int]
         ---
         > field: int
         "###),
+    );
+    check_hover_at(
+        r#"
+struct Test[T] { field: T }
+invariant Test[Test[int]] { self.field$0 == 5 }
+"#,
+        expect!(@r###"
+        > struct Test[Test[int]]
+        ---
+        > field: Test[int]
+        "###),
+    );
+}
+
+#[test]
+fn hover_list() {
+    check_hover_at(
+        r#"
+fn f(x: [int]) -> int {
+    x.len$0
+}
+"#,
+        expect!(@r###"
+        > [int]
+        ---
+        > len: int
+        "###),
+    );
+}
+
+#[test]
+fn hover_let_infer() {
+    check_hover_at(
+        r#"
+fn f() {
+    let x = 5;
+    x$0
+}
+"#,
+        expect!(@"> let x: int"),
+    );
+}
+
+#[test]
+#[ignore = "not yet implemented"]
+fn hover_quantifier_infer() {
+    check_hover_at(
+        r#"
+ghost fn f()
+  req forall(x) x$0 == 5;
+"#,
+        expect!(@"> x: int"),
     );
 }

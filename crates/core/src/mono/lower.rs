@@ -13,7 +13,7 @@ use super::{
         Block, BuiltinExpr, Decreases, ExprData, ExprDataWrapper, ExprPtr, Field, ForExpr, IfExpr,
         QuantifierOver, StatementPtr, VariablePtr, WhileExpr,
     },
-    types::{Adt, AdtField, BuiltinType, FunctionType, Type, TypeData},
+    types::{Adt, AdtField, AdtFieldKind, BuiltinType, FunctionType, Type, TypeData},
     Condition, Function, Item, ItemKind, MonoSourceMap, Monomorphized,
 };
 
@@ -88,8 +88,14 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
                 field: match field {
                     crate::types::Field::AdtField(adt_field) => {
                         let adt = self.lower_adt(adt_field.adt());
+                        let kind = match adt_field.kind() {
+                            crate::types::AdtFieldKind::StructField(sf) => {
+                                AdtFieldKind::StructField(sf)
+                            }
+                        };
                         let ty = self.lower_ty(adt_field.ty());
-                        let adt_field = AdtField::new(self.db, adt, adt_field.name(self.db), ty);
+                        let adt_field =
+                            AdtField::new(self.db, adt, adt_field.name(self.db), kind, ty);
                         Field::AdtField(adt, adt_field)
                     }
                     crate::types::Field::Builtin(bf) => {
@@ -106,7 +112,13 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
                         .iter()
                         .map(|f| {
                             let ty = self.lower_ty(f.decl.ty());
-                            let adt_field = AdtField::new(self.db, adt, f.decl.name(self.db), ty);
+                            let kind = match f.decl.kind() {
+                                crate::types::AdtFieldKind::StructField(sf) => {
+                                    AdtFieldKind::StructField(sf)
+                                }
+                            };
+                            let adt_field =
+                                AdtField::new(self.db, adt, f.decl.name(self.db), kind, ty);
                             (adt_field, self.lower_expr(f.value))
                         })
                         .collect(),
@@ -292,7 +304,7 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
 }
 
 #[salsa::tracked]
-pub fn adt_kind_prototype_fields(db: &dyn crate::Db, def: Def) -> Vec<(Name, Type)> {
+pub fn adt_kind_prototype_fields(db: &dyn crate::Db, def: Def) -> Vec<(Name, AdtFieldKind, Type)> {
     match def.kind(db) {
         DefKind::Struct(s) => {
             let adt_kind = AdtKind::Struct(def, s);
@@ -305,7 +317,11 @@ pub fn adt_kind_prototype_fields(db: &dyn crate::Db, def: Def) -> Vec<(Name, Typ
 
             let mut mdl = MonoDefLower::new(db, cx);
 
-            prototype.fields.iter().map(|(sf, ty)| (sf.name(db), mdl.lower_ty(*ty))).collect()
+            prototype
+                .fields
+                .iter()
+                .map(|(sf, ty)| (sf.name(db), AdtFieldKind::StructField(*sf), mdl.lower_ty(*ty)))
+                .collect()
         }
         _ => Vec::new(),
     }

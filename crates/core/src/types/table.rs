@@ -46,6 +46,9 @@ impl TypeProvider for TypeTable {
     fn ty_data(&self, ty: TypeId) -> TypeData {
         self.type_data[ty.data_idx()].clone()
     }
+    fn adt_ty(&self, adt: Adt) -> Option<TypeId> {
+        Some(self.adt_instantiations.get(&adt)?.ty)
+    }
     fn fields_of(&self, adt: Adt) -> Vec<AdtField> {
         match adt.kind() {
             super::AdtKind::Struct(_, _) => self.adt_instantiations[&adt].fields.clone(),

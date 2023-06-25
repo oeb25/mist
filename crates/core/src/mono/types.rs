@@ -1,8 +1,10 @@
+use std::fmt;
+
 use itertools::Itertools;
 use mist_syntax::ast::AttrFlags;
 
 use crate::{
-    def::{DefKind, Generic, Name},
+    def::{DefKind, Generic, Name, StructField},
     types::{AdtKind, BuiltinKind, Primitive, TypeProvider, TDK},
 };
 
@@ -57,7 +59,13 @@ pub struct Adt {
 pub struct AdtField {
     pub adt: Adt,
     pub name: Name,
+    pub kind: AdtFieldKind,
     pub ty: Type,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AdtFieldKind {
+    StructField(StructField),
 }
 
 impl BuiltinType {
@@ -80,11 +88,21 @@ impl Adt {
     pub fn name(&self, db: &dyn crate::Db) -> Name {
         self.kind(db).name(db)
     }
+    pub fn display(self, db: &dyn crate::Db) -> impl fmt::Display {
+        let name = self.name(db);
+        let args = self.generic_args(db);
+        if args.is_empty() {
+            name.to_string()
+        } else {
+            let args = args.iter().map(|p| p.display(db)).format(", ");
+            format!("{name}[{args}]")
+        }
+    }
     pub fn fields(self, db: &dyn crate::Db) -> Vec<AdtField> {
         match self.kind(db) {
             AdtKind::Struct(def, _) => super::lower::adt_kind_prototype_fields(db, def)
                 .iter()
-                .map(|(name, ty)| {
+                .map(|(name, kind, ty)| {
                     let new_ty = ty.substitude(db, &mut |ty| {
                         self.kind(db)
                             .generic_params(db)
@@ -93,7 +111,7 @@ impl Adt {
                             .and_then(|idx| self.generic_args(db).get(idx).copied())
                             .unwrap_or(ty)
                     });
-                    AdtField::new(db, self, name.clone(), new_ty)
+                    AdtField::new(db, self, name.clone(), *kind, new_ty)
                 })
                 .collect(),
             AdtKind::Enum => todo!(),
@@ -260,12 +278,14 @@ impl Type {
             }
             Optional(inner) => format!("?{}", inner.display(db)),
             Primitive(p) => format!("{p:?}").to_lowercase(),
-            Adt(adt) => format!("{}", adt.name(db)),
-            Builtin(b) => format!(
-                "{}[{}]",
-                b.name(db),
-                b.generic_args(db).iter().map(|arg| arg.display(db)).format(", ")
-            ),
+            Adt(adt) => adt.display(db).to_string(),
+            Builtin(b) => {
+                let args = b.generic_args(db).iter().map(|arg| arg.display(db)).format(", ");
+                match b.kind(db) {
+                    BuiltinKind::List => format!("[{args}]"),
+                    _ => format!("{}[{args}]", b.name(db)),
+                }
+            }
             Null => "null".to_string(),
             Generic(g) => {
                 if let Some(name) = g.name(db) {

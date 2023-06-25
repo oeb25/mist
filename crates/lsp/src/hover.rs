@@ -5,9 +5,10 @@ use std::ops::ControlFlow;
 
 use derive_new::new;
 use mist_core::{
-    def::{Def, DefKind, Name, StructField},
+    def::{Def, DefKind, StructField},
     file::SourceFile,
     hir::{pretty, ExprData, ExprIdx, Path, TypeRefKind, TypeSrc, VariableIdx},
+    mono::types::{Type, TypeData},
     salsa,
     types::{AdtKind, BuiltinField, Field, TypeProvider},
     visit::{PostOrderWalk, VisitContext, Visitor, Walker},
@@ -68,17 +69,21 @@ impl<'a> Visitor for HoverFinder<'a> {
         reference: &ast::NameOrNameRef,
     ) -> ControlFlow<Option<HoverResult>> {
         if reference.contains_pos(self.byte_offset) {
+            let field_ty = vcx.lower_ty(self.db, vcx.cx.field_ty(field));
             match field {
                 Field::AdtField(af) => {
-                    let ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx.field_ty(field));
-                    let kind = match af.adt().kind() {
-                        AdtKind::Struct(_, _) => Name::new("struct"),
-                        AdtKind::Enum => todo!(),
+                    let parent_ty = vcx.lower_ty(self.db, vcx.cx.adt_ty(af.adt()).unwrap());
+                    let kind = match parent_ty.kind(self.db) {
+                        TypeData::Adt(adt) => match adt.kind(self.db) {
+                            AdtKind::Struct(_, _) => "struct".to_string(),
+                            AdtKind::Enum => "enum".to_string(),
+                        },
+                        _ => "<kind>".to_string(),
                     };
                     break_code(
                         [
-                            format!("{} {}", kind, af.adt().kind().display(self.db)),
-                            format!("{}: {ty}", field.name(self.db)),
+                            format!("{} {}", kind, parent_ty.display(self.db)),
+                            format!("{}: {}", field.name(self.db), field_ty.display(self.db)),
                         ],
                         Some(reference.span()),
                     )
@@ -87,10 +92,12 @@ impl<'a> Visitor for HoverFinder<'a> {
                     BuiltinField::List(list_ty, _)
                     | BuiltinField::Set(list_ty, _)
                     | BuiltinField::MultiSet(list_ty, _) => {
-                        let list_ty = pretty::ty(&*vcx.cx, self.db, false, list_ty);
-                        let ty = pretty::ty(&*vcx.cx, self.db, false, vcx.cx.field_ty(field));
+                        let list_ty = vcx.lower_ty(self.db, list_ty);
                         break_code(
-                            [list_ty, format!("{}: {ty}", bf.name())],
+                            [
+                                list_ty.display(self.db).to_string(),
+                                format!("{}: {}", bf.name(), field_ty.display(self.db)),
+                            ],
                             Some(reference.span()),
                         )
                     }
@@ -171,17 +178,21 @@ impl<'a> Visitor for HoverFinder<'a> {
         ControlFlow::Continue(())
     }
 
-    fn visit_ty(&mut self, vcx: &VisitContext, ty: TypeSrc) -> ControlFlow<Option<HoverResult>> {
-        let span = match &vcx.source_map[ty] {
+    fn visit_ty(
+        &mut self,
+        vcx: &VisitContext,
+        ts: TypeSrc,
+        ty: Type,
+    ) -> ControlFlow<Option<HoverResult>> {
+        let span = match &vcx.source_map[ts] {
             src if src.span().contains(self.byte_offset) => src.span(),
             _ => return ControlFlow::Continue(()),
         };
 
-        let pretty_ty = pretty::ty(&*vcx.cx, self.db, false, ty.ty(self.db));
-
-        let s = match ty.type_ref(self.db) {
+        let pretty_ty = ty.display(self.db);
+        let s = match ts.type_ref(self.db) {
             Some(TypeRefKind::Path(Path::Adt(_))) => format!("struct {pretty_ty}"),
-            _ => pretty_ty,
+            _ => pretty_ty.to_string(),
         };
 
         break_code([s], Some(span))
