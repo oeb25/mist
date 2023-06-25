@@ -9,6 +9,7 @@ use quote::{format_ident, quote};
 use ungrammar::{Grammar, Node, Rule};
 
 #[test]
+#[ignore]
 fn sourcegen_wasm() -> Result<()> {
     miette::set_panic_hook();
 

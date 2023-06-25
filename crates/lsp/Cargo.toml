@@ -21,3 +21,4 @@ tracing-subscriber.workspace = true
 tracing.workspace = true
 viperserver.workspace = true
 salsa.workspace = true
+crossbeam-channel = "0.5.8"
