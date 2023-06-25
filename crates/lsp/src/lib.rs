@@ -18,6 +18,7 @@ pub struct Jar(
     crate::viper::VerificationInput,
     crate::viper::VerificationErrors,
     crate::viper::verify_viper_src,
+    crate::viper::viper_unwind_if_cancelled,
 );
 
 pub trait Db: mist_cli::Db + salsa::DbWithJar<Jar> {}

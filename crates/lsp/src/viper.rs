@@ -1,15 +1,17 @@
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
+use crossbeam_channel::{RecvTimeoutError, SendError};
 use futures_util::StreamExt;
 use miette::{Context, IntoDiagnostic};
 use mist_cli::VerificationContext;
 use mist_codegen_viper::gen::ViperOutput;
 use mist_core::file::SourceFile;
 use tracing::info;
-use viperserver::{verification::DetailsError, VerificationStatus, ViperServerError};
+use viperserver::{verification::DetailsError, ViperServerError};
 
 pub struct VerifyFile<'a> {
     pub file: SourceFile,
@@ -62,6 +64,8 @@ impl VerifyFile<'_> {
 pub enum VerificationError {
     #[error("viper server error: {0}")]
     ViperServerError(#[from] ViperServerError),
+    #[error("channel error: {0}")]
+    ChannelError(#[from] SendError<DetailsError>),
 }
 
 #[salsa::accumulator]
@@ -84,6 +88,8 @@ pub fn verify_viper_src(db: &dyn crate::Db, input: VerificationInput) -> Vec<Det
 
     std::fs::write(&viper_file, viper_src).unwrap();
 
+    let (tx, rx) = crossbeam_channel::unbounded();
+
     info!("Starting verification...");
     let res: Result<_, VerificationError> = std::thread::spawn(move || {
         handle.block_on(async move {
@@ -100,29 +106,35 @@ pub fn verify_viper_src(db: &dyn crate::Db, input: VerificationInput) -> Vec<Det
 
             let mut stream = client.check_on_verification(&res).await?;
 
-            let mut errors = vec![];
-
             while let Some(status) = stream.next().await {
-                let status = status?;
-                match status {
-                    VerificationStatus::AstConstructionResult { details, .. }
-                    | VerificationStatus::VerificationResult { details, .. } => {
-                        errors.extend(details.result.into_iter().flat_map(|res| res.errors));
-                    }
-                    _ => {}
+                for err in status?.detail_errors().cloned() {
+                    tx.send(err)?;
                 }
             }
-            Ok(errors)
+            Ok(())
         })
     })
     .join()
     .expect("thread paniced");
 
-    match res {
-        Ok(errors) => errors,
-        Err(err) => {
-            VerificationErrors::push(db, Arc::new(err));
-            vec![]
+    let mut errors = Vec::new();
+
+    loop {
+        viper_unwind_if_cancelled(db, input);
+        match rx.recv_timeout(Duration::from_millis(500)) {
+            Ok(err) => errors.push(err),
+            Err(RecvTimeoutError::Disconnected) => break,
+            Err(RecvTimeoutError::Timeout) => {}
         }
     }
+
+    if let Err(err) = res {
+        VerificationErrors::push(db, Arc::new(err));
+    }
+    errors
 }
+
+/// HACK: This is used to simulate `Runtime::unwind_if_cancelled` which does not
+/// currently exist in this version of salsa
+#[salsa::tracked]
+pub fn viper_unwind_if_cancelled(_db: &dyn crate::Db, _input: VerificationInput) {}
