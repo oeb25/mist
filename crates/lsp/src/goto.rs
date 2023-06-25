@@ -63,7 +63,7 @@ pub fn find_references(
         .flat_map(|(def, hir)| {
             match named {
                 hir::Named::Variable(var) => match hir.cx(db).decl(*var).kind() {
-                    VariableDeclarationKind::Function => {}
+                    VariableDeclarationKind::Function(_) => {}
                     VariableDeclarationKind::Let | VariableDeclarationKind::Parameter
                         if def == named_def => {}
                     _ => return Either::Right([].into_iter()),

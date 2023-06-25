@@ -1,3 +1,5 @@
+pub mod dot;
+
 use std::fmt;
 
 use la_arena::{Arena, ArenaMap, Idx};

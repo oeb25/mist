@@ -16,7 +16,7 @@ use thiserror::Error;
 use tracing::error;
 
 use crate::{
-    def::{Generic, Name},
+    def::{Function, Generic, Name},
     hir::{
         self, AssertionKind, Block, Condition, Decreases, Expr, ExprData, ExprIdx, Param,
         Statement, StatementData, Variable, VariableIdx,
@@ -40,7 +40,7 @@ use super::{
 pub enum VariableDeclarationKind {
     Let,
     Parameter,
-    Function,
+    Function(Function),
     Undefined,
 }
 
@@ -62,10 +62,10 @@ impl VariableDeclaration {
         let ast = AstPtr::new(&name);
         VariableDeclaration { ast, name: name.into(), kind: VariableDeclarationKind::Parameter }
     }
-    pub(crate) fn new_function(name: ast::Name) -> Self {
+    pub(crate) fn new_function(name: ast::Name, fun: Function) -> Self {
         let name = name.into();
         let ast = AstPtr::new(&name);
-        VariableDeclaration { ast, name: name.into(), kind: VariableDeclarationKind::Function }
+        VariableDeclaration { ast, name: name.into(), kind: VariableDeclarationKind::Function(fun) }
     }
     pub(crate) fn new_undefined(name: ast::NameRef) -> Self {
         let name = name.into();
@@ -219,7 +219,7 @@ impl<'a> TypeChecker<'a> {
                 (
                     f.name(db),
                     checker.declare_variable(
-                        VariableDeclaration::new_function(f_ast.name().unwrap()),
+                        VariableDeclaration::new_function(f_ast.name().unwrap(), f),
                         ty,
                         f_ast.name().unwrap().span(),
                     ),

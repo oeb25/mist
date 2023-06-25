@@ -1,3 +1,4 @@
+use itertools::Either;
 use mist_syntax::ast::{
     self,
     operators::{BinaryOp, UnaryOp},
@@ -14,6 +15,7 @@ use crate::{
 use super::{
     lower::MonoDefLower,
     types::{Adt, AdtField, Type},
+    Function,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -33,6 +35,14 @@ pub struct VariablePtr {
     pub(super) def: Def,
     pub(super) id: VariableIdx,
     pub(super) ty: Type,
+    pub(super) decl: Option<VariableDeclaration>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum VariableDeclaration {
+    Function(Function),
+    Let,
+    Parameter,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -146,6 +156,114 @@ impl ExprPtr {
     pub fn data(&self, db: &dyn crate::Db) -> ExprData {
         self.inner_data.data(db)
     }
+    pub fn visit(self, db: &dyn crate::Db, f: &mut impl FnMut(Either<ExprPtr, StatementPtr>)) {
+        use Either::*;
+
+        f(Left(self));
+        match self.data(db) {
+            ExprData::Literal(_) => {}
+            ExprData::Self_ => {}
+            ExprData::Ident(_) => {}
+            ExprData::Field { expr, .. } => expr.visit(db, f),
+            ExprData::Adt { fields, .. } => {
+                for (_, expr) in fields {
+                    expr.visit(db, f);
+                }
+            }
+            ExprData::Missing => {}
+            ExprData::Block(b) => {
+                for stmt in b.stmts {
+                    stmt.visit(db, f);
+                }
+                if let Some(expr) = b.tail_expr {
+                    expr.visit(db, f);
+                }
+            }
+            ExprData::If(it) => {
+                it.condition.visit(db, f);
+                it.then_branch.visit(db, f);
+                if let Some(e) = it.else_branch {
+                    e.visit(db, f)
+                }
+            }
+            ExprData::While(it) => {
+                it.expr.visit(db, f);
+                for invs in it.invariants {
+                    for inv in invs {
+                        inv.visit(db, f);
+                    }
+                }
+                match it.decreases {
+                    Decreases::Expr(e) => e.visit(db, f),
+                    Decreases::Unspecified | Decreases::Inferred => {}
+                }
+                it.body.visit(db, f);
+            }
+            ExprData::For(it) => {
+                it.in_expr.visit(db, f);
+                for invs in it.invariants {
+                    for inv in invs {
+                        inv.visit(db, f);
+                    }
+                }
+                it.body.visit(db, f);
+            }
+            ExprData::Call { expr, args } => {
+                expr.visit(db, f);
+                for arg in args {
+                    arg.visit(db, f);
+                }
+            }
+            ExprData::Unary { inner, .. } => {
+                inner.visit(db, f);
+            }
+            ExprData::Bin { lhs, rhs, .. } => {
+                lhs.visit(db, f);
+                rhs.visit(db, f);
+            }
+            ExprData::Ref { expr, .. } => {
+                expr.visit(db, f);
+            }
+            ExprData::Index { base, index } => {
+                base.visit(db, f);
+                index.visit(db, f);
+            }
+            ExprData::List { elems } => {
+                for elem in elems {
+                    elem.visit(db, f);
+                }
+            }
+            ExprData::Quantifier { over, expr, .. } => {
+                match over {
+                    QuantifierOver::In(_, e) => e.visit(db, f),
+                    QuantifierOver::Vars(_) => {}
+                }
+                expr.visit(db, f);
+            }
+            ExprData::Result => {}
+            ExprData::Range { lhs, rhs } => {
+                if let Some(lhs) = lhs {
+                    lhs.visit(db, f);
+                }
+                if let Some(rhs) = rhs {
+                    rhs.visit(db, f);
+                }
+            }
+            ExprData::Return(expr) => {
+                if let Some(e) = expr {
+                    e.visit(db, f)
+                }
+            }
+            ExprData::NotNull(e) => e.visit(db, f),
+            ExprData::Builtin(b) => match b {
+                BuiltinExpr::RangeMin(expr) | BuiltinExpr::RangeMax(expr) => expr.visit(db, f),
+                BuiltinExpr::InRange(a, b) => {
+                    a.visit(db, f);
+                    b.visit(db, f);
+                }
+            },
+        }
+    }
 }
 
 impl VariablePtr {
@@ -178,6 +296,22 @@ impl StatementPtr {
                 kind: *kind,
                 exprs: exprs.iter().map(|expr| mdl.lower_expr(*expr)).collect(),
             },
+        }
+    }
+    pub fn visit(self, db: &dyn crate::Db, f: &mut impl FnMut(Either<ExprPtr, StatementPtr>)) {
+        use Either::*;
+
+        f(Right(self));
+        match self.data(db) {
+            StatementData::Expr(expr) => expr.visit(db, f),
+            StatementData::Let(it) => {
+                it.initializer.visit(db, f);
+            }
+            StatementData::Assertion { exprs, .. } => {
+                for expr in exprs {
+                    expr.visit(db, f)
+                }
+            }
         }
     }
 }

@@ -1,10 +1,16 @@
+pub mod dep;
 pub mod exprs;
 pub mod lower;
 pub mod types;
 
 use mist_syntax::ast::AttrFlags;
 
-use crate::{def::Name, file::SourceFile, hir::Param, mono::lower::MonoLower};
+use crate::{
+    def::{Def, Name},
+    file::SourceFile,
+    hir::Param,
+    mono::lower::MonoLower,
+};
 
 use self::{
     exprs::{ExprPtr, VariablePtr},
@@ -41,12 +47,12 @@ pub struct Monomorphized {
 
 #[salsa::interned]
 pub struct Function {
+    def: Def,
     pub attrs: AttrFlags,
     pub name: Name,
     pub params: Vec<Param<VariablePtr, Type>>,
     pub return_ty: Type,
     pub conditions: Vec<Condition>,
-    pub body: Option<ExprPtr>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Condition {
@@ -57,7 +63,7 @@ pub enum Condition {
 impl Item {
     pub fn name(&self, db: &dyn crate::Db) -> Name {
         match self.kind(db) {
-            ItemKind::Adt(adt) => adt.kind(db).name(db),
+            ItemKind::Adt(adt) => Name::new(&adt.display(db).to_string()),
             ItemKind::Function(fun) => fun.name(db),
         }
     }

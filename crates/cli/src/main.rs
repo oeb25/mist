@@ -9,6 +9,7 @@ use mist_core::{
     file::SourceFile,
     mir::{self, pass::Pass},
     mono,
+    util::dot::graph_easy,
 };
 use tracing::{error, info, warn, Level};
 use tracing_subscriber::prelude::*;
@@ -111,14 +112,19 @@ async fn cli() -> Result<()> {
                 if dump_cfg {
                     let cfg = mir::analysis::cfg::Cfg::compute(&db, &ib);
                     let dot = cfg.dot(&db, &ib);
-                    mir::analysis::cfg::dot_imgcat(&dot);
+                    if let Ok(g) = graph_easy(&dot) {
+                        println!("{g}");
+                    }
 
                     if dump_liveness {
-                        mir::analysis::cfg::dot_imgcat(&cfg.analysis_dot(
+                        let dot = cfg.analysis_dot(
                             &ib,
                             &mir::analysis::liveness::FoldingAnalysisResults::compute(&db, &ib),
                             |x| x.debug_str(&db, &ib),
-                        ));
+                        );
+                        if let Ok(g) = graph_easy(&dot) {
+                            println!("{g}");
+                        }
                     }
                 }
                 if dump_viper {

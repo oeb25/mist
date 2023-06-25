@@ -5,6 +5,7 @@ use indexmap::IndexSet;
 use crate::{
     def::{self, Def, DefKind, Name},
     hir::{self, ExprIdx, Param, VariableIdx},
+    mono::exprs::VariableDeclaration,
     types::{AdtKind, BuiltinKind, TypeId, TypeProvider, TDK},
 };
 
@@ -63,7 +64,15 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
     }
     pub(super) fn lower_var(&mut self, var: VariableIdx) -> VariablePtr {
         let ty = self.cx.var_ty(self.db, var);
-        VariablePtr { def: self.cx.def(), id: var, ty: self.lower_ty(ty) }
+        let decl = match self.cx.var_decl(var).kind() {
+            crate::VariableDeclarationKind::Let => Some(VariableDeclaration::Let),
+            crate::VariableDeclarationKind::Parameter => Some(VariableDeclaration::Parameter),
+            crate::VariableDeclarationKind::Function(f) => {
+                Some(VariableDeclaration::Function(self.lower_fn(f)))
+            }
+            crate::VariableDeclarationKind::Undefined => None,
+        };
+        VariablePtr { def: self.cx.def(), id: var, ty: self.lower_ty(ty), decl }
     }
     pub(super) fn lower_expr(&mut self, expr_id: ExprIdx) -> ExprPtr {
         let ty = self.cx.expr_ty(expr_id);
@@ -211,38 +220,45 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
     fn lower_fn(&mut self, f: def::Function) -> Function {
         let attrs = f.attrs(self.db);
         let name = f.name(self.db);
-        let params = self
-            .cx
+
+        let def = Def::new(self.db, DefKind::Function(f));
+        let cx = def.hir(self.db).unwrap().cx(self.db);
+
+        let mut mdl = MonoDefLower::new(self.db, cx);
+
+        let params = cx
             .params()
             .iter()
             .map(|param| {
-                let ty = self.lower_ty(param.ty.ty(self.db));
+                let ty = mdl.lower_ty(param.ty.ty(mdl.db));
                 Param {
                     is_ghost: param.is_ghost,
-                    name: VariablePtr { def: Def::new(self.db, f.into()), id: param.name, ty },
+                    name: VariablePtr {
+                        def: Def::new(mdl.db, f.into()),
+                        id: param.name,
+                        ty,
+                        decl: Some(VariableDeclaration::Parameter),
+                    },
                     ty,
                 }
             })
             .collect();
-        let return_ty = self
-            .cx
-            .return_ty(self.db)
-            .map(|ty| self.lower_ty(ty))
-            .unwrap_or_else(|| Type::new(self.db, false, TypeData::Void));
-        let conditions = self
-            .cx
+        let return_ty = cx
+            .return_ty(mdl.db)
+            .map(|ty| mdl.lower_ty(ty))
+            .unwrap_or_else(|| Type::new(mdl.db, false, TypeData::Void));
+        let conditions = cx
             .conditions()
             .map(|cond| match cond {
                 hir::Condition::Requires(exprs) => {
-                    Condition::Requires(exprs.iter().map(|expr| self.lower_expr(*expr)).collect())
+                    Condition::Requires(exprs.iter().map(|expr| mdl.lower_expr(*expr)).collect())
                 }
                 hir::Condition::Ensures(exprs) => {
-                    Condition::Ensures(exprs.iter().map(|expr| self.lower_expr(*expr)).collect())
+                    Condition::Ensures(exprs.iter().map(|expr| mdl.lower_expr(*expr)).collect())
                 }
             })
             .collect();
-        let body = self.cx.body_expr().map(|expr| self.lower_expr(expr));
-        Function::new(self.db, attrs, name, params, return_ty, conditions, body)
+        Function::new(mdl.db, def, attrs, name, params, return_ty, conditions)
     }
 
     pub(super) fn lower_builtin(
@@ -323,5 +339,14 @@ pub fn adt_kind_prototype_fields(db: &dyn crate::Db, def: Def) -> Vec<(Name, Adt
                 .collect()
         }
         _ => Vec::new(),
+    }
+}
+
+impl Function {
+    pub fn body(&self, db: &dyn crate::Db) -> Option<ExprPtr> {
+        let hir = self.def(db).hir(db)?;
+        let cx = hir.cx(db);
+        let mut mdl = MonoDefLower::new(db, cx);
+        cx.body_expr().map(|expr| mdl.lower_expr(expr))
     }
 }

@@ -222,7 +222,7 @@ impl<'src> Visitor for Highlighter<'src> {
         let tt = match decl.kind() {
             Let => TT::Variable,
             Parameter => TT::Parameter,
-            Function => TT::Function,
+            Function(_) => TT::Function,
             Undefined => return ControlFlow::Continue(()),
         };
         self.push(span, tt, None);

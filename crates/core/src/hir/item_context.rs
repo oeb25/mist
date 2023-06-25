@@ -133,6 +133,10 @@ impl ItemContext {
     pub(crate) fn adt_prototype(&self, adt_kind: AdtKind) -> Option<AdtPrototype> {
         self.ty_table().adt_prototype(adt_kind).cloned()
     }
+
+    pub(crate) fn var_decl(&self, id: VariableIdx) -> VariableDeclaration {
+        self.declarations.map[id].clone()
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Named {
