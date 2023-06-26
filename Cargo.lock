@@ -1537,6 +1537,7 @@ dependencies = [
 name = "mist-cg-vpr"
 version = "0.1.0"
 dependencies = [
+ "color-backtrace",
  "derive-new",
  "derive_more",
  "insta",

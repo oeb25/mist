@@ -169,6 +169,11 @@ impl SourceSpan {
             || other.contains(self.offset())
             || other.contains(self.end())
     }
+
+    #[must_use]
+    pub fn contains_span(&self, other: SourceSpan) -> bool {
+        self.contains(other.offset()) && self.contains(other.end())
+    }
 }
 
 impl From<SourceSpan> for miette::SourceSpan {

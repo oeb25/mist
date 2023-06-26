@@ -76,7 +76,7 @@ impl PureLowerResult {
         match self {
             PureLowerResult::UnassignedExpression(body, target, stopped_before) => {
                 if lower.can_inline(x, exp) {
-                    let r = lower.place_to_ref(source, x)?;
+                    let r = lower.place_to_ref(x)?;
                     lower.inlined.insert(r, exp);
                     Ok(self)
                 } else {
@@ -155,153 +155,158 @@ impl BodyLower<'_> {
         if Some(block) == stop_at {
             todo!();
         }
+        self.begin_scope(block, |l| {
+            let start = match block.terminator(l.ib) {
+                Some(t) => match t.kind(l.db) {
+                    mir::TerminatorKind::Return => {
+                        return Err(ViperLowerError::NotYetImplemented {
+                            msg: "return terminator".to_string(),
+                            def: l.ib.item(),
+                            block_or_inst: Some(block.into()),
+                            span: None,
+                        })
+                    }
+                    mir::TerminatorKind::Quantify(q, over, next) => match l
+                        .pure_block(*next, None)?
+                    {
+                        PureLowerResult::UnassignedExpression(exp, place, stopped_before) => {
+                            for s in over {
+                                l.internally_bound_slots.insert(*s, ());
+                            }
 
-        let start = match block.terminator(self.ib) {
-            Some(t) => match t.kind(self.db) {
-                mir::TerminatorKind::Return => {
-                    return Err(ViperLowerError::NotYetImplemented {
-                        msg: "return terminator".to_string(),
-                        def: self.ib.item(),
-                        block_or_inst: Some(block.into()),
-                        span: None,
-                    })
-                }
-                mir::TerminatorKind::Quantify(q, over, next) => match self
-                    .pure_block(*next, None)?
-                {
-                    PureLowerResult::UnassignedExpression(exp, place, stopped_before) => {
-                        for s in over {
-                            self.internally_bound_slots.insert(*s, ());
-                        }
+                            let variables =
+                                over.iter().map(|s| l.slot_to_decl(*s)).collect::<Result<_>>()?;
+                            let triggers = vec![];
 
-                        let variables =
-                            over.iter().map(|s| self.slot_to_decl(*s)).collect::<Result<_>>()?;
-                        let triggers = vec![];
-
-                        PureLowerResult::UnassignedExpression(
-                            self.alloc(
-                                block,
-                                match q {
+                            PureLowerResult::UnassignedExpression(
+                                l.allocs(match q {
                                     hir::Quantifier::Forall => {
                                         QuantifierExp::Forall { variables, triggers, exp }
                                     }
                                     hir::Quantifier::Exists => {
                                         QuantifierExp::Exists { variables, triggers, exp }
                                     }
-                                },
-                            ),
-                            // TODO
-                            place,
-                            // self.ib.result_slot().unwrap().into(),
-                            stopped_before,
-                        )
+                                }),
+                                // TODO
+                                place,
+                                // l.ib.result_slot().unwrap().into(),
+                                stopped_before,
+                            )
+                        }
+                        PureLowerResult::Empty { .. } => {
+                            return Err(ViperLowerError::NotYetImplemented {
+                                msg: "quantifier with empty result".into(),
+                                def: l.ib.item(),
+                                block_or_inst: Some(block.into()),
+                                span: None,
+                            })
+                        }
+                    },
+                    mir::TerminatorKind::QuantifyEnd(next) => {
+                        PureLowerResult::Empty { stopped_before: Some(*next) }
                     }
-                    PureLowerResult::Empty { .. } => {
-                        return Err(ViperLowerError::NotYetImplemented {
-                            msg: "quantifier with empty result".into(),
-                            def: self.ib.item(),
-                            block_or_inst: Some(block.into()),
-                            span: None,
-                        })
+                    &mir::TerminatorKind::Goto(next) => {
+                        if stop_at == Some(next) {
+                            PureLowerResult::Empty { stopped_before: Some(next) }
+                        } else {
+                            l.pure_block(next, stop_at)?
+                        }
+                    }
+                    mir::TerminatorKind::Switch(test, switch) => {
+                        let next = if let Some(next) = l.postdominators.get(block) {
+                            next
+                        } else {
+                            return Err(ViperLowerError::NotYetImplemented {
+                                msg: format!("block {block} did not have a postdominator"),
+                                def: l.ib.item(),
+                                block_or_inst: Some(block.into()),
+                                span: None,
+                            });
+                        };
+
+                        let (mut values, otherwise) = switch.values();
+                        let otherwise_result = l.pure_block(otherwise, Some(next))?;
+                        let cont = values.try_fold(otherwise_result, |els, (value, target)| {
+                            match (els, l.pure_block(target, Some(next))?) {
+                                (
+                                    PureLowerResult::UnassignedExpression(els, els_slot, _),
+                                    PureLowerResult::UnassignedExpression(thn, thn_slot, _),
+                                ) => {
+                                    if thn_slot != els_slot {
+                                        return Err(ViperLowerError::NotYetImplemented {
+                                            msg: "divergent branches".to_string(),
+                                            def: l.ib.item(),
+                                            block_or_inst: Some(block.into()),
+                                            span: None,
+                                        });
+                                    }
+                                    let cond = match value {
+                                        1 => l.operand_to_ref(test)?,
+                                        _ => todo!(), // Exp::new_bin(BinOp::EqCmp, test, value)
+                                    };
+                                    Ok(PureLowerResult::UnassignedExpression(
+                                        l.alloc(block, Exp::new_cond(cond, thn, els)),
+                                        thn_slot,
+                                        Some(next),
+                                    ))
+                                }
+                                (
+                                    PureLowerResult::UnassignedExpression(els, els_slot, _),
+                                    PureLowerResult::Empty { .. },
+                                ) => Ok(PureLowerResult::UnassignedExpression(
+                                    els,
+                                    els_slot,
+                                    Some(next),
+                                )),
+                                (PureLowerResult::Empty { .. }, _) => {
+                                    let msg = format!(
+                                        "divergent branches: \
+                                            {otherwise} is empty, and was told to stop at {block}"
+                                    );
+
+                                    Err(ViperLowerError::NotYetImplemented {
+                                        msg,
+                                        def: l.ib.item(),
+                                        block_or_inst: Some(otherwise.into()),
+                                        span: None,
+                                    })
+                                }
+                            }
+                        })?;
+
+                        let (exp, slot) = match cont {
+                            PureLowerResult::UnassignedExpression(exp, slot, _) => (exp, slot),
+                            PureLowerResult::Empty { .. } => todo!(),
+                        };
+
+                        l.conditional_continue(stop_at, next, block, slot, exp)?
+                    }
+                    mir::TerminatorKind::Call { func, args, destination, target } => {
+                        let f = l.function(*func, args)?;
+                        let f_application = l.alloc(block, f);
+
+                        if let Some(target) = *target {
+                            l.conditional_continue(
+                                stop_at,
+                                target,
+                                block,
+                                *destination,
+                                f_application,
+                            )?
+                        } else {
+                            todo!()
+                        }
                     }
                 },
-                mir::TerminatorKind::QuantifyEnd(next) => {
-                    PureLowerResult::Empty { stopped_before: Some(*next) }
-                }
-                &mir::TerminatorKind::Goto(next) => {
-                    if stop_at == Some(next) {
-                        PureLowerResult::Empty { stopped_before: Some(next) }
-                    } else {
-                        self.pure_block(next, stop_at)?
-                    }
-                }
-                mir::TerminatorKind::Switch(test, switch) => {
-                    let Some(next) = self.postdominators.get(block) else {
-                        return Err(ViperLowerError::NotYetImplemented {
-                            msg: format!("block {block} did not have a postdominator"),
-                            def: self.ib.item(),
-                            block_or_inst: Some(block.into()),
-                            span: None,
-                        })
-                    };
+                None => PureLowerResult::Empty { stopped_before: None },
+            };
 
-                    let (mut values, otherwise) = switch.values();
-                    let otherwise_result = self.pure_block(otherwise, Some(next))?;
-                    let cont = values.try_fold(otherwise_result, |els, (value, target)| {
-                        match (els, self.pure_block(target, Some(next))?) {
-                            (
-                                PureLowerResult::UnassignedExpression(els, els_slot, _),
-                                PureLowerResult::UnassignedExpression(thn, thn_slot, _),
-                            ) => {
-                                if thn_slot != els_slot {
-                                    return Err(ViperLowerError::NotYetImplemented {
-                                        msg: "divergent branches".to_string(),
-                                        def: self.ib.item(),
-                                        block_or_inst: Some(block.into()),
-                                        span: None,
-                                    });
-                                }
-                                let cond = match value {
-                                    1 => self.operand_to_ref(block, test)?,
-                                    _ => todo!(), // Exp::new_bin(BinOp::EqCmp, test, value)
-                                };
-                                Ok(PureLowerResult::UnassignedExpression(
-                                    self.alloc(block, Exp::new_cond(cond, thn, els)),
-                                    thn_slot,
-                                    Some(next),
-                                ))
-                            }
-                            (
-                                PureLowerResult::UnassignedExpression(els, els_slot, _),
-                                PureLowerResult::Empty { .. },
-                            ) => Ok(PureLowerResult::UnassignedExpression(
-                                els,
-                                els_slot,
-                                Some(next),
-                            )),
-                            (PureLowerResult::Empty { .. }, _) => {
-                                Err(ViperLowerError::NotYetImplemented {
-                                    msg: format!("divergent branches: {otherwise} is empty, and was told to stop at {block}"),
-                                    def: self.ib.item(),
-                                    block_or_inst: Some(otherwise.into()),
-                                    span: None,
-                                })
-                            }
-                        }
-                    })?;
-
-                    let (exp, slot) = match cont {
-                        PureLowerResult::UnassignedExpression(exp, slot, _) => (exp, slot),
-                        PureLowerResult::Empty { .. } => todo!(),
-                    };
-
-                    self.conditional_continue(stop_at, next, block, slot, exp)?
-                }
-                mir::TerminatorKind::Call { func, args, destination, target } => {
-                    let f = self.function(block, *func, args)?;
-                    let f_application = self.alloc(block, f);
-
-                    if let Some(target) = *target {
-                        self.conditional_continue(
-                            stop_at,
-                            target,
-                            block,
-                            *destination,
-                            f_application,
-                        )?
-                    } else {
-                        todo!()
-                    }
-                }
-            },
-            None => PureLowerResult::Empty { stopped_before: None },
-        };
-
-        block
-            .instructions(self.ib)
-            .iter()
-            .copied()
-            .try_rfold(start, |acc, inst| self.pure_wrap_with_instruction(inst, acc))
+            block
+                .instructions(l.ib)
+                .iter()
+                .copied()
+                .try_rfold(start, |acc, inst| l.pure_wrap_with_instruction(inst, acc))
+        })
     }
 
     pub(super) fn pure_wrap_with_instruction(
@@ -330,7 +335,7 @@ impl BodyLower<'_> {
                 };
                 match unfolding_place.ty().ty_adt(self.db) {
                     Some(adt) if !adt.is_pure(self.db) => acc.try_map_exp(|exp| {
-                        let place_ref = self.place_to_ref(inst, unfolding_place)?;
+                        let place_ref = self.place_to_ref(unfolding_place)?;
                         let pred_acc = PredicateAccessPredicate::new(
                             PredicateAccess::new(
                                 mangle::mangled_adt(self.db, adt),
@@ -363,10 +368,7 @@ impl BodyLower<'_> {
         }
         let exp = Exp::FuncApp {
             funcname: mangle::mangled_adt(self.db, *adt) + "_init",
-            args: fields
-                .iter()
-                .map(|(_, op)| self.operand_to_ref(inst, op))
-                .collect::<Result<_>>()?,
+            args: fields.iter().map(|(_, op)| self.operand_to_ref(op)).collect::<Result<_>>()?,
         };
         Ok(self.alloc(inst, exp))
     }

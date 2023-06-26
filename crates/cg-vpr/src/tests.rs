@@ -1,4 +1,5 @@
 mod generation;
+mod trace;
 
 use std::{
     fmt,
@@ -34,6 +35,8 @@ impl salsa::ParallelDatabase for Database {
 }
 
 pub(crate) fn fixture(src: impl fmt::Display) -> (Database, Fixture) {
+    color_backtrace::install();
+
     let db = Database::default();
     let fixture = Fixture::new(&db, src);
     (db, fixture)

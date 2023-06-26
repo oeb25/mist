@@ -202,6 +202,7 @@ pub struct BodyLower<'a> {
     cfg: cfg::Cfg,
     postdominators: cfg::Postdominators,
     var_refs: IdxMap<mir::SlotId, VExprId>,
+    current_source: Option<mir::BlockOrInstruction>,
     /// Places which are implicitly already unfolded.
     ///
     /// This is relevant in predicates for example, where fields are accessible
@@ -230,6 +231,7 @@ impl<'a> BodyLower<'a> {
             cfg,
             postdominators: Default::default(),
             var_refs: Default::default(),
+            current_source: None,
             pre_unfolded: Default::default(),
             inlined: Default::default(),
             place_alias: Default::default(),
@@ -237,10 +239,16 @@ impl<'a> BodyLower<'a> {
         }
     }
 
-    pub fn begin_scope<T>(&mut self, mut f: impl FnMut(&mut Self) -> T) -> T {
+    pub fn begin_scope<T>(
+        &mut self,
+        source: impl Into<mir::BlockOrInstruction>,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let prev_src = self.current_source.replace(source.into());
         let prev = self.place_alias.clone();
         let res = f(self);
         self.place_alias = prev;
+        self.current_source = prev_src;
         res
     }
 
@@ -380,66 +388,56 @@ impl BodyLower<'_> {
         }
         id
     }
-    fn function(
-        &mut self,
-        source: impl Into<mir::BlockOrInstruction> + Copy,
-        f: mir::Function,
-        args: &[mir::Operand],
-    ) -> Result<Exp<VExprId>> {
+    pub(crate) fn allocs(&mut self, vexpr: impl Into<Exp<VExprId>>) -> VExprId {
+        self.alloc(self.current_source.expect("no source was set"), vexpr)
+    }
+    fn function(&mut self, f: mir::Function, args: &[mir::Operand]) -> Result<Exp<VExprId>> {
         Ok(match f {
             mir::Function::Named(v) => Exp::new_func_app(
                 v.name(self.db).to_string(),
-                args.iter().map(|s| self.operand_to_ref(source, s)).collect::<Result<_>>()?,
+                args.iter().map(|s| self.operand_to_ref(s)).collect::<Result<_>>()?,
             ),
             mir::Function::Index => {
-                let base = self.operand_to_ref(source, &args[0])?;
-                let index = self.operand_to_ref(source, &args[1])?;
+                let base = self.operand_to_ref(&args[0])?;
+                let index = self.operand_to_ref(&args[1])?;
                 SeqExp::new_index(base, index).into()
             }
             mir::Function::RangeIndex => {
-                let base = self.operand_to_ref(source, &args[0])?;
-                let index = self.operand_to_ref(source, &args[1])?;
+                let base = self.operand_to_ref(&args[0])?;
+                let index = self.operand_to_ref(&args[1])?;
                 Exp::new_func_app("range_index".to_string(), vec![base, index])
             }
             mir::Function::Range(op) => {
                 let (f, args) = match op {
                     mir::RangeKind::FromTo => (
                         "range_from_to",
-                        vec![
-                            self.operand_to_ref(source, &args[0])?,
-                            self.operand_to_ref(source, &args[1])?,
-                        ],
+                        vec![self.operand_to_ref(&args[0])?, self.operand_to_ref(&args[1])?],
                     ),
-                    mir::RangeKind::From => {
-                        ("range_from", vec![self.operand_to_ref(source, &args[0])?])
-                    }
-                    mir::RangeKind::To => {
-                        ("range_to", vec![self.operand_to_ref(source, &args[0])?])
-                    }
+                    mir::RangeKind::From => ("range_from", vec![self.operand_to_ref(&args[0])?]),
+                    mir::RangeKind::To => ("range_to", vec![self.operand_to_ref(&args[0])?]),
                     mir::RangeKind::Full => ("range_full", vec![]),
                 };
                 Exp::new_func_app(f.to_string(), args)
             }
             mir::Function::List => SeqExp::new_explicit(
-                args.iter().map(|s| self.operand_to_ref(source, s)).collect::<Result<_>>()?,
+                args.iter().map(|s| self.operand_to_ref(s)).collect::<Result<_>>()?,
             )
             .into(),
-            mir::Function::ListConcat => SeqExp::new_append(
-                self.operand_to_ref(source, &args[0])?,
-                self.operand_to_ref(source, &args[1])?,
-            )
-            .into(),
+            mir::Function::ListConcat => {
+                SeqExp::new_append(self.operand_to_ref(&args[0])?, self.operand_to_ref(&args[1])?)
+                    .into()
+            }
             mir::Function::InRange => {
-                let idx = self.operand_to_ref(source, &args[0])?;
-                let r = self.operand_to_ref(source, &args[1])?;
+                let idx = self.operand_to_ref(&args[0])?;
+                let r = self.operand_to_ref(&args[1])?;
                 Exp::new_func_app("in_range".to_string(), vec![idx, r])
             }
             mir::Function::RangeMin => {
-                let r = self.operand_to_ref(source, &args[0])?;
+                let r = self.operand_to_ref(&args[0])?;
                 Exp::new_func_app("range_min".to_string(), vec![r])
             }
             mir::Function::RangeMax => {
-                let r = self.operand_to_ref(source, &args[0])?;
+                let r = self.operand_to_ref(&args[0])?;
                 Exp::new_func_app("range_max".to_string(), vec![r])
             }
         })
@@ -461,11 +459,7 @@ impl BodyLower<'_> {
             ),
         })
     }
-    pub(super) fn place_to_ref(
-        &mut self,
-        source: impl Into<mir::BlockOrInstruction> + Copy,
-        p: mir::Place,
-    ) -> Result<VExprId> {
+    pub(super) fn place_to_ref(&mut self, p: mir::Place) -> Result<VExprId> {
         if let Some(alias) = self.place_alias.get(&p).copied() {
             return Ok(alias);
         }
@@ -492,7 +486,7 @@ impl BodyLower<'_> {
             }
         };
 
-        let id = self.alloc(source, exp);
+        let id = self.allocs(exp);
         self.var_refs.insert(p.slot(), id);
 
         p.projection_iter(self.db).try_fold(id, |base, proj| -> Result<_> {
@@ -502,15 +496,15 @@ impl BodyLower<'_> {
                         Field::Builtin(bf) => match bf {
                             BuiltinField::List(_, ListField::Len) => {
                                 let exp = SeqExp::Length { s: base };
-                                self.alloc(source, exp)
+                                self.allocs(exp)
                             }
                             BuiltinField::Set(_, SetField::Cardinality) => {
                                 let exp = SetExp::Cardinality { s: base };
-                                self.alloc(source, exp)
+                                self.allocs(exp)
                             }
                             BuiltinField::MultiSet(_, MultiSetField::Cardinality) => {
                                 let exp = MultisetExp::Cardinality { s: base };
-                                self.alloc(source, exp)
+                                self.allocs(exp)
                             }
                         },
                         Field::AdtField(adt, af) => {
@@ -527,28 +521,24 @@ impl BodyLower<'_> {
                                 )
                                 .access_exp(base)
                             };
-                            self.alloc(source, exp)
+                            self.allocs(exp)
                         }
                         Field::Undefined => todo!(),
                     }
                 }
                 mir::Projection::Index(index, _) => {
                     let idx = self.slot_to_var(index)?;
-                    let idx = self.alloc(source, AbstractLocalVar::LocalVar(idx));
-                    self.alloc(source, SeqExp::Index { s: base, idx })
+                    let idx = self.allocs(AbstractLocalVar::LocalVar(idx));
+                    self.allocs(SeqExp::Index { s: base, idx })
                 }
             })
         })
     }
-    fn operand_to_ref(
-        &mut self,
-        source: impl Into<mir::BlockOrInstruction> + Copy,
-        o: &mir::Operand,
-    ) -> Result<VExprId> {
+    fn operand_to_ref(&mut self, o: &mir::Operand) -> Result<VExprId> {
         Ok(match o {
-            mir::Operand::Copy(s) => self.place_to_ref(source, *s)?,
-            mir::Operand::Move(s) => self.place_to_ref(source, *s)?,
-            mir::Operand::Literal(l) => self.alloc(source, lower_lit(l)),
+            mir::Operand::Copy(s) => self.place_to_ref(*s)?,
+            mir::Operand::Move(s) => self.place_to_ref(*s)?,
+            mir::Operand::Literal(l) => self.allocs(lower_lit(l)),
         })
     }
     fn place_for_assignment(&mut self, dest: mir::Place) -> Result<LocalVar> {
@@ -563,7 +553,7 @@ impl BodyLower<'_> {
         let exp = match e {
             mir::MExpr::Use(s) => {
                 let item_id = self.ib.item();
-                let id = self.operand_to_ref(inst, s)?;
+                let id = self.operand_to_ref(s)?;
                 self.source_map.inst_expr.insert((item_id, inst), id);
                 self.source_map.inst_expr_back.insert(id, (item_id, inst));
                 return Ok(id);
@@ -573,21 +563,21 @@ impl BodyLower<'_> {
                 let _ = bk;
 
                 let item_id = self.ib.item();
-                let id = self.place_to_ref(inst, *p)?;
+                let id = self.place_to_ref(*p)?;
                 self.source_map.inst_expr.insert((item_id, inst), id);
                 self.source_map.inst_expr_back.insert(id, (item_id, inst));
                 return Ok(id);
             }
             mir::MExpr::BinaryOp(op, l, r) => {
                 let op = lower_binop(op).expect("assignment should have been filtered out by now");
-                let lhs = self.operand_to_ref(inst, l)?;
-                let rhs = self.operand_to_ref(inst, r)?;
+                let lhs = self.operand_to_ref(l)?;
+                let rhs = self.operand_to_ref(r)?;
                 Exp::new_bin(op, lhs, rhs)
             }
             mir::MExpr::UnaryOp(op, x) => {
                 use mist_syntax::ast::operators::UnaryOp;
 
-                let x = self.operand_to_ref(inst, x)?;
+                let x = self.operand_to_ref(x)?;
 
                 let op = match op {
                     UnaryOp::Not => Either::Left(UnOp::Not),
@@ -601,30 +591,26 @@ impl BodyLower<'_> {
                 }
             }
         };
-        Ok(self.alloc(inst, exp))
+        Ok(self.allocs(exp))
     }
 
     pub(super) fn ty_to_condition(
         &mut self,
-        source: impl Into<mir::BlockOrInstruction> + Copy,
         place: VExprId,
         ty: Type,
     ) -> Result<(Option<VExprId>, Option<VExprId>)> {
         let ty = self.lower_type(ty)?;
         match ty.adt {
             Some(adt) if !adt.is_pure(self.db) => {
-                let perm = self.alloc(source, PermExp::Full);
-                let pred = self.alloc(
-                    source,
-                    AccessPredicate::Predicate(PredicateAccessPredicate::new(
-                        PredicateAccess::new(mangle::mangled_adt(self.db, adt), vec![place]),
-                        perm,
-                    )),
-                );
+                let perm = self.allocs(PermExp::Full);
+                let pred = self.allocs(AccessPredicate::Predicate(PredicateAccessPredicate::new(
+                    PredicateAccess::new(mangle::mangled_adt(self.db, adt), vec![place]),
+                    perm,
+                )));
                 let pred = if ty.optional {
-                    let null = self.alloc(source, Exp::null());
-                    let cond = self.alloc(source, Exp::bin(place, BinOp::NeCmp, null));
-                    self.alloc(source, Exp::bin(cond, BinOp::Implies, pred))
+                    let null = self.allocs(Exp::null());
+                    let cond = self.allocs(Exp::bin(place, BinOp::NeCmp, null));
+                    self.allocs(Exp::bin(cond, BinOp::Implies, pred))
                 } else {
                     pred
                 };
@@ -636,17 +622,15 @@ impl BodyLower<'_> {
             if ty.is_ref {
                 if let Some(st) = inner.adt {
                     let perm = if ty.is_mut {
-                        self.alloc(source, PermExp::Full)
+                        self.allocs(PermExp::Full)
                     } else {
-                        self.alloc(source, PermExp::Wildcard)
+                        self.allocs(PermExp::Wildcard)
                     };
-                    let exp = self.alloc(
-                        source,
-                        AccessPredicate::Predicate(PredicateAccessPredicate::new(
+                    let exp =
+                        self.allocs(AccessPredicate::Predicate(PredicateAccessPredicate::new(
                             PredicateAccess::new(mangle::mangled_adt(self.db, st), vec![place]),
                             perm,
-                        )),
-                    );
+                        )));
                     return Ok((Some(exp), Some(exp)));
                 }
             }

@@ -56,162 +56,164 @@ impl BodyLower<'_> {
         mut insts: Vec<Stmt<VExprId>>,
         stop_at: Option<mir::BlockId>,
     ) -> Result<Seqn<VExprId>> {
-        for &inst in block.instructions(self.ib) {
-            self.instruction(inst, &mut insts)?;
-        }
+        self.begin_scope(block, |l| {
+            for &inst in block.instructions(l.ib) {
+                l.instruction(inst, &mut insts)?;
+            }
 
-        match block.terminator(self.ib) {
-            Some(t) => match t.kind(self.db) {
-                mir::TerminatorKind::Return => {
-                    insts.push(Stmt::Goto { target: "end".to_string() });
-                    Ok(Seqn::new(insts, vec![]))
-                }
-                &mir::TerminatorKind::Goto(b) => {
-                    if self.should_continue(b, stop_at) {
-                        self.block(b, insts, stop_at)
-                    } else {
+            match block.terminator(l.ib) {
+                Some(t) => match t.kind(l.db) {
+                    mir::TerminatorKind::Return => {
+                        insts.push(Stmt::Goto { target: "end".to_string() });
                         Ok(Seqn::new(insts, vec![]))
                     }
-                }
-                mir::TerminatorKind::Quantify(_q, _over, _b) => {
-                    Err(ViperLowerError::NotYetImplemented {
-                        msg: "lower quantifier in method".to_string(),
-                        def: self.ib.item(),
-                        block_or_inst: Some(block.into()),
-                        span: None,
-                    })
-                }
-                mir::TerminatorKind::QuantifyEnd(_) => {
-                    todo!();
-                }
-                mir::TerminatorKind::Switch(test, switch) => {
-                    let next = self.postdominators[block];
-
-                    let (mut values, otherwise) = switch.values();
-                    // TODO: This check is brittle
-                    let is_loop = next == otherwise && switch.has_values();
-                    if is_loop {
-                        let (value, target) = values.next().unwrap();
-                        assert_eq!(values.next(), None);
-                        let mut body = self.block(target, vec![], Some(block))?;
-                        for &inst in block.instructions(self.ib) {
-                            self.instruction(inst, &mut body.ss)?;
-                        }
-
-                        let cond = match value {
-                            1 => self.operand_to_ref(block, test)?,
-                            _ => todo!(), // Exp::new_bin(BinOp::EqCmp, test, value)
-                        };
-
-                        let cond =
-                            if let Some(&cond) = self.inlined.get(cond) { cond } else { cond };
-
-                        let liveness = mir::analysis::liveness::Liveness::compute(self.db, self.ib);
-
-                        let access_invs = liveness
-                            .entry(block.first_body_loc(self.ib))
-                            .iter()
-                            .map(|s| {
-                                let place = s.place(self.db, self.ib);
-                                let place_ref = self.place_to_ref(block, place)?;
-                                let (pre, _) =
-                                    self.ty_to_condition(block, place_ref, place.ty())?;
-                                Ok(pre)
-                            })
-                            .filter_map(|s| s.transpose())
-                            .collect::<Result<Vec<_>>>()?;
-
-                        let invs = access_invs
-                            .into_iter()
-                            .map(Ok)
-                            .chain(self.ib.block_invariants(block).iter().map(|bid| {
-                                match self.pure_block(*bid, None)? {
-                                    PureLowerResult::UnassignedExpression(exp, _, _) => Ok(exp),
-                                    PureLowerResult::Empty { .. } => todo!(),
-                                }
-                            }))
-                            .collect::<Result<_>>()?;
-
-                        insts.push(Stmt::While { cond, invs, body });
-
-                        if self.should_continue(next, stop_at) {
-                            self.block(next, insts, stop_at)
+                    &mir::TerminatorKind::Goto(b) => {
+                        if l.should_continue(b, stop_at) {
+                            l.block(b, insts, stop_at)
                         } else {
                             Ok(Seqn::new(insts, vec![]))
                         }
-                    } else {
-                        let mut diverged = false;
-                        let otherwise = self.block(otherwise, vec![], Some(next))?;
-                        let if_stmt = values.try_fold(otherwise, |els, (value, target)| {
-                            if target == next {
-                                diverged = true;
+                    }
+                    mir::TerminatorKind::Quantify(_q, _over, _b) => {
+                        Err(ViperLowerError::NotYetImplemented {
+                            msg: "lower quantifier in method".to_string(),
+                            def: l.ib.item(),
+                            block_or_inst: Some(block.into()),
+                            span: None,
+                        })
+                    }
+                    mir::TerminatorKind::QuantifyEnd(_) => {
+                        todo!();
+                    }
+                    mir::TerminatorKind::Switch(test, switch) => {
+                        let next = l.postdominators[block];
+
+                        let (mut values, otherwise) = switch.values();
+                        // TODO: This check is brittle
+                        let is_loop = next == otherwise && switch.has_values();
+                        if is_loop {
+                            let (value, target) = values.next().unwrap();
+                            assert_eq!(values.next(), None);
+                            let mut body = l.block(target, vec![], Some(block))?;
+                            for &inst in block.instructions(l.ib) {
+                                l.instruction(inst, &mut body.ss)?;
                             }
 
-                            let thn = self.block(target, vec![], Some(next))?;
-
                             let cond = match value {
-                                1 => self.operand_to_ref(block, test)?,
+                                1 => l.operand_to_ref(test)?,
                                 _ => todo!(), // Exp::new_bin(BinOp::EqCmp, test, value)
                             };
 
-                            Ok(Seqn::new(vec![Stmt::If { cond, thn, els }], vec![]))
-                        })?;
+                            let cond =
+                                if let Some(&cond) = l.inlined.get(cond) { cond } else { cond };
 
-                        insts.push(Stmt::Seqn(if_stmt));
+                            let liveness = mir::analysis::liveness::Liveness::compute(l.db, l.ib);
 
-                        if self.should_continue(next, stop_at) && !diverged {
-                            self.block(next, insts, stop_at)
+                            let access_invs = liveness
+                                .entry(block.first_body_loc(l.ib))
+                                .iter()
+                                .map(|s| {
+                                    let place = s.place(l.db, l.ib);
+                                    let place_ref = l.place_to_ref(place)?;
+                                    let (pre, _) = l.ty_to_condition(place_ref, place.ty())?;
+                                    Ok(pre)
+                                })
+                                .filter_map(|s| s.transpose())
+                                .collect::<Result<Vec<_>>>()?;
+
+                            let invs = access_invs
+                                .into_iter()
+                                .map(Ok)
+                                .chain(l.ib.block_invariants(block).iter().map(|bid| {
+                                    match l.pure_block(*bid, None)? {
+                                        PureLowerResult::UnassignedExpression(exp, _, _) => Ok(exp),
+                                        PureLowerResult::Empty { .. } => todo!(),
+                                    }
+                                }))
+                                .collect::<Result<_>>()?;
+
+                            insts.push(Stmt::While { cond, invs, body });
+
+                            if l.should_continue(next, stop_at) {
+                                l.block(next, insts, stop_at)
+                            } else {
+                                Ok(Seqn::new(insts, vec![]))
+                            }
                         } else {
-                            Ok(Seqn::new(insts, vec![]))
-                        }
-                    }
-                }
-                mir::TerminatorKind::Call { func, args, destination, target } => {
-                    let var = self.place_for_assignment(*destination)?;
-                    let f = self.function(block, *func, args)?;
-                    let voided = destination.ty().is_void(self.db);
+                            let mut diverged = false;
+                            let otherwise = l.block(otherwise, vec![], Some(next))?;
+                            let if_stmt = values.try_fold(otherwise, |els, (value, target)| {
+                                if target == next {
+                                    diverged = true;
+                                }
 
-                    match f {
-                        Exp::FuncApp { funcname, args } => {
-                            if voided {
-                                insts.push(Stmt::MethodCall {
-                                    method_name: funcname,
-                                    args,
-                                    targets: vec![],
-                                })
-                            } else {
-                                insts.push(Stmt::MethodCall {
-                                    method_name: funcname,
-                                    args,
-                                    targets: vec![var],
-                                })
-                            }
-                        }
-                        _ => {
-                            let f_application = self.alloc(block, f);
+                                let thn = l.block(target, vec![], Some(next))?;
 
-                            if voided {
-                                insts.push(Stmt::Expression(f_application));
-                            } else {
-                                insts.push(Stmt::LocalVarAssign { lhs: var, rhs: f_application })
-                            }
-                        }
-                    }
+                                let cond = match value {
+                                    1 => l.operand_to_ref(test)?,
+                                    _ => todo!(), // Exp::new_bin(BinOp::EqCmp, test, value)
+                                };
 
-                    match *target {
-                        Some(target) => {
-                            if self.should_continue(target, stop_at) {
-                                self.block(target, insts, stop_at)
+                                Ok(Seqn::new(vec![Stmt::If { cond, thn, els }], vec![]))
+                            })?;
+
+                            insts.push(Stmt::Seqn(if_stmt));
+
+                            if l.should_continue(next, stop_at) && !diverged {
+                                l.block(next, insts, stop_at)
                             } else {
                                 Ok(Seqn::new(insts, vec![]))
                             }
                         }
-                        None => Ok(Seqn::new(insts, vec![])),
                     }
-                }
-            },
-            None => Ok(Seqn::new(insts, vec![])),
-        }
+                    mir::TerminatorKind::Call { func, args, destination, target } => {
+                        let var = l.place_for_assignment(*destination)?;
+                        let f = l.function(*func, args)?;
+                        let voided = destination.ty().is_void(l.db);
+
+                        match f {
+                            Exp::FuncApp { funcname, args } => {
+                                if voided {
+                                    insts.push(Stmt::MethodCall {
+                                        method_name: funcname,
+                                        args,
+                                        targets: vec![],
+                                    })
+                                } else {
+                                    insts.push(Stmt::MethodCall {
+                                        method_name: funcname,
+                                        args,
+                                        targets: vec![var],
+                                    })
+                                }
+                            }
+                            _ => {
+                                let f_application = l.allocs(f);
+
+                                if voided {
+                                    insts.push(Stmt::Expression(f_application));
+                                } else {
+                                    insts
+                                        .push(Stmt::LocalVarAssign { lhs: var, rhs: f_application })
+                                }
+                            }
+                        }
+
+                        match *target {
+                            Some(target) => {
+                                if l.should_continue(target, stop_at) {
+                                    l.block(target, insts, stop_at)
+                                } else {
+                                    Ok(Seqn::new(insts, vec![]))
+                                }
+                            }
+                            None => Ok(Seqn::new(insts, vec![])),
+                        }
+                    }
+                },
+                None => Ok(Seqn::new(insts, vec![])),
+            }
+        })
     }
 
     #[tracing::instrument(skip_all)]
@@ -220,80 +222,83 @@ impl BodyLower<'_> {
         inst: mir::InstructionId,
         insts: &mut Vec<Stmt<VExprId>>,
     ) -> Result<()> {
-        match inst.data(self.ib).clone() {
-            mir::Instruction::Assign(t, x) => {
-                let rhs = self.expr(inst, &x)?;
-                self.perform_assignment(t, insts, rhs, inst)?;
-            }
-            mir::Instruction::NewAdt(t, adt, fields) => {
-                if adt.is_pure(self.db) {
-                    let exp = self.pure_new_adt(&adt, inst, &fields)?;
-                    self.perform_assignment(t, insts, exp, inst)?;
-                    return Ok(());
+        self.begin_scope(inst, |l| {
+            match inst.data(l.ib).clone() {
+                mir::Instruction::Assign(t, x) => {
+                    let rhs = l.expr(inst, &x)?;
+                    l.perform_assignment(t, insts, rhs)?;
                 }
+                mir::Instruction::NewAdt(t, adt, fields) => {
+                    if adt.is_pure(l.db) {
+                        let exp = l.pure_new_adt(&adt, inst, &fields)?;
+                        l.perform_assignment(t, insts, exp)?;
+                        return Ok(());
+                    }
 
-                let base = self.place_to_ref(inst, t)?;
-                let mut new_fields = Vec::with_capacity(fields.len());
-                let mut field_insts = Vec::with_capacity(fields.len());
+                    let base = l.place_to_ref(t)?;
+                    let mut new_fields = Vec::with_capacity(fields.len());
+                    let mut field_insts = Vec::with_capacity(fields.len());
 
-                for (af, f) in fields {
-                    let ty = self.lower_type(af.ty(self.db))?;
-                    let lhs = FieldAccess::new(
-                        base,
-                        VField::new(mangle::mangled_adt_field(self.db, adt, af), ty.vty.clone()),
-                    );
-                    new_fields
-                        .push(VField::new(mangle::mangled_adt_field(self.db, adt, af), ty.vty));
-                    field_insts
-                        .push(Stmt::FieldAssign { lhs, rhs: self.operand_to_ref(inst, &f)? });
-                }
-                insts
-                    .push(Stmt::NewStmt { lhs: self.place_for_assignment(t)?, fields: new_fields });
-                insts.extend(field_insts.into_iter());
-                insts.push(Stmt::Fold {
-                    acc: {
-                        let name = mangle::mangled_adt(self.db, adt);
-                        PredicateAccessPredicate::new(
-                            PredicateAccess::new(name, vec![base]),
-                            self.alloc(inst, PermExp::Full),
-                        )
-                    },
-                })
-            }
-            mir::Instruction::Assertion(kind, e) => {
-                let exp = self.expr(inst, &e)?;
-                let stmt = match kind {
-                    hir::AssertionKind::Assert => Stmt::Assert { exp },
-                    hir::AssertionKind::Assume => Stmt::Assume { exp },
-                    hir::AssertionKind::Inhale => Stmt::Inhale { exp },
-                    hir::AssertionKind::Exhale => Stmt::Exhale { exp },
-                };
-                insts.push(stmt);
-            }
-            mir::Instruction::PlaceMention(_) => {}
-            mir::Instruction::Folding(folding) => {
-                let place = match folding {
-                    mir::Folding::Fold { into, .. } => into,
-                    mir::Folding::Unfold { consume, .. } => consume,
-                };
-                if let Some(adt) = place.ty().ty_adt(self.db) {
-                    if !adt.is_pure(self.db) {
-                        let name = mangle::mangled_adt(self.db, adt);
-                        let place_ref = self.place_to_ref(inst, place)?;
-                        let acc = PredicateAccessPredicate::new(
-                            PredicateAccess::new(name, vec![place_ref]),
-                            self.alloc(inst, PermExp::Full),
+                    for (af, f) in fields {
+                        let ty = l.lower_type(af.ty(l.db))?;
+                        let lhs = FieldAccess::new(
+                            base,
+                            VField::new(mangle::mangled_adt_field(l.db, adt, af), ty.vty.clone()),
                         );
+                        new_fields
+                            .push(VField::new(mangle::mangled_adt_field(l.db, adt, af), ty.vty));
+                        field_insts.push(Stmt::FieldAssign { lhs, rhs: l.operand_to_ref(&f)? });
+                    }
+                    insts.push(Stmt::NewStmt {
+                        lhs: l.place_for_assignment(t)?,
+                        fields: new_fields,
+                    });
+                    insts.extend(field_insts.into_iter());
+                    insts.push(Stmt::Fold {
+                        acc: {
+                            let name = mangle::mangled_adt(l.db, adt);
+                            PredicateAccessPredicate::new(
+                                PredicateAccess::new(name, vec![base]),
+                                l.allocs(PermExp::Full),
+                            )
+                        },
+                    })
+                }
+                mir::Instruction::Assertion(kind, e) => {
+                    let exp = l.expr(inst, &e)?;
+                    let stmt = match kind {
+                        hir::AssertionKind::Assert => Stmt::Assert { exp },
+                        hir::AssertionKind::Assume => Stmt::Assume { exp },
+                        hir::AssertionKind::Inhale => Stmt::Inhale { exp },
+                        hir::AssertionKind::Exhale => Stmt::Exhale { exp },
+                    };
+                    insts.push(stmt);
+                }
+                mir::Instruction::PlaceMention(_) => {}
+                mir::Instruction::Folding(folding) => {
+                    let place = match folding {
+                        mir::Folding::Fold { into, .. } => into,
+                        mir::Folding::Unfold { consume, .. } => consume,
+                    };
+                    if let Some(adt) = place.ty().ty_adt(l.db) {
+                        if !adt.is_pure(l.db) {
+                            let name = mangle::mangled_adt(l.db, adt);
+                            let place_ref = l.place_to_ref(place)?;
+                            let acc = PredicateAccessPredicate::new(
+                                PredicateAccess::new(name, vec![place_ref]),
+                                l.allocs(PermExp::Full),
+                            );
 
-                        insts.push(match folding {
-                            mir::Folding::Fold { .. } => Stmt::Fold { acc },
-                            mir::Folding::Unfold { .. } => Stmt::Unfold { acc },
-                        });
+                            insts.push(match folding {
+                                mir::Folding::Fold { .. } => Stmt::Fold { acc },
+                                mir::Folding::Unfold { .. } => Stmt::Unfold { acc },
+                            });
+                        }
                     }
                 }
             }
-        }
-        Ok(())
+            Ok(())
+        })
     }
 
     fn perform_assignment(
@@ -301,7 +306,6 @@ impl BodyLower<'_> {
         t: mir::Place,
         insts: &mut Vec<Stmt<VExprId>>,
         rhs: VExprId,
-        inst: mir::InstructionId,
     ) -> Result<()> {
         match t.projections(self.db) {
             [] => {
@@ -311,7 +315,7 @@ impl BodyLower<'_> {
                 match f {
                     Field::AdtField(adt, af) => insts.push(Stmt::FieldAssign {
                         lhs: FieldAccess::new(
-                            self.place_to_ref(inst, t.parent(self.db).unwrap())?,
+                            self.place_to_ref(t.parent(self.db).unwrap())?,
                             VField::new(
                                 mangle::mangled_adt_field(self.db, adt, af),
                                 // TODO: should we respect the extra constraints in such a scenario?
@@ -324,22 +328,22 @@ impl BodyLower<'_> {
                 };
             }
             &[mir::Projection::Index(index, _)] => {
-                let idx = self.place_to_ref(inst, index.place(self.db, self.ib))?;
-                let seq = self.place_to_ref(inst, t.parent(self.db).unwrap())?;
-                let new_rhs = self.alloc(inst, SeqExp::Update { s: seq, idx, elem: rhs });
+                let idx = self.place_to_ref(index.place(self.db, self.ib))?;
+                let seq = self.place_to_ref(t.parent(self.db).unwrap())?;
+                let new_rhs = self.allocs(SeqExp::Update { s: seq, idx, elem: rhs });
                 let lhs = self.place_for_assignment(t.without_projection(self.db))?;
                 insts.push(Stmt::LocalVarAssign { lhs, rhs: new_rhs })
             }
             &[.., mir::Projection::Field(f, ty), mir::Projection::Index(index, _)] => {
-                let idx = self.place_to_ref(inst, index.place(self.db, self.ib))?;
+                let idx = self.place_to_ref(index.place(self.db, self.ib))?;
                 let parent = t.parent(self.db).unwrap();
                 let grand_parent = parent.parent(self.db).unwrap();
-                let seq = self.place_to_ref(inst, parent)?;
-                let new_rhs = self.alloc(inst, SeqExp::Update { s: seq, idx, elem: rhs });
+                let seq = self.place_to_ref(parent)?;
+                let new_rhs = self.allocs(SeqExp::Update { s: seq, idx, elem: rhs });
                 match f {
                     Field::AdtField(adt, af) => {
                         let lhs = FieldAccess::new(
-                            self.place_to_ref(inst, grand_parent)?,
+                            self.place_to_ref(grand_parent)?,
                             VField::new(
                                 mangle::mangled_adt_field(self.db, adt, af),
                                 // TODO: should we respect the extra constraints in such a scenario?

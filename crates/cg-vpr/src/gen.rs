@@ -109,18 +109,20 @@ fn internal_viper_item(
                     // TODO: Don't lower explicitly from 0
                     let bid = mir::BlockId::from_raw(0.into());
 
-                    let refe = lower.place_to_ref(bid, s.place(db, ib))?;
-                    let conds = lower.ty_to_condition(bid, refe, s.ty(db, ib))?;
-                    if let Some(cond) = conds.0 {
-                        pres.push(cond);
-                    }
-                    if is_method {
-                        if let Some(cond) = conds.1 {
-                            posts.push(cond);
+                    lower.begin_scope(bid, |l| {
+                        let refe = l.place_to_ref(s.place(db, ib))?;
+                        let conds = l.ty_to_condition(refe, s.ty(db, ib))?;
+                        if let Some(cond) = conds.0 {
+                            pres.push(cond);
                         }
-                    }
+                        if is_method {
+                            if let Some(cond) = conds.1 {
+                                posts.push(cond);
+                            }
+                        }
 
-                    lower.slot_to_decl(s)
+                        l.slot_to_decl(s)
+                    })
                 })
                 .collect::<Result<_>>()?;
 
@@ -131,15 +133,17 @@ fn internal_viper_item(
                     // TODO: Don't lower explicitly from 0
                     let bid = mir::BlockId::from_raw(0.into());
 
-                    let refe = lower.place_to_ref(bid, s.place(db, ib))?;
-                    let conds = lower.ty_to_condition(bid, refe, s.ty(db, ib))?;
-                    if is_method {
-                        if let Some(cond) = conds.0 {
-                            posts.push(cond);
+                    lower.begin_scope(bid, |l| {
+                        let refe = l.place_to_ref(s.place(db, ib))?;
+                        let conds = l.ty_to_condition(refe, s.ty(db, ib))?;
+                        if is_method {
+                            if let Some(cond) = conds.0 {
+                                posts.push(cond);
+                            }
                         }
-                    }
 
-                    lower.slot_to_decl(s)
+                        l.slot_to_decl(s)
+                    })
                 })
                 .transpose()?;
 
