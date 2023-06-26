@@ -38,8 +38,8 @@
           ".mist"
         ],
         "icon": {
-          "light": "./mist-icon.png",
-          "dark": "./mist-icon.png"
+          "light": "./mist-logo.svg",
+          "dark": "./mist-logo.svg"
         },
         "configuration": "./language-configuration.json"
       }
