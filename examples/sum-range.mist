@@ -1,0 +1,29 @@
+pure fn sum(r: Range[int]) -> int
+  ens result == sum2(1..10)
+{
+  let r = 1..10;
+
+  let a = r.min * (r.min - 1) / 2;
+  let b = r.max * (r.max - 1) / 2;
+
+  let sum = 0;
+  for i in r
+    inv sum == i * (i - 1) / 2 - a
+  {
+    sum = sum + i;
+  }
+  assert sum == b - a;
+
+  b - a
+}
+
+pure fn sum2(r: Range[int]) -> int {
+  let a = r.min * (r.min - 1) / 2;
+  let b = r.max * (r.max - 1) / 2;
+
+  b - a
+}
+
+fn client() {
+  assert sum(1..10) == sum(1..10);
+}

@@ -1,3 +1,5 @@
+mod stress;
+
 use std::fmt;
 
 pub(crate) use mist_core::testing::expect;

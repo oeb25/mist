@@ -121,6 +121,30 @@ ghost fn f(x: int) req true && $0false$0 && false;
 }
 
 #[test]
+fn trace_ens() {
+    // TODO: This is incorrect
+    check_trace(
+        r#"
+struct T { b: bool }
+ghost fn f() -> T
+    ens $0result.b$0;
+"#,
+        expect!(@r###"
+        field $T_$_b: Bool
+        predicate $T(_0: Ref) {
+          acc(_0.$T_$_b, write)
+        }
+        method f() returns (_0: Ref)
+          ensures
+            acc($T(_0), write)
+            ^^^^^^^^^^^^^^^^^^
+          ensures
+            (unfolding acc($T(_0), wildcard) in _0.$T_$_b)
+        "###),
+    )
+}
+
+#[test]
 fn trace_body() {
     check_trace(
         r#"
@@ -154,4 +178,42 @@ fn f() {
         }
         "###),
     );
+}
+
+#[test]
+fn trace_inv() {
+    // TODO: This is incorrect
+    check_trace(
+        r#"
+struct T { b: bool }
+fn f(t: T) {
+    while true
+        inv $0t.b$0
+    { }
+}
+"#,
+        expect!(@r###"
+        field $T_$_b: Bool
+        predicate $T(_0: Ref) {
+          acc(_0.$T_$_b, write)
+        }
+        method f(_1: Ref)
+          requires
+            acc($T(_1), write)
+            ^^^^^^^^^^^^^^^^^^
+        {
+          var _2: Bool; var _3: Bool; var _4: Bool;
+          _2 := true
+          while (_2)
+            invariant
+              (unfolding acc($T(_1), wildcard) in _1.$T_$_b)
+            invariant
+              (true == _2)
+          {
+            _2 := true
+          }
+          label end
+        }
+        "###),
+    )
 }

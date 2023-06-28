@@ -398,7 +398,10 @@ impl<'a> TypeChecker<'a> {
     ) -> ExprIdx {
         let ptr = ptr.into();
         let idx = self.cx.expr_arena.alloc(expr);
-        self.source_map.register_expr(ptr, idx).unwrap();
+        // TODO: when using fallback spans, there can easily occur multiple
+        // spans pointing to the same thing; so for now ignore the error, but
+        // perhaps do something different in the future.
+        let _ = self.source_map.register_expr(ptr, idx);
         idx
     }
     pub fn check_boolean_exprs(

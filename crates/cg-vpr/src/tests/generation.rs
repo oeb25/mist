@@ -13,6 +13,18 @@ fn check_gen(src: impl fmt::Display, f: impl FnOnce(String)) {
     let viper_output = ViperOutput::generate_without_prelude(&viper_body, &viper_program);
     f(viper_output.buf.lines().map(|l| l.trim_end()).join("\n"));
 }
+fn check_gen_err(src: impl fmt::Display, f: impl FnOnce(String)) {
+    let (db, fix) = fixture(src);
+    let mut err = viper_file(&db, fix.file()).unwrap_err();
+    err.populate_spans(&db);
+    let err = miette::Error::new(err).with_source_code(fix.file().text(&db).clone());
+
+    let mut out = String::new();
+    miette::GraphicalReportHandler::new_themed(miette::GraphicalTheme::unicode_nocolor())
+        .render_report(&mut out, err.as_ref())
+        .unwrap();
+    f(out)
+}
 
 #[test]
 fn generation_method() {
@@ -55,6 +67,28 @@ pure fn g(a: int, b: int) -> int { a + b }
         }
         "###),
     );
+}
+
+#[test]
+fn generation_missing_ens() {
+    check_gen_err(
+        r#"
+fn compute() ens
+{
+    while true {}
+    0
+}
+"#,
+        expect!(@r###"
+          × not yet implemented: tried to lower a block which should be stopped at
+           ╭─[5:1]
+         5 │     while true {}
+         6 │     0
+           ·     ─
+         7 │ }
+           ╰────
+        "###),
+    )
 }
 
 #[test]

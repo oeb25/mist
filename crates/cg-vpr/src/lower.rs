@@ -19,7 +19,10 @@ use mist_core::{
     util::{IdxArena, IdxMap, IdxWrap},
 };
 use mist_syntax::{
-    ast::operators::{ArithOp, BinaryOp, CmpOp, LogicOp},
+    ast::{
+        operators::{ArithOp, BinaryOp, CmpOp, LogicOp},
+        Spanned,
+    },
     SourceSpan,
 };
 use silvers::{
@@ -155,10 +158,13 @@ pub enum ViperLowerError {
 }
 
 impl ViperLowerError {
-    pub fn populate_spans(
-        &mut self,
-        f: impl Fn(mono::Item, mir::BlockOrInstruction) -> Option<SourceSpan>,
-    ) {
+    pub fn populate_spans(&mut self, db: &dyn crate::Db) {
+        let f = |item, block_or_instr| {
+            let item_mir = mir::lower_item(db, item)?;
+            let expr = item_mir.source_map(db).trace_expr(block_or_instr)?;
+            Some(expr.ast(db).span())
+        };
+
         match self {
             ViperLowerError::NotYetImplemented {
                 def: item_id,

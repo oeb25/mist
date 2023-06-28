@@ -153,7 +153,12 @@ impl BodyLower<'_> {
         stop_at: Option<mir::BlockId>,
     ) -> Result<PureLowerResult> {
         if Some(block) == stop_at {
-            todo!();
+            return Err(ViperLowerError::NotYetImplemented {
+                msg: "tried to lower a block which should be stopped at".to_string(),
+                def: self.ib.item(),
+                block_or_inst: Some(block.into()),
+                span: None,
+            });
         }
         self.begin_scope(block, |l| {
             let start = match block.terminator(l.ib) {

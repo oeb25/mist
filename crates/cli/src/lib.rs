@@ -87,13 +87,7 @@ pub fn accumulated_errors(
                     Some(def.hir(db)?.cx(db).var_decl_span(var))
                 },
             ),
-            MistError::ViperLower(err) => {
-                err.populate_spans(|item, block_or_instr| {
-                    let item_mir = mir::lower_item(db, item)?;
-                    let expr = item_mir.source_map(db).trace_expr(block_or_instr)?;
-                    Some(expr.ast(db).span())
-                });
-            }
+            MistError::ViperLower(err) => err.populate_spans(db),
         }
         err
     })
