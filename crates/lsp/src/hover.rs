@@ -91,7 +91,8 @@ impl<'a> Visitor for HoverFinder<'a> {
                 Field::Builtin(bf) => match bf {
                     BuiltinField::List(list_ty, _)
                     | BuiltinField::Set(list_ty, _)
-                    | BuiltinField::MultiSet(list_ty, _) => {
+                    | BuiltinField::MultiSet(list_ty, _)
+                    | BuiltinField::Range(list_ty, _) => {
                         let list_ty = vcx.lower_ty(self.db, list_ty);
                         break_code(
                             [

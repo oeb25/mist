@@ -15,7 +15,10 @@ use mist_core::{
         exprs::Field,
         types::{Adt, Type, TypeData},
     },
-    types::{AdtKind, BuiltinField, BuiltinKind, ListField, MultiSetField, Primitive, SetField},
+    types::{
+        AdtKind, BuiltinField, BuiltinKind, ListField, MultiSetField, Primitive, RangeField,
+        SetField,
+    },
     util::{IdxArena, IdxMap, IdxWrap},
 };
 use mist_syntax::{
@@ -512,6 +515,18 @@ impl BodyLower<'_> {
                                 let exp = MultisetExp::Cardinality { s: base };
                                 self.allocs(exp)
                             }
+                            BuiltinField::Range(_, rf) => match rf {
+                                RangeField::Min => {
+                                    let exp =
+                                        Exp::new_func_app("range_min".to_string(), vec![base]);
+                                    self.allocs(exp)
+                                }
+                                RangeField::Max => {
+                                    let exp =
+                                        Exp::new_func_app("range_max".to_string(), vec![base]);
+                                    self.allocs(exp)
+                                }
+                            },
                         },
                         Field::AdtField(adt, af) => {
                             let exp = if adt.is_pure(self.db) {

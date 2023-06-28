@@ -49,6 +49,7 @@ pub enum BuiltinField<T> {
     List(T, ListField),
     Set(T, SetField),
     MultiSet(T, MultiSetField),
+    Range(T, RangeField),
 }
 impl<T> BuiltinField<T> {
     pub fn name(&self) -> Name {
@@ -61,6 +62,10 @@ impl<T> BuiltinField<T> {
             },
             BuiltinField::MultiSet(_, sf) => match sf {
                 MultiSetField::Cardinality => Name::new("cardinality"),
+            },
+            BuiltinField::Range(_, sf) => match sf {
+                RangeField::Min => Name::new("min"),
+                RangeField::Max => Name::new("max"),
             },
         }
     }
@@ -75,6 +80,9 @@ impl<T> BuiltinField<T> {
             BuiltinField::MultiSet(_, lf) => match lf {
                 MultiSetField::Cardinality => false,
             },
+            BuiltinField::Range(_, lf) => match lf {
+                RangeField::Min | RangeField::Max => false,
+            },
         }
     }
     pub(crate) fn map<S>(&self, mut f: impl FnMut(&T) -> S) -> BuiltinField<S> {
@@ -82,6 +90,7 @@ impl<T> BuiltinField<T> {
             BuiltinField::List(t, lf) => BuiltinField::List(f(t), *lf),
             BuiltinField::Set(t, lf) => BuiltinField::Set(f(t), *lf),
             BuiltinField::MultiSet(t, lf) => BuiltinField::MultiSet(f(t), *lf),
+            BuiltinField::Range(t, lf) => BuiltinField::Range(f(t), *lf),
         }
     }
 }
@@ -110,11 +119,13 @@ impl BuiltinField<TypeId> {
                 _ => None,
             },
             BuiltinKind::Range => match name {
+                "min" => Some(BuiltinField::Range(parent, RangeField::Min)),
+                "max" => Some(BuiltinField::Range(parent, RangeField::Max)),
                 _ => None,
             },
         }
     }
-    pub fn ty(&self) -> TypeId {
+    pub fn ty(self) -> TypeId {
         match self {
             BuiltinField::List(_, lf) => match lf {
                 ListField::Len => primitive::int(),
@@ -124,6 +135,9 @@ impl BuiltinField<TypeId> {
             },
             BuiltinField::MultiSet(_, lf) => match lf {
                 MultiSetField::Cardinality => primitive::int(),
+            },
+            BuiltinField::Range(_, lf) => match lf {
+                RangeField::Min | RangeField::Max => primitive::int(),
             },
         }
     }
@@ -142,4 +156,10 @@ pub enum MultiSetField {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ListField {
     Len,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RangeField {
+    Min,
+    Max,
 }
