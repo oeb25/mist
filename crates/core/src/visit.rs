@@ -72,9 +72,11 @@ pub trait Walker<'db>: Sized {
                         if let Some(expr) =
                             source_map.expr_ast((&ast::Expr::from(t.clone())).into())
                         {
-                            if let ExprData::Field { field, .. } = &vcx.cx.expr(expr).data {
+                            let expr = vcx.cx.expr(expr);
+                            if let ExprData::Field { field, .. } = &expr.data {
+                                let field_ty = vcx.lower_ty(db, expr.ty);
                                 let reference = t.field().unwrap().into();
-                                visitor.visit_field(&vcx, *field, &reference)?;
+                                visitor.visit_field(&vcx, *field, field_ty, &reference)?;
 
                                 if let Field::AdtField(adt_field) = field {
                                     match adt_field.kind() {
@@ -206,6 +208,7 @@ pub trait Visitor {
         &mut self,
         vcx: &VisitContext,
         field: Field,
+        field_ty: Type,
         reference: &ast::NameOrNameRef,
     ) -> ControlFlow<Self::Item> {
         ControlFlow::Continue(())
@@ -344,7 +347,7 @@ where
         field: Field,
         reference: &ast::NameOrNameRef,
     ) -> ControlFlow<V::Item> {
-        visitor.visit_field(&self.vcx, field, reference)?;
+        // visitor.visit_field(&self.vcx, field, reference)?;
         match field {
             Field::AdtField(adt_field) => match adt_field.kind() {
                 crate::types::AdtFieldKind::StructField(sf) => {
@@ -437,8 +440,9 @@ where
                 let res: Option<_> = (|| {
                     let src: ast::FieldExpr =
                         expr_src.into_ptr()?.cast()?.to_node(self.root.syntax());
+                    let field_ty = self.vcx.lower_ty(self._db, self.vcx.cx.original_expr(expr).ty);
                     let field_ref = src.field()?.into();
-                    Some(visitor.visit_field(&self.vcx, field, &field_ref))
+                    Some(visitor.visit_field(&self.vcx, field, field_ty, &field_ref))
                 })();
                 if let Some(res) = res {
                     res?;

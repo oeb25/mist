@@ -509,7 +509,7 @@ mod write_impl {
                         }
                         w!(w, ")");
                     }
-                    SetExp::Bin { .. } => w!(w, "// TODO: SetExp::Bin"),
+                    SetExp::Bin { op, left, right } => w!(w, "(", left, " {op} ", right, ")"),
                     SetExp::Cardinality { s } => w!(w, "|", s, "|"),
                 },
                 Exp::Multiset(s) => match s {

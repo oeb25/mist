@@ -66,10 +66,10 @@ impl<'a> Visitor for HoverFinder<'a> {
         &mut self,
         vcx: &VisitContext,
         field: Field,
+        field_ty: Type,
         reference: &ast::NameOrNameRef,
     ) -> ControlFlow<Option<HoverResult>> {
         if reference.contains_pos(self.byte_offset) {
-            let field_ty = vcx.lower_ty(self.db, vcx.cx.field_ty(field));
             match field {
                 Field::AdtField(af) => {
                     let parent_ty = vcx.lower_ty(self.db, vcx.cx.adt_ty(af.adt()).unwrap());

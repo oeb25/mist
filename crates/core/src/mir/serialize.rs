@@ -281,9 +281,8 @@ impl<'db, A: Fn(InBlock<Action>) -> Option<String>> Serializer<'db, A> {
 
     fn function(&mut self, f: Function) {
         match f {
-            Function::Named(var) => {
-                w!(self, Default, "{}", var.name(self.db))
-            }
+            Function::Named(var) => w!(self, Default, "{}", var.name(self.db)),
+            Function::BuiltinMethod(bf) => w!(self, Default, "{}", bf.name()),
             Function::List => w!(self, Default, "#list"),
             Function::ListConcat => w!(self, Default, "#list-concat"),
             Function::Index => w!(self, Default, "#index"),

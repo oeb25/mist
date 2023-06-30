@@ -15,6 +15,7 @@ use crate::{
         types::{Adt, AdtField, Type},
         Item,
     },
+    types::BuiltinField,
     util::{impl_idx, IdxArena, IdxMap},
 };
 
@@ -90,6 +91,7 @@ pub enum MExpr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Function {
     Named(VariablePtr),
+    BuiltinMethod(BuiltinField<Type>),
     Index,
     RangeIndex,
     Range(RangeKind),

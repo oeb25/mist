@@ -311,7 +311,7 @@ impl Type {
                     format!(" -> {}", f.return_ty(db).display(db))
                 };
 
-                format!("{attrs}fn{name}{params}{ret}")
+                format!("{attrs}fn{name}({params}){ret}")
             }
         };
         if self.is_ghost(db) {

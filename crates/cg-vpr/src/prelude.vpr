@@ -1,3 +1,8 @@
+domain ListToSet[T] {
+  function list_to_set(Seq[T]): Set[T]
+  function set_to_list(Set[T]): Seq[T]
+}
+
 domain Range {
   function range_from(x: Int): Range
   function range_to(x: Int): Range

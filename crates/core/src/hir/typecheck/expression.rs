@@ -492,7 +492,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 }
                 TDK::Builtin(kind, _) => {
                     match BuiltinField::try_create(tc, expr_ty, kind, field.as_str()) {
-                        Some(bf) => (Some(Field::Builtin(bf)), bf.ty()),
+                        Some(bf) => (Some(Field::Builtin(bf)), bf.ty(tc)),
                         None => {
                             return Left(expr_error(
                                 tc,

@@ -406,6 +406,51 @@ impl BodyLower<'_> {
                 v.name(self.db).to_string(),
                 args.iter().map(|s| self.operand_to_ref(s)).collect::<Result<_>>()?,
             ),
+            mir::Function::BuiltinMethod(bf) => match bf {
+                BuiltinField::List(_, lf) => match lf {
+                    ListField::Len => todo!(),
+                    ListField::ToSet => {
+                        let list = self.operand_to_ref(&args[0])?;
+                        Exp::new_func_app("list_to_set".to_string(), vec![list])
+                    }
+                },
+                BuiltinField::Set(_, sf) => match sf {
+                    SetField::Cardinality => todo!(),
+                    SetField::Contains => {
+                        let set = self.operand_to_ref(&args[0])?;
+                        let element = self.operand_to_ref(&args[1])?;
+                        Exp::new_set(SetExp::Bin {
+                            op: silvers::expression::SetBinOp::Contains,
+                            left: element,
+                            right: set,
+                        })
+                    }
+                    SetField::Union => {
+                        let a = self.operand_to_ref(&args[0])?;
+                        let b = self.operand_to_ref(&args[1])?;
+                        Exp::new_set(SetExp::Bin {
+                            op: silvers::expression::SetBinOp::Union,
+                            left: a,
+                            right: b,
+                        })
+                    }
+                    SetField::Intersection => {
+                        let a = self.operand_to_ref(&args[0])?;
+                        let b = self.operand_to_ref(&args[1])?;
+                        Exp::new_set(SetExp::Bin {
+                            op: silvers::expression::SetBinOp::Intersection,
+                            left: a,
+                            right: b,
+                        })
+                    }
+                    SetField::ToList => {
+                        let set = self.operand_to_ref(&args[0])?;
+                        Exp::new_func_app("set_to_list".to_string(), vec![set])
+                    }
+                },
+                BuiltinField::MultiSet(_, _) => todo!(),
+                BuiltinField::Range(_, _) => todo!(),
+            },
             mir::Function::Index => {
                 let base = self.operand_to_ref(&args[0])?;
                 let index = self.operand_to_ref(&args[1])?;
@@ -507,9 +552,21 @@ impl BodyLower<'_> {
                                 let exp = SeqExp::Length { s: base };
                                 self.allocs(exp)
                             }
+                            BuiltinField::List(_, ListField::ToSet) => {
+                                unreachable!()
+                            }
                             BuiltinField::Set(_, SetField::Cardinality) => {
                                 let exp = SetExp::Cardinality { s: base };
                                 self.allocs(exp)
+                            }
+                            BuiltinField::Set(
+                                _,
+                                SetField::Contains
+                                | SetField::Union
+                                | SetField::Intersection
+                                | SetField::ToList,
+                            ) => {
+                                unreachable!()
                             }
                             BuiltinField::MultiSet(_, MultiSetField::Cardinality) => {
                                 let exp = MultisetExp::Cardinality { s: base };

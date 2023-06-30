@@ -1,0 +1,83 @@
+pure struct FoldingTree {
+    places: Set[Place],
+}
+
+pure struct Place {
+    slot: int,
+    projection: [int],
+    fields: [int],
+}
+
+pure fn prefix(p: Place) -> Set[Place] {
+    if p.projection == [] {
+        [p].to_set()
+    } else {
+        let parent = Place {
+            slot: p.slot,
+            projection: p.projection[0..p.projection.len - 1],
+            fields: []
+        };
+        prefix(parent).union([p].to_set())
+    }
+}
+
+// invariant FoldingTree {
+//     forall(p) {
+//         if self.places.contains(p) {
+//             self.places.intersection(prefix(p)) == prefix(p)
+//         } else {
+//             true
+//         }
+//     }
+// }
+
+pure fn fields(p: Place) -> Set[Place] {
+    fields_helper(p, p.fields)
+}
+pure fn fields_helper(p: Place, fs: [int]) -> Set[Place] {
+    if fs == [] {
+        [].to_set()
+    } else {
+        let np = Place {
+            slot: p.slot,
+            projection: p.projection + [fs[0]],
+            fields: [],
+        };
+        [np].to_set().union(fields_helper(p, fs[1..]))
+    }
+}
+
+pure fn leaves(t: FoldingTree) -> Set[Place] {
+    leaves_helper(t, t.places.to_list())
+}
+pure fn leaves_helper(t: FoldingTree, ps: [Place]) -> Set[Place]
+    ens forall p in result { true }
+{
+    if ps == [] {
+        [].to_set()
+    } else {
+        let rest = leaves_helper(t, ps[1..]);
+        let p = ps[0];
+        if fields(p).intersection(t.places).cardinality == 0 {
+            [p].to_set().union(rest)
+        } else {
+            rest
+        }
+    }
+}
+
+pure fn unfold_(p: Place, t: FoldingTree) -> FoldingTree
+    req forall(p)
+        if t.places.contains(p) {
+            t.places.intersection(prefix(p)) == prefix(p)
+        } else {
+            true
+        }
+    req leaves(t).contains(p)
+    ens forall(f) { if fields(p).contains(f) { result.places.contains(f) } else { true } }
+    ens forall(f) { if fields(p).contains(f) { leaves(result).contains(f) } else { true } }
+{
+    FoldingTree {
+        places: t.places.union(fields(p))
+    }
+}

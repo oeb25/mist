@@ -7,8 +7,9 @@ use crate::{
     mir::{BodySourceMap, ItemMir, MirError, MirErrors, Operand, Projection, Slot},
     mono::{
         exprs::{
-            Block as MonoBlock, BuiltinExpr, Decreases, ExprData, ExprPtr, Field, ForExpr, IfExpr,
-            Let, QuantifierOver, StatementData, StatementPtr, VariablePtr, WhileExpr,
+            Block as MonoBlock, BuiltinExpr, Decreases, ExprData, ExprFunction, ExprPtr, Field,
+            ForExpr, IfExpr, Let, QuantifierOver, StatementData, StatementPtr, VariablePtr,
+            WhileExpr,
         },
         types::{Type, TypeData},
         Condition, Item, ItemKind,
@@ -645,8 +646,11 @@ impl MirLower<'_> {
             ExprData::If(it) => self.if_expr(&it, bid, target, dest, expr),
             ExprData::While(it) => self.while_expr(&it, bid),
             ExprData::For(it) => self.for_expr(&it, bid, expr),
-            ExprData::Call { expr: f_expr, args: input_args } => {
-                let (func, mut args) = self.expr_to_function(f_expr);
+            ExprData::Call { fun, args: input_args } => {
+                let (func, mut args) = match fun {
+                    ExprFunction::Expr(f_expr) => self.expr_to_function(f_expr),
+                    ExprFunction::Builtin(bf) => (Function::BuiltinMethod(bf), Vec::new()),
+                };
 
                 for arg in input_args {
                     let tmp = self.expr_into_operand(arg, &mut bid, None);
@@ -692,12 +696,12 @@ impl MirLower<'_> {
             }
             ExprData::Index { base, index } => {
                 let func = match index.ty().kind(self.db) {
-                    TypeData::Builtin(b) if b.kind(self.db) == BuiltinKind::List => {
+                    TypeData::Builtin(b) if b.kind(self.db) == BuiltinKind::Range => {
                         Function::RangeIndex
                     }
                     TypeData::Primitive(Primitive::Int) => Function::Index,
                     TypeData::Error => Function::Index,
-                    ty => todo!("tried to index with {ty:?}"),
+                    _ => todo!("tried to index with {}", index.ty().display(self.db)),
                 };
                 let base_s = self.expr_into_operand(base, &mut bid, None);
                 let index_s = self.expr_into_operand(index, &mut bid, None);

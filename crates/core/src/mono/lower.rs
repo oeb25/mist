@@ -11,8 +11,8 @@ use crate::{
 
 use super::{
     exprs::{
-        Block, BuiltinExpr, Decreases, ExprData, ExprDataWrapper, ExprPtr, Field, ForExpr, IfExpr,
-        QuantifierOver, StatementPtr, VariablePtr, WhileExpr,
+        Block, BuiltinExpr, Decreases, ExprData, ExprDataWrapper, ExprFunction, ExprPtr, Field,
+        ForExpr, IfExpr, QuantifierOver, StatementPtr, VariablePtr, WhileExpr,
     },
     types::{Adt, AdtField, AdtFieldKind, BuiltinType, FunctionType, Type, TypeData},
     Condition, Function, Item, ItemKind, Monomorphized,
@@ -165,10 +165,23 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
                     .collect(),
                 body: self.lower_expr(it.body),
             }),
-            hir::ExprData::Call { expr, args } => ExprData::Call {
-                expr: self.lower_expr(*expr),
-                args: args.iter().map(|expr| self.lower_expr(*expr)).collect(),
-            },
+            hir::ExprData::Call { expr, args } => {
+                let expr = self.lower_expr(*expr);
+                let (prefix_args, fun) = match expr.data(self.db) {
+                    ExprData::Field { expr, field: Field::Builtin(bf) } if bf.is_function() => {
+                        (vec![expr], ExprFunction::Builtin(bf))
+                    }
+                    ExprData::Ident(_) => (Vec::new(), ExprFunction::Expr(expr)),
+                    _ => (Vec::new(), ExprFunction::Expr(expr)),
+                };
+                ExprData::Call {
+                    fun,
+                    args: prefix_args
+                        .into_iter()
+                        .chain(args.iter().map(|expr| self.lower_expr(*expr)))
+                        .collect(),
+                }
+            }
             &hir::ExprData::Unary { op, inner } => {
                 ExprData::Unary { op, inner: self.lower_expr(inner) }
             }

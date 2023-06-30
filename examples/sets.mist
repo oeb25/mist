@@ -4,3 +4,11 @@ fn g() -> ghost int {
     let x = f();
     x.cardinality
 }
+
+fn h(s: Set[int]) -> Set[int] {
+    if s.contains(12) {
+        s
+    } else {
+        s.union(s)
+    }
+}

@@ -63,7 +63,7 @@ pub enum ExprData {
     If(IfExpr),
     While(WhileExpr),
     For(ForExpr),
-    Call { expr: ExprPtr, args: Vec<ExprPtr> },
+    Call { fun: ExprFunction, args: Vec<ExprPtr> },
     Unary { op: UnaryOp, inner: ExprPtr },
     Bin { lhs: ExprPtr, op: BinaryOp, rhs: ExprPtr },
     Ref { is_mut: bool, expr: ExprPtr },
@@ -75,6 +75,12 @@ pub enum ExprData {
     Return(Option<ExprPtr>),
     NotNull(ExprPtr),
     Builtin(BuiltinExpr),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ExprFunction {
+    Expr(ExprPtr),
+    Builtin(BuiltinField<Type>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -208,8 +214,11 @@ impl ExprPtr {
                 }
                 it.body.visit(db, f);
             }
-            ExprData::Call { expr, args } => {
-                expr.visit(db, f);
+            ExprData::Call { fun, args } => {
+                match fun {
+                    ExprFunction::Expr(expr) => expr.visit(db, f),
+                    ExprFunction::Builtin(_) => {}
+                }
                 for arg in args {
                     arg.visit(db, f);
                 }

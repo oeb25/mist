@@ -30,9 +30,9 @@ viperserver = { git = "https://github.com/oeb25/vipers.git" }
 insta = "1.29.0"
 proptest = "1.1.0"
 
-# [patch."https://github.com/oeb25/vipers.git"]
-# silvers = { path = "../vipers/silvers" }
-# viperserver = { path = "../vipers/server" }
+[patch."https://github.com/oeb25/vipers.git"]
+silvers = { path = "../vipers/silvers" }
+viperserver = { path = "../vipers/server" }
 
 [profile.release]
 debug = true

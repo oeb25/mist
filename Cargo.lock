@@ -2423,7 +2423,6 @@ dependencies = [
 [[package]]
 name = "silvers"
 version = "0.1.0"
-source = "git+https://github.com/oeb25/vipers.git#e81983cfe1c02e1ddee6c11540fb1ad0828aeee2"
 dependencies = [
  "derive-new",
  "derive_more",
@@ -3017,7 +3016,6 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 [[package]]
 name = "viperserver"
 version = "0.1.0"
-source = "git+https://github.com/oeb25/vipers.git#e81983cfe1c02e1ddee6c11540fb1ad0828aeee2"
 dependencies = [
  "command-group",
  "derive_builder",

@@ -5,7 +5,7 @@ use crate::{
     hir::{typecheck::TypeCheckErrorKind, Path, SpanOrAstPtr, TypeRef, TypeRefKind, TypeSrc},
     types::{
         primitive::{bool, error, int},
-        Adt, AdtKind, AdtPrototype, BuiltinKind, GenericArgs, Primitive, TypeData, TypeId,
+        Adt, AdtKind, AdtPrototype, BuiltinKind, Field, GenericArgs, Primitive, TypeData, TypeId,
         TypeProvider, TDK,
     },
     TypeCheckError,
@@ -65,6 +65,14 @@ pub(crate) trait TypingMutExt: TypingMut + Sized {
     fn lower_type(&mut self, ast_ty: &ast::Type) -> TypeSrc {
         let (_, _, ts) = lower_type_inner(self, ast_ty);
         ts
+    }
+
+    fn field_ty(&mut self, f: Field) -> TypeId {
+        match f {
+            Field::AdtField(af) => af.ty(),
+            Field::Builtin(bf) => bf.ty(self),
+            Field::Undefined => error(),
+        }
     }
 
     fn expect_find_type(&mut self, ty: &Option<ast::Type>) -> TypeId {
