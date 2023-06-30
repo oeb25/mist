@@ -37,6 +37,10 @@ pub fn let_stmt(p: &mut Parser) {
     p.start_node(LET_STMT, |p| {
         p.bump();
 
+        if p.at(T![mut]) {
+            p.bump();
+        }
+
         name(p);
 
         if p.at(T![:]) {

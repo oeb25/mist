@@ -65,7 +65,9 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
     pub(super) fn lower_var(&mut self, var: VariableIdx) -> VariablePtr {
         let ty = self.cx.var_ty(self.db, var);
         let decl = match self.cx.var_decl(var).kind() {
-            crate::VariableDeclarationKind::Let => Some(VariableDeclaration::Let),
+            crate::VariableDeclarationKind::Let { is_mut } => {
+                Some(VariableDeclaration::Let { is_mut })
+            }
             crate::VariableDeclarationKind::Parameter => Some(VariableDeclaration::Parameter),
             crate::VariableDeclarationKind::Function(f) => {
                 Some(VariableDeclaration::Function(self.lower_fn(f)))

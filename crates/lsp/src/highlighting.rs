@@ -216,14 +216,14 @@ impl<'src> Visitor for Highlighter<'src> {
         var: VariableIdx,
         span: SourceSpan,
     ) -> ControlFlow<()> {
-        use mist_core::VariableDeclarationKind::*;
+        use mist_core::VariableDeclarationKind as VDK;
 
         let decl = vcx.cx.decl(var);
         let tt = match decl.kind() {
-            Let => TT::Variable,
-            Parameter => TT::Parameter,
-            Function(_) => TT::Function,
-            Undefined => return ControlFlow::Continue(()),
+            VDK::Let { .. } => TT::Variable,
+            VDK::Parameter => TT::Parameter,
+            VDK::Function(_) => TT::Function,
+            VDK::Undefined => return ControlFlow::Continue(()),
         };
         self.push(span, tt, None);
 

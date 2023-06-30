@@ -146,7 +146,9 @@ impl<'a> Visitor for HoverFinder<'a> {
 
             break_code(
                 [match vcx.cx.decl(var).kind() {
-                    VariableDeclarationKind::Let => format!("let {name}: {ty}"),
+                    VariableDeclarationKind::Let { is_mut } => {
+                        format!("let{} {name}: {ty}", if is_mut { " mut" } else { "" })
+                    }
                     VariableDeclarationKind::Parameter => format!("{name}: {ty}"),
                     VariableDeclarationKind::Function(_) => ty,
                     VariableDeclarationKind::Undefined => name.to_string(),

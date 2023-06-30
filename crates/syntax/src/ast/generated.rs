@@ -1818,6 +1818,9 @@ impl LetStmt {
     pub fn let_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![let])
     }
+    pub fn mut_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T![mut])
+    }
     pub fn colon_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T ! [:])
     }

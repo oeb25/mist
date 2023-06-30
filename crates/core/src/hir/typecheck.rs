@@ -38,7 +38,7 @@ use super::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum VariableDeclarationKind {
-    Let,
+    Let { is_mut: bool },
     Parameter,
     Function(Function),
     Undefined,
@@ -52,10 +52,14 @@ pub struct VariableDeclaration {
 }
 
 impl VariableDeclaration {
-    pub(crate) fn new_let(name: ast::Name) -> Self {
+    pub(crate) fn new_let(name: ast::Name, is_mut: bool) -> Self {
         let name = name.into();
         let ast = AstPtr::new(&name);
-        VariableDeclaration { ast, name: name.into(), kind: VariableDeclarationKind::Let }
+        VariableDeclaration {
+            ast,
+            name: name.into(),
+            kind: VariableDeclarationKind::Let { is_mut },
+        }
     }
     pub(crate) fn new_param(name: ast::Name) -> Self {
         let name = name.into();
@@ -129,12 +133,16 @@ bitflags! {
     pub struct ScopeFlags: u32 {
         const NONE = 0b00;
         const GHOST = 0b01;
+        const PURE = 0b10;
     }
 }
 
 impl ScopeFlags {
     pub fn is_ghost(self) -> bool {
         self.contains(Self::GHOST)
+    }
+    pub fn is_pure(self) -> bool {
+        self.contains(Self::PURE)
     }
 }
 impl Default for ScopeFlags {
@@ -153,6 +161,9 @@ pub struct Scope {
 impl Scope {
     pub fn is_ghost(&self) -> bool {
         self.flags.is_ghost()
+    }
+    pub fn is_pure(&self) -> bool {
+        self.flags.is_pure()
     }
     pub fn insert(&mut self, name: Name, var: VariableIdx) {
         self.vars.insert(name, var);
@@ -233,9 +244,18 @@ impl<'a> TypeChecker<'a> {
             hir::DefKind::Struct(_) => false,
             hir::DefKind::StructField(_) => false,
         };
+        let is_pure = match def.kind(db) {
+            hir::DefKind::Function(f) => f.ast_node(db).attr_flags().is_pure(),
+            hir::DefKind::TypeInvariant(_) => true,
+            hir::DefKind::Struct(_) => false,
+            hir::DefKind::StructField(_) => false,
+        };
 
         if is_ghost {
             checker = checker.ghosted();
+        }
+        if is_pure {
+            checker.scope.flags |= ScopeFlags::PURE;
         }
 
         if let hir::DefKind::Function(f) = def.kind(db) {
@@ -459,10 +479,16 @@ impl<'a> TypeChecker<'a> {
                 .with_ghost(self, self.scope.is_ghost());
 
                 let var_ty = explicit_ty.unwrap_or_else(|| self.unsourced_ty(ty));
+                let is_mut = it.mut_token().is_some();
+                let var_ty = if self.scope.is_pure() && is_mut {
+                    var_ty.with_ghost(self, true)
+                } else {
+                    var_ty
+                };
                 let variable = if let Some(name) = it.name() {
                     let var_span = name.span();
                     Some(self.declare_variable(
-                        VariableDeclaration::new_let(name),
+                        VariableDeclaration::new_let(name, is_mut),
                         var_ty,
                         match it.ty() {
                             Some(ty) => SpanOrAstPtr::from(&ty),

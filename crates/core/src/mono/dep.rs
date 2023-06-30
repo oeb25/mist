@@ -265,7 +265,8 @@ impl GraphBuilder {
                                         self.dep(it, nit, level);
                                         self.queue(Queue::Item(nit));
                                     }
-                                    VariableDeclaration::Let | VariableDeclaration::Parameter => {}
+                                    VariableDeclaration::Let { .. }
+                                    | VariableDeclaration::Parameter => {}
                                 }
                             }
                         }

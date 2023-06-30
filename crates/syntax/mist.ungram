@@ -119,7 +119,7 @@ Stmt =
 | AssumeStmt
 
 LetStmt =
- 'let' Name (':' Type)?
+ 'let' 'mut'? Name (':' Type)?
  ('=' initializer:Expr)?
  ';'
 

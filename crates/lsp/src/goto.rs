@@ -67,7 +67,7 @@ pub fn find_references(
             match named {
                 hir::Named::Variable(var) => match hir.cx(db).decl(*var).kind() {
                     VariableDeclarationKind::Function(_) => {}
-                    VariableDeclarationKind::Let | VariableDeclarationKind::Parameter
+                    VariableDeclarationKind::Let { .. } | VariableDeclarationKind::Parameter
                         if def == named_def => {}
                     _ => return Either::Right([].into_iter()),
                 },

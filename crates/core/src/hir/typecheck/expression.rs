@@ -116,7 +116,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
             let variable = if let Some(name) = it.name() {
                 let ty = tc.unsourced_ty(int());
                 let span = name.span();
-                tc.declare_variable(VariableDeclaration::new_let(name), ty, span)
+                tc.declare_variable(VariableDeclaration::new_let(name, false), ty, span)
             } else {
                 return Left(tc.expr_error(
                     expr.span().set_len(0),
@@ -682,8 +682,11 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                     let ty = tc.unsourced_ty(ty);
                     let name = it.name().unwrap();
                     let name_span = name.span();
-                    let var_decl =
-                        tc.declare_variable(VariableDeclaration::new_let(name), ty, name_span);
+                    let var_decl = tc.declare_variable(
+                        VariableDeclaration::new_let(name, false),
+                        ty,
+                        name_span,
+                    );
                     let over_expr = check_opt(tc, it.span(), it.expr());
                     let range_ty =
                         tc.alloc_ty_data(TypeData::range(tc.db, ty.ty(tc.db)).kind.ghost());

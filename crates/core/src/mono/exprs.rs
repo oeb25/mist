@@ -41,7 +41,7 @@ pub struct VariablePtr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum VariableDeclaration {
     Function(Function),
-    Let,
+    Let { is_mut: bool },
     Parameter,
 }
 
