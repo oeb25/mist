@@ -313,6 +313,9 @@ impl TypeData<TypeId> {
     pub(crate) fn range(db: &dyn crate::Db, ty: TypeId) -> TypeData {
         Self::builtin(db, BuiltinKind::Range, &[ty])
     }
+    pub(crate) fn set(db: &dyn crate::Db, ty: TypeId) -> TypeData {
+        Self::builtin(db, BuiltinKind::Set, &[ty])
+    }
 }
 impl<T> From<TDK<T>> for TypeData<T> {
     fn from(kind: TDK<T>) -> Self {

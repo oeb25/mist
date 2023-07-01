@@ -688,8 +688,18 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                         name_span,
                     );
                     let over_expr = check_opt(tc, it.span(), it.expr());
-                    let range_ty =
-                        tc.alloc_ty_data(TypeData::range(tc.db, ty.ty(tc.db)).kind.ghost());
+
+                    let range_ty = match tc.ty_kind(tc.expr_ty(over_expr)) {
+                        TDK::Builtin(BuiltinKind::Range, _) => {
+                            tc.alloc_ty_data(TypeData::range(tc.db, ty.ty(tc.db)).kind.ghost())
+                        }
+                        TDK::Builtin(BuiltinKind::Set, _) => {
+                            tc.alloc_ty_data(TypeData::set(tc.db, ty.ty(tc.db)).kind.ghost())
+                        }
+                        // Fallback
+                        _ => tc.alloc_ty_data(TypeData::range(tc.db, ty.ty(tc.db)).kind.ghost()),
+                    };
+
                     tc.expect_ty((it.expr().as_ref(), name_span), range_ty, tc.expr_ty(over_expr));
                     QuantifierOver::In(var_decl, over_expr)
                 }

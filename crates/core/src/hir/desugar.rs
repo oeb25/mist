@@ -1,13 +1,13 @@
 use mist_syntax::ast::operators::{ArithOp, BinaryOp, LogicOp};
 
 use crate::{
-    hir::{IfExpr, Let},
+    hir::Let,
     types::primitive::{bool, int, void},
 };
 
 use super::{
-    Block, BuiltinExpr, Decreases, ExprData, ItemContext, Literal, QuantifierOver, Statement,
-    StatementData, WhileExpr,
+    Block, BuiltinExpr, Decreases, ExprData, ItemContext, Literal, Statement, StatementData,
+    WhileExpr,
 };
 
 pub fn desugar(db: &dyn crate::Db, cx: &mut ItemContext) {
@@ -19,9 +19,7 @@ pub fn desugar(db: &dyn crate::Db, cx: &mut ItemContext) {
         }
 
         match &expr.data {
-            ExprData::Quantifier { over: QuantifierOver::In(_, _), .. } | ExprData::For(_) => {
-                desugar_queue.push(eid)
-            }
+            ExprData::For(_) => desugar_queue.push(eid),
             _ => continue,
         }
     }
@@ -36,33 +34,6 @@ pub fn desugar(db: &dyn crate::Db, cx: &mut ItemContext) {
         }
 
         let new_eid = match cx.expr_arena[eid].data.clone() {
-            ExprData::Quantifier { quantifier, over: QuantifierOver::In(var, in_expr), expr } => {
-                let vars = vec![var];
-
-                let var_expr = alloc_expr!(ExprData::Ident(var), cx.var_ty(db, var));
-                let condition =
-                    alloc_expr!(ExprData::Builtin(BuiltinExpr::InRange(var_expr, in_expr)), bool());
-                let true_expr = alloc_expr!(ExprData::Literal(Literal::Bool(true)), bool());
-                let body_expr = alloc_expr!(
-                    ExprData::If(IfExpr {
-                        is_ghost: true,
-                        return_ty: bool(),
-                        condition,
-                        then_branch: expr,
-                        else_branch: Some(true_expr)
-                    }),
-                    bool()
-                );
-
-                alloc_expr!(
-                    ExprData::Quantifier {
-                        quantifier,
-                        over: QuantifierOver::Vars(vars),
-                        expr: body_expr
-                    },
-                    bool()
-                )
-            }
             ExprData::For(it) => {
                 // TODO: Alloc it.in_expr to a fresh local, in case it might not be pure
                 let var_min_expr =

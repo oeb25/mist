@@ -1,6 +1,19 @@
 domain ListToSet[T] {
-  function list_to_set(Seq[T]): Set[T]
-  function set_to_list(Set[T]): Seq[T]
+  function list_to_set(l: Seq[T]): Set[T]
+  function set_to_list(s: Set[T]): Seq[T]
+
+  axiom {
+    forall l: Seq[T] :: |l| >= |list_to_set(l)|
+  }
+  axiom {
+    forall l: Seq[T] :: forall e: T :: e in l == e in list_to_set(l)
+  }
+  axiom {
+    forall s: Set[T] :: |s| == |set_to_list(s)|
+  }
+  axiom {
+    forall s: Set[T] :: forall e: T :: e in s == e in set_to_list(s)
+  }
 }
 
 domain Range {

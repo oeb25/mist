@@ -1,3 +1,5 @@
+mod desugar;
+
 use std::collections::HashMap;
 
 use indexmap::IndexSet;
@@ -225,12 +227,15 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
             }),
         };
 
-        ExprPtr {
-            def: self.cx.def(),
-            id: expr_id,
-            ty: self.lower_ty(ty),
-            inner_data: ExprDataWrapper::new(self.db, data),
-        }
+        desugar::desugar_expr(
+            self.db,
+            ExprPtr {
+                def: self.cx.def(),
+                id: expr_id,
+                ty: self.lower_ty(ty),
+                inner_data: ExprDataWrapper::new(self.db, data),
+            },
+        )
     }
     fn lower_fn(&mut self, f: def::Function) -> Function {
         let attrs = f.attrs(self.db);
