@@ -70,4 +70,82 @@ impl<'db> Builder<'db> {
     pub fn field(&self, src: ExprPtr, expr: ExprPtr, field: Field) -> ExprPtr {
         self.alloc(src, field.ty(self.db), ExprData::Field { expr, field })
     }
+
+    pub(crate) fn quantifier(
+        &self,
+        src: ExprPtr,
+        quantifier: crate::hir::Quantifier,
+        over: crate::mono::exprs::QuantifierOver,
+        expr: ExprPtr,
+    ) -> ExprPtr {
+        self.alloc(src, Type::bool(self.db), ExprData::Quantifier { quantifier, over, expr })
+    }
 }
+
+#[doc(hidden = true)]
+pub mod prelude {
+    pub use mist_syntax::ast::operators::{ArithOp, BinaryOp, CmpOp, LogicOp, UnaryOp};
+
+    pub use crate::mono::exprs::{IfExpr, Let, StatementData};
+}
+
+#[doc(hidden = true)]
+#[macro_export]
+macro_rules! binary_op_ {
+    ($b:expr,$src:expr,$l:tt, $r:tt, $ty:expr, $op:expr) => {{
+        use $crate::mono::lower::builder::prelude::*;
+        let lhs = build!($b, $src, $l);
+        let rhs = build!($b, $src, $r);
+        $b.alloc($src, Type::int($b.db), ExprData::Bin { lhs, op: $op, rhs })
+    }};
+}
+pub use binary_op_ as binary_op;
+
+#[macro_export]
+macro_rules! build_ {
+    ($b:expr, $src:expr, $e:literal) => {
+        $b.lit($src, $e)
+    };
+    ($b:expr, $src:expr, $e:ident) => {
+        $e
+    };
+    ($b:expr, $src:expr, $l:tt + $r:tt) => {
+        $crate::mono::lower::builder::binary_op!($b, $src, $l, $r, Type::int($b.db), BinaryOp::ArithOp(ArithOp::Add))
+    };
+    ($b:expr, $src:expr, $l:tt = $r:tt) => {
+        $crate::mono::lower::builder::binary_op!($b, $src, $l, $r, Type::int($b.db), BinaryOp::Assignment)
+    };
+    ($b:expr, $src:expr, $l:tt || $r:tt) => {
+        $crate::mono::lower::builder::binary_op!($b, $src, $l, $r, Type::bool($b.db), BinaryOp::LogicOp(LogicOp::Or))
+    };
+    ($b:expr, $src:expr, $l:tt < $r:tt) => {
+        $crate::mono::lower::builder::binary_op!($b, $src, $l, $r, Type::bool($b.db), BinaryOp::lt())
+    };
+    ($b:expr, $src:expr, $l:tt <= $r:tt) => {
+        $crate::mono::lower::builder::binary_op!($b, $src, $l, $r, Type::bool($b.db), BinaryOp::le())
+    };
+    ($b:expr, $src:expr, $l:tt > $r:tt) => {
+        $crate::mono::lower::builder::binary_op!($b, $src, $l, $r, Type::bool($b.db), BinaryOp::gt())
+    };
+    ($b:expr, $src:expr, $l:tt >= $r:tt) => {
+        $crate::mono::lower::builder::binary_op!($b, $src, $l, $r, Type::bool($b.db), BinaryOp::ge())
+    };
+    ($b:expr, $src:expr, if $cond:tt { $then:tt }) => {{
+        use $crate::mono::lower::builder::prelude::*;
+        let if_expr = ExprData::If(IfExpr { condition: $cond, then_branch: $then, else_branch: None });
+        $b.alloc($src, Type::bool($b.db), if_expr)
+    }};
+    ($b:expr, $src:expr, if $cond:tt { $then:tt } else { $else:tt }) => {{
+        use $crate::mono::lower::builder::prelude::*;
+        let if_expr = ExprData::If(IfExpr { condition: $cond, then_branch: $then, else_branch: Some($else) });
+        $b.alloc($src, Type::bool($b.db), if_expr)
+    }};
+    ($b:expr, $src:expr, let $var:tt = $val:tt) => {{
+        use $crate::mono::lower::builder::prelude::*;
+        $b.stmt($src.def, StatementData::Let(Let { variable: Some($var), initializer: $val }))
+    }};
+    ($b:expr, $src:expr, { $($tt:tt)* }) => {
+        build!($b, $src, $($tt)*)
+    };
+}
+pub use build_ as build;

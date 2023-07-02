@@ -35,7 +35,7 @@ fn f() {
           let i: int = (0..10).min;
           while i < (0..10).max
             inv (0..10).min <= i
-            inv (0..10).min >= (0..10).max || i <= (0..10).max
+            inv (0..10).min > (0..10).max || i <= (0..10).max
           {
             {};
             i = i + 1;
