@@ -53,6 +53,7 @@ pub struct Jar(
     crate::mono::types::AdtField,
     crate::mono::types::FunctionType,
     crate::mono::exprs::ExprDataWrapper,
+    crate::mono::exprs::StatementDataWrapper,
     crate::mono::Function,
     crate::mono::monomorphized_items,
     crate::mono::Monomorphized,

@@ -23,7 +23,17 @@ fn check_gen_err(src: impl fmt::Display, f: impl FnOnce(String)) {
     miette::GraphicalReportHandler::new_themed(miette::GraphicalTheme::unicode_nocolor())
         .render_report(&mut out, err.as_ref())
         .unwrap();
-    f(out)
+    out = out.lines().map(|l| l.trim_end()).join("\n");
+
+    let leading_ws = out
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| l.find(|c: char| !c.is_whitespace()).unwrap_or(l.len()))
+        .min()
+        .unwrap_or(0);
+    let result =
+        out.lines().map(|l| if l.len() < leading_ws { l } else { &l[leading_ws..] }).join("\n");
+    f(result)
 }
 
 #[test]
@@ -81,11 +91,11 @@ fn compute() ens
 "#,
         expect!(@r###"
           × not yet implemented: tried to lower a block which should be stopped at
-           ╭─[5:1]
-         5 │     while true {}
-         6 │     0
+           ╭─[4:1]
+         4 │     while true {}
+         5 │     0
            ·     ─
-         7 │ }
+         6 │ }
            ╰────
         "###),
     )

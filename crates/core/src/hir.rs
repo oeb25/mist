@@ -1,5 +1,4 @@
 pub mod def;
-pub mod desugar;
 pub(crate) mod file_context;
 mod item_context;
 pub mod pretty;
@@ -35,7 +34,7 @@ pub(crate) fn lower_def(db: &dyn crate::Db, def: Def) -> Option<DefinitionHir> {
     match def.kind(db) {
         DefKind::Struct(_) => {
             let checker = TypeChecker::init(db, def);
-            Some(DefinitionHir::from_tc(db, checker))
+            Some(DefinitionHir::from_tc(checker))
         }
         DefKind::StructField(_) => None,
         DefKind::TypeInvariant(ty_inv) => {
@@ -49,7 +48,7 @@ pub(crate) fn lower_def(db: &dyn crate::Db, def: Def) -> Option<DefinitionHir> {
                 checker.set_return_ty(ret_ty);
                 checker.set_body_expr_from_block(body, ast_body);
             }
-            Some(DefinitionHir::from_tc(db, checker))
+            Some(DefinitionHir::from_tc(checker))
         }
         DefKind::Function(function) => {
             let mut checker = TypeChecker::init(db, def);
@@ -79,7 +78,7 @@ pub(crate) fn lower_def(db: &dyn crate::Db, def: Def) -> Option<DefinitionHir> {
                 }
                 checker.set_body_expr_from_block(body, ast_body);
             }
-            Some(DefinitionHir::from_tc(db, checker))
+            Some(DefinitionHir::from_tc(checker))
         }
     }
 }

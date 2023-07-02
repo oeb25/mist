@@ -39,7 +39,7 @@ invariant Test { self.field$0 == 5 }
         expect!(@r###"
         > struct Test
         ---
-        > field: int
+        > field: ghost int
         "###),
     );
 }
@@ -61,7 +61,7 @@ invariant[S] Test[S] { self.field$0 == 5 }
         expect!(@r###"
         > struct Test[S]
         ---
-        > field: S
+        > field: ghost S
         "###),
     );
     check_hover_at(
@@ -72,7 +72,7 @@ invariant Test[int] { self.field$0 == 5 }
         expect!(@r###"
         > struct Test[int]
         ---
-        > field: int
+        > field: ghost int
         "###),
     );
     check_hover_at(
@@ -83,7 +83,7 @@ invariant Test[Test[int]] { self.field$0 == 5 }
         expect!(@r###"
         > struct Test[Test[int]]
         ---
-        > field: Test[int]
+        > field: ghost Test[int]
         "###),
     );
 }

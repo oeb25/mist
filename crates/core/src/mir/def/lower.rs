@@ -8,8 +8,7 @@ use crate::{
     mono::{
         exprs::{
             Block as MonoBlock, BuiltinExpr, Decreases, ExprData, ExprFunction, ExprPtr, Field,
-            ForExpr, IfExpr, Let, QuantifierOver, StatementData, StatementPtr, VariablePtr,
-            WhileExpr,
+            ForExpr, IfExpr, Let, QuantifierOver, Statement, StatementData, VariablePtr, WhileExpr,
         },
         types::{Type, TypeData},
         Condition, Item, ItemKind,
@@ -339,7 +338,7 @@ impl MirLower<'_> {
             bid
         }
     }
-    fn stmt(&mut self, mut bid: BlockId, target: Option<BlockId>, stmt: StatementPtr) -> BlockId {
+    fn stmt(&mut self, mut bid: BlockId, target: Option<BlockId>, stmt: Statement) -> BlockId {
         match stmt.data(self.db) {
             StatementData::Expr(expr) => self.expr(expr, bid, target, Placement::Ignore),
             StatementData::Let(Let { variable, initializer }) => {
@@ -421,10 +420,10 @@ impl MirLower<'_> {
                     let len = |o| match o {
                         Operand::Copy(p) | Operand::Move(p) => p.project_deeper(
                             self.db,
-                            &[Projection::Field(
-                                Field::Builtin(BuiltinField::List(variant_ty, ListField::Len)),
+                            &[Projection::Field(Field::Builtin(
+                                BuiltinField::List(variant_ty, ListField::Len),
                                 Type::int(self.db),
-                            )],
+                            ))],
                         ),
                         Operand::Literal(_) => todo!(),
                     };
@@ -472,9 +471,8 @@ impl MirLower<'_> {
             ExprData::Field { expr: base, field, .. } => {
                 let (bid, place) = self.lhs_expr(base, bid, None);
                 match field {
-                    Field::AdtField(_, _) | Field::Builtin(_) => {
-                        let f_ty = expr.ty();
-                        (bid, place.project_deeper(self.db, &[Projection::Field(field, f_ty)]))
+                    Field::AdtField(_, _) | Field::Builtin(_, _) => {
+                        (bid, place.project_deeper(self.db, &[Projection::Field(field)]))
                     }
                     Field::Undefined => {
                         MirErrors::push(
@@ -576,12 +574,11 @@ impl MirLower<'_> {
                 self.block(&block, next_bid, target, dest)
             }
             ExprData::Field { expr: base, field } => match field {
-                Field::AdtField(_, _) | Field::Builtin(_) => {
+                Field::AdtField(_, _) | Field::Builtin(_, _) => {
                     let tmp = self.expr_into_operand(base, &mut bid, None);
                     if let Some(place) = tmp.place() {
-                        let f_ty = expr.ty();
                         let field_projection =
-                            place.project_deeper(self.db, &[Projection::Field(field, f_ty)]);
+                            place.project_deeper(self.db, &[Projection::Field(field)]);
                         self.put(
                             bid,
                             dest,

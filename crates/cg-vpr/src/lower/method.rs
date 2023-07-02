@@ -311,7 +311,7 @@ impl BodyLower<'_> {
             [] => {
                 insts.push(Stmt::LocalVarAssign { lhs: self.place_for_assignment(t)?, rhs });
             }
-            &[.., mir::Projection::Field(f, ty)] => {
+            &[.., mir::Projection::Field(f)] => {
                 match f {
                     Field::AdtField(adt, af) => insts.push(Stmt::FieldAssign {
                         lhs: FieldAccess::new(
@@ -319,12 +319,12 @@ impl BodyLower<'_> {
                             VField::new(
                                 mangle::mangled_adt_field(self.db, adt, af),
                                 // TODO: should we respect the extra constraints in such a scenario?
-                                self.lower_type(ty)?.vty,
+                                self.lower_type(af.ty(self.db))?.vty,
                             ),
                         ),
                         rhs,
                     }),
-                    Field::Builtin(_) | Field::Undefined => {}
+                    Field::Builtin(_, _) | Field::Undefined => {}
                 };
             }
             &[mir::Projection::Index(index, _)] => {
@@ -334,7 +334,7 @@ impl BodyLower<'_> {
                 let lhs = self.place_for_assignment(t.without_projection(self.db))?;
                 insts.push(Stmt::LocalVarAssign { lhs, rhs: new_rhs })
             }
-            &[.., mir::Projection::Field(f, ty), mir::Projection::Index(index, _)] => {
+            &[.., mir::Projection::Field(f), mir::Projection::Index(index, _)] => {
                 let idx = self.place_to_ref(index.place(self.db, self.ib))?;
                 let parent = t.parent(self.db).unwrap();
                 let grand_parent = parent.parent(self.db).unwrap();
@@ -347,12 +347,12 @@ impl BodyLower<'_> {
                             VField::new(
                                 mangle::mangled_adt_field(self.db, adt, af),
                                 // TODO: should we respect the extra constraints in such a scenario?
-                                self.lower_type(ty)?.vty,
+                                self.lower_type(af.ty(self.db))?.vty,
                             ),
                         );
                         insts.push(Stmt::FieldAssign { lhs, rhs: new_rhs });
                     }
-                    Field::Builtin(_) | Field::Undefined => {}
+                    Field::Builtin(_, _) | Field::Undefined => {}
                 }
             }
             _ => todo!(),

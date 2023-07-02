@@ -279,3 +279,15 @@ impl Let {
         source_map.ty_ast((&ast.ty()?).into())
     }
 }
+
+impl From<bool> for Literal {
+    fn from(value: bool) -> Self {
+        Literal::Bool(value)
+    }
+}
+
+impl From<i64> for Literal {
+    fn from(value: i64) -> Self {
+        Literal::Int(value)
+    }
+}

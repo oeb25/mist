@@ -6,6 +6,7 @@ use crate::{
     def::{Def, DefKind},
     file::SourceFile,
     mono::{
+        exprs::ExprPtr,
         lower::MonoDefLower,
         types::{Adt, Type},
     },
@@ -72,6 +73,21 @@ impl Fixture {
         Def::new(db, DefKind::new(db, ast_id).unwrap())
     }
 
+    pub fn expr_at(&self, db: &dyn crate::Db, m: Marker) -> ExprPtr {
+        let def = self.def_at(db, m);
+        let hir = def.hir(db).unwrap();
+        let cx = hir.cx(db);
+        let mut mdl = MonoDefLower::new(db, cx);
+
+        let token = self.token_at(db, m);
+
+        if let Some(expr_ast) = token.parent_ancestors().find_map(ast::Expr::cast) {
+            let expr = hir.source_map(db).expr_ast((&expr_ast).into()).unwrap();
+            mdl.lower_expr(expr)
+        } else {
+            todo!()
+        }
+    }
     pub fn type_at(&self, db: &dyn crate::Db, m: Marker) -> Type {
         let def = self.def_at(db, m);
         let hir = def.hir(db).unwrap();

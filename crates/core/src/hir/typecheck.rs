@@ -31,7 +31,6 @@ use crate::{
 pub(crate) use typing::{NamedType, TypingMut, TypingMutExt};
 
 use super::{
-    desugar,
     item_context::{FunctionContext, SpanOrAstPtr},
     ItemContext, ItemSourceMap, Let, StatementId, TypeSrc,
 };
@@ -189,14 +188,13 @@ pub(crate) struct TypeChecker<'w> {
 }
 
 impl hir::DefinitionHir {
-    pub(crate) fn from_tc(db: &dyn crate::Db, mut tc: TypeChecker<'_>) -> Self {
+    pub(crate) fn from_tc(mut tc: TypeChecker<'_>) -> Self {
         let (type_data, adt_prototypes, adt_instantiations) = tc.typer.canonicalized();
         tc.cx.ty_table = Some(Arc::new(TypeTable::new(
             type_data.collect_vec(),
             adt_prototypes.iter().map(|(k, v)| (k, v.clone())),
             adt_instantiations.clone(),
         )));
-        desugar::desugar(db, &mut tc.cx);
 
         hir::DefinitionHir::new(tc.db, tc.cx.def(), tc.cx, tc.source_map)
     }

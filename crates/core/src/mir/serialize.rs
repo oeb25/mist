@@ -209,7 +209,7 @@ impl<'db, A: Fn(InBlock<Action>) -> Option<String>> Serializer<'db, A> {
             self.slot(s.slot());
             for p in s.projection_iter(self.db) {
                 match p {
-                    Projection::Field(f, _) => {
+                    Projection::Field(f) => {
                         let name = &f.name(self.db);
                         w!(self, Default, ".{name}");
                     }

@@ -1,3 +1,4 @@
+mod builder;
 mod desugar;
 
 use std::collections::HashMap;
@@ -14,7 +15,8 @@ use crate::{
 use super::{
     exprs::{
         Block, BuiltinExpr, Decreases, ExprData, ExprDataWrapper, ExprFunction, ExprPtr, Field,
-        ForExpr, IfExpr, QuantifierOver, StatementPtr, VariablePtr, WhileExpr,
+        ForExpr, IfExpr, Let, QuantifierOver, Statement, StatementData, StatementDataWrapper,
+        VariablePtr, WhileExpr,
     },
     types::{Adt, AdtField, AdtFieldKind, BuiltinType, FunctionType, Type, TypeData},
     Condition, Function, Item, ItemKind, Monomorphized,
@@ -78,7 +80,7 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
         };
         VariablePtr { def: self.cx.def(), id: var, ty: self.lower_ty(ty), decl }
     }
-    pub(super) fn lower_expr(&mut self, expr_id: ExprIdx) -> ExprPtr {
+    pub(crate) fn lower_expr(&mut self, expr_id: ExprIdx) -> ExprPtr {
         let ty = self.cx.expr_ty(expr_id);
 
         let expr = self.cx.expr(expr_id);
@@ -91,31 +93,58 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
                 stmts: it
                     .stmts
                     .iter()
-                    .map(|stmt| StatementPtr { def: self.cx.def(), id: *stmt })
+                    .map(|stmt| {
+                        let data = match &self.cx[*stmt].data {
+                            hir::StatementData::Expr(expr) => {
+                                StatementData::Expr(self.lower_expr(*expr))
+                            }
+                            hir::StatementData::Let(it) => StatementData::Let(Let {
+                                variable: it.variable.map(|var| self.lower_var(var)),
+                                initializer: self.lower_expr(it.initializer),
+                            }),
+                            hir::StatementData::Assertion { kind, exprs } => {
+                                StatementData::Assertion {
+                                    kind: *kind,
+                                    exprs: exprs
+                                        .iter()
+                                        .map(|expr| self.lower_expr(*expr))
+                                        .collect(),
+                                }
+                            }
+                        };
+
+                        Statement {
+                            def: self.cx.def(),
+                            inner_data: StatementDataWrapper::new(self.db, data),
+                        }
+                    })
                     .collect(),
                 tail_expr: it.tail_expr.map(|expr| self.lower_expr(expr)),
             }),
-            hir::ExprData::Field { expr, field } => ExprData::Field {
-                expr: self.lower_expr(*expr),
-                field: match field {
-                    crate::types::Field::AdtField(adt_field) => {
-                        let adt = self.lower_adt(adt_field.adt());
-                        let kind = match adt_field.kind() {
-                            crate::types::AdtFieldKind::StructField(sf) => {
-                                AdtFieldKind::StructField(sf)
-                            }
-                        };
-                        let ty = self.lower_ty(adt_field.ty());
-                        let adt_field =
-                            AdtField::new(self.db, adt, adt_field.name(self.db), kind, ty);
-                        Field::AdtField(adt, adt_field)
-                    }
-                    crate::types::Field::Builtin(bf) => {
-                        Field::Builtin(bf.map(|ty| self.lower_ty(*ty)))
-                    }
-                    crate::types::Field::Undefined => Field::Undefined,
-                },
-            },
+            hir::ExprData::Field { expr, field } => {
+                let expr = self.lower_expr(*expr);
+                ExprData::Field {
+                    expr,
+                    field: match field {
+                        crate::types::Field::AdtField(adt_field) => {
+                            let adt = self.lower_adt(adt_field.adt());
+                            let kind = match adt_field.kind() {
+                                crate::types::AdtFieldKind::StructField(sf) => {
+                                    AdtFieldKind::StructField(sf)
+                                }
+                            };
+                            let ty = self.lower_ty(adt_field.ty());
+                            let adt_field =
+                                AdtField::new(self.db, adt, adt_field.name(self.db), kind, ty);
+                            Field::AdtField(adt, adt_field)
+                        }
+                        crate::types::Field::Builtin(bf) => {
+                            Field::Builtin(bf.map(|ty| self.lower_ty(*ty)), expr.ty())
+                        }
+                        crate::types::Field::Undefined => Field::Undefined,
+                    },
+                }
+            }
             hir::ExprData::Adt { adt, fields } => {
                 let adt = self.lower_adt(*adt);
                 ExprData::Adt {
@@ -170,7 +199,7 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
             hir::ExprData::Call { expr, args } => {
                 let expr = self.lower_expr(*expr);
                 let (prefix_args, fun) = match expr.data(self.db) {
-                    ExprData::Field { expr, field: Field::Builtin(bf) } if bf.is_function() => {
+                    ExprData::Field { expr, field: Field::Builtin(bf, _) } if bf.is_function() => {
                         (vec![expr], ExprFunction::Builtin(bf))
                     }
                     ExprData::Ident(_) => (Vec::new(), ExprFunction::Expr(expr)),

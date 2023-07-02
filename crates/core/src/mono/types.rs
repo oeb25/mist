@@ -192,11 +192,17 @@ impl Type {
     pub fn error(db: &dyn crate::Db) -> Type {
         Type::new(db, false, TypeData::Error)
     }
+    pub fn void(db: &dyn crate::Db) -> Type {
+        Type::new(db, false, TypeData::Void)
+    }
     pub fn bool(db: &dyn crate::Db) -> Type {
         Type::new(db, false, TypeData::Primitive(Primitive::Bool))
     }
     pub fn int(db: &dyn crate::Db) -> Type {
         Type::new(db, false, TypeData::Primitive(Primitive::Int))
+    }
+    pub fn null(db: &dyn crate::Db) -> Type {
+        Type::new(db, false, TypeData::Null)
     }
 
     pub fn is_error(&self, db: &dyn crate::Db) -> bool {

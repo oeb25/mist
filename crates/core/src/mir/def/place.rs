@@ -77,7 +77,7 @@ impl Place {
 
     pub fn replace_projection(&self, db: &dyn crate::Db, projection: ProjectionList) -> Place {
         match projection.last(db) {
-            Some(p) => Place::new(self.slot, Some(projection), p.ty()),
+            Some(p) => Place::new(self.slot, Some(projection), p.ty(db)),
             None => Place::new(self.slot, None, self.ty),
         }
     }
@@ -105,7 +105,7 @@ impl Place {
 
     pub(super) fn nested_places(self, db: &dyn crate::Db) -> impl Iterator<Item = Place> + '_ {
         self.projection_iter(db).filter_map(|pj| match pj {
-            Projection::Field(_, _) => None,
+            Projection::Field(_) => None,
             Projection::Index(s, ty) => Some(Place::new(s, None, ty)),
         })
     }
@@ -117,7 +117,7 @@ impl Place {
             let projection = self
                 .projection_iter(db)
                 .map(|p| match p {
-                    Projection::Field(f, _) => {
+                    Projection::Field(f) => {
                         let name = f.name(db);
                         format!(".{name}")
                     }
@@ -153,7 +153,7 @@ pub struct ProjectionList {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Projection {
-    Field(Field, Type),
+    Field(Field),
     Index(SlotId, Type),
 }
 impl Projection {
@@ -162,9 +162,9 @@ impl Projection {
         ProjectionList::new(db, Vec::new())
     }
 
-    pub fn ty(self) -> Type {
+    pub fn ty(self, db: &dyn crate::Db) -> Type {
         match self {
-            Projection::Field(_, ty) => ty,
+            Projection::Field(f) => f.ty(db),
             Projection::Index(_, ty) => ty,
         }
     }

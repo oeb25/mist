@@ -38,7 +38,7 @@ impl FoldingForrest {
             .iter()
             .map(|(slot, ft)| {
                 let new_ft = ft.map_edges(|e| match e.last(db) {
-                    Some(mir::Projection::Field(f, _)) => {
+                    Some(mir::Projection::Field(f)) => {
                         format!(".{}", f.name(db))
                     }
                     Some(mir::Projection::Index(idx, _)) => format!(
@@ -369,11 +369,10 @@ mod test {
              ctx in Just(ctx)
             )
             (field in prop::sample::select(adt.fields(ctx.db())),
-             adt in Just(adt),
-             ctx in Just(ctx))
+             adt in Just(adt))
             -> Projection
         {
-            Projection::Field(Field::AdtField(adt, field), field.ty(ctx.db()))
+            Projection::Field(Field::AdtField(adt, field))
         }
     }
     prop_compose! {

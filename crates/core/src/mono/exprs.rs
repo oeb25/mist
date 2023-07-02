@@ -1,4 +1,6 @@
-use itertools::Either;
+use std::fmt;
+
+use itertools::{Either, Itertools};
 use mist_syntax::ast::{
     self,
     operators::{BinaryOp, UnaryOp},
@@ -6,14 +8,11 @@ use mist_syntax::ast::{
 
 use crate::{
     def::{Def, Name},
-    hir::{
-        self, AssertionKind, ExprIdx, Literal, Quantifier, SpanOrAstPtr, StatementId, VariableIdx,
-    },
+    hir::{AssertionKind, ExprIdx, Literal, Quantifier, SpanOrAstPtr, VariableIdx},
     types::BuiltinField,
 };
 
 use super::{
-    lower::MonoDefLower,
     types::{Adt, AdtField, Type},
     Function,
 };
@@ -46,9 +45,20 @@ pub enum VariableDeclaration {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct StatementPtr {
+pub struct Statement {
     pub(super) def: Def,
-    pub(super) id: StatementId,
+    pub(super) inner_data: StatementDataWrapper,
+}
+#[salsa::interned]
+pub struct StatementDataWrapper {
+    data: StatementData,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum StatementData {
+    Expr(ExprPtr),
+    Let(Let),
+    Assertion { kind: AssertionKind, exprs: Vec<ExprPtr> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -87,7 +97,7 @@ pub enum ExprFunction {
 pub enum Field {
     Undefined,
     AdtField(Adt, AdtField),
-    Builtin(BuiltinField<Type>),
+    Builtin(BuiltinField<Type>, Type),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -103,7 +113,7 @@ pub enum BuiltinExpr {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Block {
-    pub stmts: Vec<StatementPtr>,
+    pub stmts: Vec<Statement>,
     pub tail_expr: Option<ExprPtr>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -135,13 +145,6 @@ pub enum Decreases {
     Inferred,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum StatementData {
-    Expr(ExprPtr),
-    Let(Let),
-    Assertion { kind: AssertionKind, exprs: Vec<ExprPtr> },
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Let {
     pub variable: Option<VariablePtr>,
@@ -162,7 +165,7 @@ impl ExprPtr {
     pub fn data(&self, db: &dyn crate::Db) -> ExprData {
         self.inner_data.data(db)
     }
-    pub fn visit(self, db: &dyn crate::Db, f: &mut impl FnMut(Either<ExprPtr, StatementPtr>)) {
+    pub fn visit(self, db: &dyn crate::Db, f: &mut impl FnMut(Either<ExprPtr, Statement>)) {
         use Either::*;
 
         f(Left(self));
@@ -273,6 +276,119 @@ impl ExprPtr {
             },
         }
     }
+    pub fn display(self, db: &dyn crate::Db) -> impl fmt::Display {
+        match self.data(db) {
+            ExprData::Literal(l) => l.to_string(),
+            ExprData::Self_ => "self".to_string(),
+            ExprData::Ident(var) => var.name(db).to_string(),
+            ExprData::Field { expr, field } => {
+                format!("{}.{}", expr.display(db), field.name(db))
+            }
+            ExprData::Adt { adt, fields } => {
+                let fields = fields
+                    .iter()
+                    .map(|(f, v)| format!("{}: {}", f.name(db), v.display(db)))
+                    .format(", ");
+                format!("{} {{ {fields} }}", adt.display(db))
+            }
+            ExprData::Missing => todo!(),
+            ExprData::Block(b) => {
+                if b.stmts.is_empty() && b.tail_expr.is_none() {
+                    "{}".to_string()
+                } else {
+                    format!(
+                        "{{\n{}\n}}",
+                        b.stmts
+                            .iter()
+                            .map(|s| s.display(db).to_string())
+                            .chain(b.tail_expr.map(|e| e.display(db).to_string()))
+                            .join("\n")
+                            .lines()
+                            .map(|l| format!("  {l}"))
+                            .format("\n")
+                    )
+                }
+            }
+            ExprData::If(it) => format!(
+                "if {} {}{}",
+                it.condition.display(db),
+                it.then_branch.display(db),
+                if let Some(e) = it.else_branch {
+                    format!(" else {}", e.display(db))
+                } else {
+                    String::new()
+                }
+            ),
+            ExprData::While(w) => {
+                let cond_and_stuff =
+                    [w.expr.display(db).to_string()]
+                        .into_iter()
+                        .chain(w.invariants.iter().flat_map(|invs| {
+                            invs.iter().map(|inv| format!("inv {}", inv.display(db)))
+                        }))
+                        .format("\n  ");
+                let body = w.body.display(db);
+                format!("while {cond_and_stuff}\n{body}")
+            }
+            ExprData::For(_) => todo!(),
+            ExprData::Call { fun, args } => {
+                let fun = fun.display(db);
+                let args = args.iter().map(|arg| arg.display(db)).format(", ");
+                format!("{fun}({args})")
+            }
+            ExprData::Unary { op, inner } => format!("{op}{}", inner.display(db)),
+            ExprData::Bin { lhs, op, rhs } => {
+                format!("{} {op} {}", lhs.display(db), rhs.display(db))
+            }
+            ExprData::Ref { is_mut, expr } => {
+                if is_mut {
+                    format!("&mut {}", expr.display(db))
+                } else {
+                    format!("&{}", expr.display(db))
+                }
+            }
+            ExprData::Index { base, index } => {
+                format!("{}[{}]", base.display(db), index.display(db))
+            }
+            ExprData::List { elems } => {
+                format!("[{}]", elems.iter().map(|e| e.display(db)).format(", "))
+            }
+            ExprData::Quantifier { quantifier, over, expr } => match over {
+                QuantifierOver::Vars(vars) => {
+                    format!(
+                        "{quantifier}({}) {{ {} }}",
+                        vars.iter()
+                            .map(|var| format!("{}: {}", var.name(db), var.ty().display(db)))
+                            .format(", "),
+                        expr.display(db)
+                    )
+                }
+                QuantifierOver::In(var, in_expr) => {
+                    format!(
+                        "{quantifier} {} in {} {{ {} }}",
+                        var.name(db),
+                        in_expr.display(db),
+                        expr.display(db)
+                    )
+                }
+            },
+            ExprData::Result => todo!(),
+            ExprData::Range { lhs, rhs } => {
+                format!(
+                    "({}..{})",
+                    lhs.map(|lhs| lhs.display(db).to_string()).unwrap_or_default(),
+                    rhs.map(|rhs| rhs.display(db).to_string()).unwrap_or_default()
+                )
+            }
+            ExprData::Return(_) => todo!(),
+            ExprData::NotNull(_) => todo!(),
+            ExprData::Builtin(bi) => match bi {
+                BuiltinExpr::RangeMin(e) => format!("{}.min", e.display(db)),
+                BuiltinExpr::RangeMax(e) => format!("{}.max", e.display(db)),
+                BuiltinExpr::InRange(i, r) => format!("{} in {}", i.display(db), r.display(db)),
+            },
+        }
+    }
 }
 
 impl VariablePtr {
@@ -287,27 +403,14 @@ impl VariablePtr {
     }
 }
 
-impl StatementPtr {
-    pub fn id(&self) -> (Def, StatementId) {
-        (self.def, self.id)
+impl Statement {
+    pub fn def(&self) -> Def {
+        self.def
     }
     pub fn data(&self, db: &dyn crate::Db) -> StatementData {
-        let cx = self.def.hir(db).unwrap().cx(db);
-        let mut mdl = MonoDefLower::new(db, cx);
-
-        match &cx[self.id].data {
-            hir::StatementData::Expr(expr) => StatementData::Expr(mdl.lower_expr(*expr)),
-            hir::StatementData::Let(it) => StatementData::Let(Let {
-                variable: it.variable.map(|var| mdl.lower_var(var)),
-                initializer: mdl.lower_expr(it.initializer),
-            }),
-            hir::StatementData::Assertion { kind, exprs } => StatementData::Assertion {
-                kind: *kind,
-                exprs: exprs.iter().map(|expr| mdl.lower_expr(*expr)).collect(),
-            },
-        }
+        self.inner_data.data(db)
     }
-    pub fn visit(self, db: &dyn crate::Db, f: &mut impl FnMut(Either<ExprPtr, StatementPtr>)) {
+    pub fn visit(self, db: &dyn crate::Db, f: &mut impl FnMut(Either<ExprPtr, Statement>)) {
         use Either::*;
 
         f(Right(self));
@@ -323,6 +426,20 @@ impl StatementPtr {
             }
         }
     }
+    pub fn display(self, db: &dyn crate::Db) -> impl fmt::Display {
+        match self.data(db) {
+            StatementData::Expr(e) => format!("{};", e.display(db)),
+            StatementData::Let(l) => format!(
+                "let {}: {} = {};",
+                l.variable.map(|var| var.name(db).to_string()).unwrap_or_else(|| "??".to_string()),
+                l.initializer.ty().display(db),
+                l.initializer.display(db),
+            ),
+            StatementData::Assertion { kind, exprs } => {
+                format!("{kind} {};", exprs.iter().map(|e| e.display(db)).format(", "))
+            }
+        }
+    }
 }
 
 impl Field {
@@ -330,10 +447,26 @@ impl Field {
         match self {
             Field::Undefined => Name::new("<undefined field>"),
             Field::AdtField(_, f) => f.name(db),
-            Field::Builtin(bf) => bf.name(),
+            Field::Builtin(bf, _) => bf.name(),
         }
     }
     pub fn from_adt_field(db: &dyn crate::Db, adt_field: AdtField) -> Field {
         Field::AdtField(adt_field.adt(db), adt_field)
+    }
+    pub fn ty(self, db: &dyn crate::Db) -> Type {
+        match self {
+            Field::Undefined => Type::error(db),
+            Field::AdtField(_, f) => f.ty(db),
+            Field::Builtin(_, ty) => ty,
+        }
+    }
+}
+
+impl ExprFunction {
+    fn display(&self, db: &dyn crate::Db) -> impl fmt::Display {
+        match self {
+            ExprFunction::Expr(e) => e.display(db).to_string(),
+            ExprFunction::Builtin(b) => b.name().to_string(),
+        }
     }
 }

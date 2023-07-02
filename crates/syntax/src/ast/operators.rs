@@ -27,6 +27,7 @@ pub enum BinaryOp {
     LogicOp(LogicOp),
     CmpOp(CmpOp),
     ArithOp(ArithOp),
+    #[display(fmt = "=")]
     Assignment,
 }
 

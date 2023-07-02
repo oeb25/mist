@@ -545,9 +545,9 @@ impl BodyLower<'_> {
 
         p.projection_iter(self.db).try_fold(id, |base, proj| -> Result<_> {
             Ok(match proj {
-                mir::Projection::Field(f, ty) => {
+                mir::Projection::Field(f) => {
                     match f {
-                        Field::Builtin(bf) => match bf {
+                        Field::Builtin(bf, _) => match bf {
                             BuiltinField::List(_, ListField::Len) => {
                                 let exp = SeqExp::Length { s: base };
                                 self.allocs(exp)
@@ -595,7 +595,7 @@ impl BodyLower<'_> {
                                 VField::new(
                                     mangle::mangled_adt_field(self.db, adt, af),
                                     // TODO: Should we look at the contraints?
-                                    self.lower_type(ty)?.vty,
+                                    self.lower_type(af.ty(self.db))?.vty,
                                 )
                                 .access_exp(base)
                             };

@@ -120,13 +120,8 @@ fn pure_struct(
             let safe = l.begin_scope(inv, |l| {
                 for (adt_field, init_var) in adt.fields(l.db).into_iter().zip(init_vars[1..].iter())
                 {
-                    let field_place = self_place.project_deeper(
-                        l.db,
-                        &[mir::Projection::Field(
-                            adt_field.into_field(db),
-                            adt_field.ty(l.db).ghosted(l.db),
-                        )],
-                    );
+                    let field_place = self_place
+                        .project_deeper(l.db, &[mir::Projection::Field(adt_field.into_field(db))]);
                     let init_exp = l.allocs(Exp::AbstractLocalVar(AbstractLocalVar::LocalVar(
                         init_var.clone().into(),
                     )));

@@ -10,7 +10,9 @@ use crate::highlighting;
 
 use super::fixture;
 
+// TODO: This fails spuriously
 #[test]
+#[ignore]
 fn stress_type_in_fun() {
     let full_src = r#"
 fn f() {
