@@ -44,7 +44,7 @@ pub enum TerminatorKind {
     Call { func: Function, args: Vec<Operand>, destination: Place, target: Option<BlockId> },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Operand {
     Copy(Place),
     Move(Place),
@@ -80,7 +80,7 @@ pub enum BorrowKind {
     Mutable,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MExpr {
     Use(Operand),
     Ref(BorrowKind, Place),

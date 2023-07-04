@@ -2,6 +2,7 @@ pub mod dot;
 
 use std::fmt;
 
+use itertools::EitherOrBoth;
 use la_arena::{Arena, ArenaMap, Idx};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -184,6 +185,26 @@ impl<IDX: IdxWrap, V> IdxMap<IDX, V> {
     }
     pub fn entry(&mut self, idx: IDX) -> la_arena::Entry<Idx<IDX::Inner>, V> {
         self.0.entry(idx.into_idx())
+    }
+    pub fn zip<'a, W>(
+        &'a self,
+        other: &'a IdxMap<IDX, W>,
+    ) -> impl Iterator<Item = (IDX, EitherOrBoth<&'a V, &'a W>)> {
+        self.iter()
+            .map(|(k, v)| {
+                if let Some(w) = other.get(k) {
+                    (k, EitherOrBoth::Both(v, w))
+                } else {
+                    (k, EitherOrBoth::Left(v))
+                }
+            })
+            .chain(other.iter().filter_map(|(k, w)| {
+                if self.get(k).is_some() {
+                    None
+                } else {
+                    Some((k, EitherOrBoth::Right(w)))
+                }
+            }))
     }
 }
 

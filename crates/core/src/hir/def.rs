@@ -125,7 +125,7 @@ pub enum BuiltinExpr {
     RangeMax(ExprIdx),
     InRange(ExprIdx, ExprIdx),
 }
-#[derive(Debug, Display, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Literal {
     #[display(fmt = "null")]
     Null,
