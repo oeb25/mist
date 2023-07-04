@@ -236,7 +236,7 @@ impl MirLower<'_> {
                 self.alloc_instruction(source, bid, Instruction::Assign(slot, expr));
             }
             Placement::IntoOperand(ty, u) => match &expr {
-                MExpr::Use(op) => *u = Some(op.clone()),
+                MExpr::Use(op) => *u = Some(*op),
                 // TODO: Maybe something different should happen for ref
                 MExpr::Ref(_, _) | MExpr::BinaryOp(_, _, _) | MExpr::UnaryOp(_, _) => {
                     let tmp = self.alloc_tmp(ty);
@@ -368,8 +368,8 @@ impl MirLower<'_> {
 
         let mut assertions = vec![];
 
-        let a = || last_variant_operand.clone();
-        let b = || Operand::Move(initial_variant);
+        let a = last_variant_operand;
+        let b = Operand::Move(initial_variant);
 
         let variant_ty = variant.ty();
         match variant_ty.kind(self.db) {
@@ -380,34 +380,34 @@ impl MirLower<'_> {
             TypeData::Optional(_) => {
                 assertions.push(MExpr::BinaryOp(
                     BinaryOp::eq(),
-                    a(),
+                    a,
                     Operand::Literal(hir::Literal::Null),
                 ));
                 assertions.push(MExpr::BinaryOp(
                     BinaryOp::ne(),
-                    b(),
+                    b,
                     Operand::Literal(hir::Literal::Null),
                 ));
             }
             // a <_ b <==> a < b && 0 <= b
             TypeData::Primitive(Primitive::Int) => {
-                assertions.push(MExpr::BinaryOp(BinaryOp::lt(), a(), b()));
+                assertions.push(MExpr::BinaryOp(BinaryOp::lt(), a, b));
                 assertions.push(MExpr::BinaryOp(
                     BinaryOp::le(),
                     Operand::Literal(hir::Literal::Int(0)),
-                    b(),
+                    b,
                 ));
             }
             // a <_ b <==> a == false && b == true
             TypeData::Primitive(Primitive::Bool) => {
                 assertions.push(MExpr::BinaryOp(
                     BinaryOp::eq(),
-                    a(),
+                    a,
                     Operand::Literal(hir::Literal::Bool(false)),
                 ));
                 assertions.push(MExpr::BinaryOp(
                     BinaryOp::eq(),
-                    b(),
+                    b,
                     Operand::Literal(hir::Literal::Bool(true)),
                 ));
             }
@@ -430,8 +430,8 @@ impl MirLower<'_> {
 
                     assertions.push(MExpr::BinaryOp(
                         BinaryOp::lt(),
-                        Operand::Copy(len(a())),
-                        Operand::Copy(len(b())),
+                        Operand::Copy(len(a)),
+                        Operand::Copy(len(b)),
                     ));
                 }
                 BuiltinKind::Range => todo!(),

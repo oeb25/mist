@@ -257,7 +257,9 @@ impl Backend {
         let Some(byte_offset) = pos.to_byte_offset(src) else {
             return Ok(None);
         };
-        let Some(hover) = crate::hover::hover(db, source, byte_offset) else { return Ok(None); };
+        let Some(hover) = crate::hover::hover(db, source, byte_offset) else {
+            return Ok(None);
+        };
         Ok(Some(Hover {
             contents: HoverContents::Array(
                 hover
@@ -433,7 +435,9 @@ impl Backend {
         let Some(byte_offset) = pos.to_byte_offset(src) else {
             return Ok(None);
         };
-        let Some(result) = crate::goto::goto_declaration(db, source, byte_offset) else { return Ok(None); };
+        let Some(result) = crate::goto::goto_declaration(db, source, byte_offset) else {
+            return Ok(None);
+        };
         let target_range = span_to_range(src, result.target_span);
         Ok(Some(LocationLink {
             origin_selection_range: Some(span_to_range(src, result.original_span)),

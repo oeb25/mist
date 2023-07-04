@@ -25,8 +25,11 @@ pub fn desugar_expr(db: &dyn crate::Db, expr: ExprPtr) -> ExprPtr {
 }
 
 fn desugar_quantifier_in(db: &dyn crate::Db, b: &Builder, src: ExprPtr) -> ExprPtr {
-    let ExprData::Quantifier { quantifier, over: QuantifierOver::In(var, in_expr), expr: body }
-        = src.data(db) else { return src };
+    let ExprData::Quantifier { quantifier, over: QuantifierOver::In(var, in_expr), expr: body } =
+        src.data(db)
+    else {
+        return src;
+    };
 
     let over = QuantifierOver::Vars(vec![var]);
 
@@ -63,9 +66,7 @@ fn desugar_quantifier_in(db: &dyn crate::Db, b: &Builder, src: ExprPtr) -> ExprP
 ///         - `i = i + 1`
 ///     - `}`
 fn desugar_for(db: &dyn crate::Db, b: &Builder, src: ExprPtr) -> ExprPtr {
-    let ExprData::For(it) = src.data(db) else {
-        return src
-    };
+    let ExprData::For(it) = src.data(db) else { return src };
 
     let var = b.var_expr(src, it.variable);
     let iter = it.in_expr;

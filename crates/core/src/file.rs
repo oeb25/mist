@@ -47,7 +47,7 @@ pub struct FileAstId<N> {
 
 impl<N> Clone for FileAstId<N> {
     fn clone(&self) -> Self {
-        Self { raw: self.raw, _marker: PhantomData }
+        *self
     }
 }
 impl<N> Copy for FileAstId<N> {}

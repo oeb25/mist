@@ -376,7 +376,9 @@ where
         visitor: &mut V,
         _function: Function,
     ) -> ControlFlow<V::Item> {
-        let Some(fx) = self.vcx.cx.function_context().cloned() else { return ControlFlow::Continue(()) };
+        let Some(fx) = self.vcx.cx.function_context().cloned() else {
+            return ControlFlow::Continue(());
+        };
 
         for it in fx.conditions() {
             self.walk_exprs(visitor, it.exprs())?;

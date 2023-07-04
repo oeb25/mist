@@ -43,10 +43,7 @@ fn sourcegen_ast() -> color_eyre::Result<()> {
     writeln!(output, "// Nodes\n\n")?;
     writeln!(output, "{nodes}")?;
 
-    let Ok(output) = std::process::Command::new("rustfmt")
-        .arg(&output_path)
-        .output()
-    else {
+    let Ok(output) = std::process::Command::new("rustfmt").arg(&output_path).output() else {
         fs::copy(&backup_path, &output_path)?;
         fs::remove_file(&backup_path)?;
         panic!("failed to run rustfmt")

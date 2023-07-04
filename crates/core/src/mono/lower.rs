@@ -86,7 +86,7 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
         let expr = self.cx.expr(expr_id);
 
         let data = match &expr.data {
-            hir::ExprData::Literal(it) => ExprData::Literal(it.clone()),
+            hir::ExprData::Literal(it) => ExprData::Literal(*it),
             hir::ExprData::Self_ => ExprData::Self_,
             hir::ExprData::Ident(var) => ExprData::Ident(self.lower_var(*var)),
             hir::ExprData::Block(it) => ExprData::Block(Block {
