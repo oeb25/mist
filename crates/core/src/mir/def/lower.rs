@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use itertools::Itertools;
 use mist_syntax::ast::operators::{ArithOp, BinaryOp, CmpOp};
 use tracing::debug;

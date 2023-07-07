@@ -13,13 +13,25 @@ fn desugar_quantifier() {
     check_desugar(
         r#"
 fn f()
-    req forall$0 i in 1..10 { true }$0"#,
+  req forall$0 i in 1..10 { true }$0"#,
+        expect!(@r###"
+      forall(i: int) { if i in (1..10) {
+        true
+      } else true }
+      "###),
+    );
+    check_desugar(
+        r#"
+fn f()
+  req forall$0 i in 1..10 { forall j in i..10 { true } }$0"#,
         expect!(@r###"
         forall(i: int) { if i in (1..10) {
-          true
+          forall(j: int) { if j in (i..10) {
+            true
+          } else true }
         } else true }
         "###),
-    )
+    );
 }
 
 #[test]
