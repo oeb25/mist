@@ -227,7 +227,6 @@ enum Placement<'a> {
     Ignore,
     Assign(Place),
     IntoOperand(Type, &'a mut Option<Operand>),
-    Assertion(AssertionKind),
     IntoPlace(Type, &'a mut Option<Place>),
 }
 
@@ -264,9 +263,6 @@ impl MirLower<'_> {
                     *u = Some(tmp);
                 }
             },
-            Placement::Assertion(kind) => {
-                self.alloc_instruction(source, bid, Instruction::Assertion(kind, expr));
-            }
         }
     }
 
@@ -279,27 +275,20 @@ impl MirLower<'_> {
         bid: BlockId,
         target: Option<BlockId>,
     ) -> BlockId {
-        let (destination, next_bid, assertion) = match dest {
-            Placement::Ignore => (
-                self.alloc_place_for_expr(expr),
-                target.unwrap_or_else(|| self.alloc_block(None)),
-                None,
-            ),
-            Placement::Assign(local) => {
-                (local, target.unwrap_or_else(|| self.alloc_block(None)), None)
+        let (destination, next_bid) = match dest {
+            Placement::Ignore => {
+                (self.alloc_place_for_expr(expr), target.unwrap_or_else(|| self.alloc_block(None)))
             }
+            Placement::Assign(local) => (local, target.unwrap_or_else(|| self.alloc_block(None))),
             Placement::IntoOperand(ty, into) => {
                 let tmp = self.alloc_tmp(ty);
                 *into = Some(Operand::Move(tmp));
-                (tmp, target.unwrap_or_else(|| self.alloc_block(None)), None)
+                (tmp, target.unwrap_or_else(|| self.alloc_block(None)))
             }
             Placement::IntoPlace(ty, into) => {
                 let tmp = self.alloc_tmp(ty);
                 *into = Some(tmp);
-                (tmp, target.unwrap_or_else(|| self.alloc_block(None)), None)
-            }
-            Placement::Assertion(kind) => {
-                (self.alloc_place_for_expr(expr), self.alloc_block(None), Some(kind))
+                (tmp, target.unwrap_or_else(|| self.alloc_block(None)))
             }
         };
 
@@ -309,20 +298,7 @@ impl MirLower<'_> {
         );
         self.set_terminator(bid, term);
 
-        match assertion {
-            Some(kind) => {
-                self.alloc_instruction(
-                    Some(expr),
-                    next_bid,
-                    Instruction::Assertion(kind, MExpr::Use(Operand::Copy(destination))),
-                );
-                let final_bid = target.unwrap_or_else(|| self.alloc_block(None));
-                let goto = Terminator::goto(self.db, final_bid);
-                self.set_terminator(next_bid, goto);
-                final_bid
-            }
-            None => next_bid,
-        }
+        next_bid
     }
 
     fn block(
@@ -341,6 +317,21 @@ impl MirLower<'_> {
             bid
         }
     }
+    fn insert_assertion(
+        &mut self,
+        mut bid: BlockId,
+        kind: AssertionKind,
+        expr: ExprPtr,
+    ) -> BlockId {
+        let mut op = None;
+        bid = self.expr(expr, bid, None, Placement::IntoOperand(expr.ty(), &mut op));
+        if let Some(op) = op {
+            let next_bid = self.alloc_block(Some(expr));
+            self.set_terminator(bid, Terminator::assertion(self.db, kind, op, next_bid));
+            bid = next_bid;
+        }
+        bid
+    }
     fn stmt(&mut self, mut bid: BlockId, target: Option<BlockId>, stmt: Statement) -> BlockId {
         match stmt.data(self.db) {
             StatementData::Expr(expr) => self.expr(expr, bid, target, Placement::Ignore),
@@ -354,7 +345,7 @@ impl MirLower<'_> {
             }
             StatementData::Assertion { kind, exprs } => {
                 for expr in exprs {
-                    bid = self.expr(expr, bid, None, Placement::Assertion(kind));
+                    bid = self.insert_assertion(bid, kind, expr);
                 }
                 bid
             }
@@ -448,11 +439,14 @@ impl MirLower<'_> {
         }
 
         for assertion in assertions {
-            self.alloc_instruction(
-                Some(variant),
+            let tmp = self.alloc_tmp(Type::bool(self.db));
+            self.alloc_instruction(None, *bid, Instruction::Assign(tmp, assertion));
+            let next_bid = self.alloc_block(Some(variant));
+            self.set_terminator(
                 *bid,
-                Instruction::Assertion(AssertionKind::Assert, assertion),
+                Terminator::assertion(self.db, AssertionKind::Assert, Operand::Move(tmp), next_bid),
             );
+            *bid = next_bid;
         }
     }
     fn assign(&mut self, bid: BlockId, source: Option<ExprPtr>, dest: Place, expr: MExpr) -> Place {
@@ -631,9 +625,6 @@ impl MirLower<'_> {
                         let tmp = self.alloc_tmp(ty);
                         *o = Some(tmp);
                         tmp
-                    }
-                    Placement::Assertion(_) => {
-                        todo!("mir lowering of assertion where the expr is a struct")
                     }
                 };
 
@@ -848,7 +839,6 @@ impl MirLower<'_> {
                 *o = Some(tmp);
                 (Placement::Assign(tmp), Placement::Assign(tmp))
             }
-            Placement::Assertion(kind) => (Placement::Assertion(kind), Placement::Assertion(kind)),
         };
 
         let then_block_final = self.expr(it.then_branch, then_block, Some(final_block), then_dest);

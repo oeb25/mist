@@ -41,6 +41,7 @@ pub enum TerminatorKind {
     Quantify(Quantifier, Vec<LocalId>, BlockId),
     QuantifyEnd(BlockId),
     Switch(Operand, SwitchTargets),
+    Assertion { kind: AssertionKind, expr: Operand, target: BlockId },
     Call { func: Function, args: Vec<Operand>, destination: Place, target: Option<BlockId> },
 }
 
@@ -69,7 +70,6 @@ impl_idx!(InstructionId, Instruction, default_debug);
 pub enum Instruction {
     Assign(Place, MExpr),
     NewAdt(Place, Adt, Vec<(AdtField, Operand)>),
-    Assertion(AssertionKind, MExpr),
     Folding(Folding),
     PlaceMention(Place),
 }

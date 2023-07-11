@@ -147,16 +147,20 @@ mod tests {
         "#;
         insta::assert_display_snapshot!(generate_annotated_mir(src), @r###"
         :B0
-          {%1_x: @}
-        > {%1_x: @}
+          {%result: @, %1_x: @, %2: X}
+        > {%result: @, %1_x: @, %2: X}
           !goto :B1
         :B1
-          {%1_x: @}
-        > {%1_x: X}
+          {%result: @, %1_x: @, %2: X}
+        > {%result: @, %1_x: X, %2: X}
           %1_x := T { n: $12 }
-          {%1_x: { .n X }}
-        > {%1_x: { .n X }}
-          assert (== %1_x.n $12)
+          {%result: @, %1_x: { .n X }, %2: @}
+        > {%result: @, %1_x: { .n X }, %2: X}
+          %2 := (== %1_x.n $12)
+          {%result: @, %1_x: X, %2: X}
+        > {%result: @, %1_x: X, %2: X}
+          assert %2 -> :B2
+        :B2
           {%result: @, %1_x: X}
         > {%result: X, %1_x: X}
           %result := %1_x

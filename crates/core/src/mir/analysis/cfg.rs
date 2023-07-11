@@ -218,6 +218,10 @@ impl<'a> CfgBuilder<'a> {
                         let next_nid = self.cfg.bid_to_node(*next);
                         self.cfg.graph.add_edge(nid, next_nid, term);
                     }
+                    TerminatorKind::Assertion { target, .. } => {
+                        let next_nid = self.cfg.bid_to_node(*target);
+                        self.cfg.graph.add_edge(nid, next_nid, term);
+                    }
                     TerminatorKind::Switch(_, s) => {
                         let (targets, otherwise) = s.targets();
                         for t in targets {

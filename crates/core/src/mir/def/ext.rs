@@ -7,7 +7,7 @@ use itertools::{
 use la_arena::{Arena, ArenaMap};
 
 use crate::{
-    hir::Quantifier,
+    hir::{AssertionKind, Quantifier},
     mir,
     mono::{types::Type, Item},
 };
@@ -147,6 +147,14 @@ impl mir::Terminator {
     pub fn goto(db: &dyn crate::Db, bid: mir::BlockId) -> mir::Terminator {
         mir::Terminator::new(db, mir::TerminatorKind::Goto(bid))
     }
+    pub fn assertion(
+        db: &dyn crate::Db,
+        kind: AssertionKind,
+        expr: mir::Operand,
+        target: mir::BlockId,
+    ) -> mir::Terminator {
+        mir::Terminator::new(db, mir::TerminatorKind::Assertion { kind, expr, target })
+    }
     pub fn switch(db: &dyn crate::Db, op: Operand, targets: SwitchTargets) -> mir::Terminator {
         mir::Terminator::new(db, mir::TerminatorKind::Switch(op, targets))
     }
@@ -167,6 +175,7 @@ impl mir::Terminator {
             mir::TerminatorKind::Goto(b) => vec![*b],
             mir::TerminatorKind::Quantify(_, _, b) => vec![*b],
             mir::TerminatorKind::QuantifyEnd(b) => vec![*b],
+            mir::TerminatorKind::Assertion { target, .. } => vec![*target],
             mir::TerminatorKind::Switch(_, switch) => {
                 switch.targets.values().copied().chain([switch.otherwise]).collect()
             }
@@ -183,7 +192,8 @@ impl mir::Terminator {
             mir::TerminatorKind::Return => {}
             mir::TerminatorKind::Goto(b)
             | mir::TerminatorKind::Quantify(_, _, b)
-            | mir::TerminatorKind::QuantifyEnd(b) => *b = f(*b),
+            | mir::TerminatorKind::QuantifyEnd(b)
+            | mir::TerminatorKind::Assertion { target: b, .. } => *b = f(*b),
             mir::TerminatorKind::Switch(_, switch) => {
                 for (_, t) in switch.targets.iter_mut() {
                     *t = f(*t);
@@ -205,7 +215,8 @@ impl mir::Terminator {
             | mir::TerminatorKind::Goto(_)
             | mir::TerminatorKind::Quantify(_, _, _)
             | mir::TerminatorKind::QuantifyEnd(_) => Left(None.into_iter()),
-            mir::TerminatorKind::Switch(op, _) => Left(op.place().into_iter()),
+            mir::TerminatorKind::Assertion { expr: op, .. }
+            | mir::TerminatorKind::Switch(op, _) => Left(op.place().into_iter()),
             mir::TerminatorKind::Call { args, .. } => {
                 Right(args.iter().filter_map(|arg| arg.place()))
             }
@@ -220,7 +231,8 @@ impl mir::Terminator {
             | mir::TerminatorKind::Goto(_)
             | mir::TerminatorKind::Quantify(_, _, _)
             | mir::TerminatorKind::QuantifyEnd(_)
-            | mir::TerminatorKind::Switch(_, _) => Right([].into_iter()),
+            | mir::TerminatorKind::Switch(_, _)
+            | mir::TerminatorKind::Assertion { .. } => Right([].into_iter()),
         }
     }
 }
@@ -321,7 +333,7 @@ impl mir::Body {
         self.instructions
             .iter()
             .filter_map(move |(id, inst)| match inst {
-                mir::Instruction::Assign(_, e) | mir::Instruction::Assertion(_, e)
+                mir::Instruction::Assign(_, e)
                     if e.all_local_usages().into_iter().any(|y| x == y) =>
                 {
                     Some(id)
@@ -338,7 +350,8 @@ impl mir::Body {
                             mir::TerminatorKind::Quantify(_, over, _) => {
                                 over.contains(&x).then_some(term)
                             }
-                            mir::TerminatorKind::Switch(op, _) => {
+                            mir::TerminatorKind::Assertion { expr: op, .. }
+                            | mir::TerminatorKind::Switch(op, _) => {
                                 (Some(x) == op.local()).then_some(term)
                             }
                             mir::TerminatorKind::Call { args, .. } => {
@@ -525,12 +538,11 @@ impl mir::Instruction {
     pub fn places(&self) -> impl Iterator<Item = mir::Place> + '_ {
         match self {
             mir::Instruction::Assign(target, expr) => {
-                Left(Left([*target].into_iter().chain(Left(expr.places()))))
+                Left([*target].into_iter().chain(Left(expr.places())))
             }
-            mir::Instruction::NewAdt(target, _, fields) => Left(Left(
-                [*target].into_iter().chain(Right(fields.iter().flat_map(|f| f.1.place()))),
-            )),
-            mir::Instruction::Assertion(_, expr) => Left(Right(expr.places())),
+            mir::Instruction::NewAdt(target, _, fields) => {
+                Left([*target].into_iter().chain(Right(fields.iter().flat_map(|f| f.1.place()))))
+            }
             mir::Instruction::PlaceMention(p) => Right([*p].into_iter()),
             mir::Instruction::Folding(folding) => match folding {
                 mir::Folding::Fold { into } => Right([*into].into_iter()),
@@ -552,9 +564,6 @@ impl mir::Instruction {
             mir::Instruction::NewAdt(_, _, fields) => {
                 Left(None.into_iter().chain(Right(fields.iter().flat_map(|f| f.1.place()))))
             }
-            mir::Instruction::Assertion(_, expr) => {
-                Left(None.into_iter().chain(Left(expr.places())))
-            }
             mir::Instruction::PlaceMention(p) => Right([*p]),
             mir::Instruction::Folding(folding) => match *folding {
                 mir::Folding::Fold { into } => Right([into]),
@@ -570,9 +579,7 @@ impl mir::Instruction {
             mir::Instruction::Assign(target, _) | mir::Instruction::NewAdt(target, _, _) => {
                 Left([*target])
             }
-            mir::Instruction::Assertion(_, _)
-            | mir::Instruction::PlaceMention(_)
-            | mir::Instruction::Folding(_) => Right([]),
+            mir::Instruction::PlaceMention(_) | mir::Instruction::Folding(_) => Right([]),
         }
         .into_iter()
     }

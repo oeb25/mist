@@ -73,7 +73,6 @@ fn pure_expr(db: &dyn crate::Db, ib: &mir::ItemBody) -> Option<PExpr> {
                         }
                     }
                     mir::Instruction::NewAdt(_, _, _) => todo!(),
-                    mir::Instruction::Assertion(_, _) => todo!(),
                     mir::Instruction::Folding(_) => todo!(),
                     mir::Instruction::PlaceMention(_) => todo!(),
                 }

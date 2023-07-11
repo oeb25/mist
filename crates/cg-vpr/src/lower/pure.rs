@@ -213,7 +213,8 @@ impl BodyLower<'_> {
                     mir::TerminatorKind::QuantifyEnd(next) => {
                         PureLowerResult::Empty { stopped_before: Some(*next) }
                     }
-                    &mir::TerminatorKind::Goto(next) => {
+                    &mir::TerminatorKind::Goto(next)
+                    | &mir::TerminatorKind::Assertion { target: next, .. } => {
                         if stop_at == Some(next) {
                             PureLowerResult::Empty { stopped_before: Some(next) }
                         } else {
@@ -331,7 +332,7 @@ impl BodyLower<'_> {
                 let exp = self.pure_new_adt(adt, inst, fields)?;
                 acc.wrap_in_assignment(self, inst, *x, exp)?
             }
-            mir::Instruction::Assertion(_, _) | mir::Instruction::PlaceMention(_) => acc,
+            mir::Instruction::PlaceMention(_) => acc,
             mir::Instruction::Folding(folding) => folding_expr(self.db, self, acc, *folding)?,
         })
     }

@@ -175,11 +175,6 @@ impl<'db, A: Fn(InBlock<Action>) -> Option<String>> Serializer<'db, A> {
                 }
                 wln!(self, Default, " }}");
             }
-            Instruction::Assertion(kind, expr) => {
-                w!(self, Default, "{kind} ");
-                self.expr(expr);
-                wln!(self, Default, "");
-            }
             Instruction::PlaceMention(p) => {
                 w!(self, Default, "mention ");
                 self.place(*p);
@@ -321,6 +316,13 @@ impl<'db, A: Fn(InBlock<Action>) -> Option<String>> Serializer<'db, A> {
             TerminatorKind::QuantifyEnd(b) => {
                 w!(self, Yellow, ":quatifier-end ");
                 self.block_id(Some(*b));
+                wln!(self, Default, "");
+            }
+            TerminatorKind::Assertion { kind, expr, target } => {
+                w!(self, Default, "{kind} ");
+                self.operand(expr);
+                w!(self, Default, " -> ");
+                self.block_id(Some(*target));
                 wln!(self, Default, "");
             }
             TerminatorKind::Switch(cond, switch) => {

@@ -158,7 +158,7 @@ pure ghost fn fib(n: int) -> int
           ensures
             (unfolding acc($FibTable(_1), wildcard) in (|_1.$FibTable_$_values| >= _2))
         {
-          var _3: Bool; var _4: Bool; var _5: Bool; var _6: Bool; var _7: Int; var _8: Bool; var _9: Seq[Int]; var _10: Int; var _11: Int; var _12: Int; var _13: Int; var _14: Int; var _15: Seq[Int]; var _16: Seq[Int]; var _17: Int;
+          var _3: Bool; var _4: Bool; var _5: Bool; var _6: Bool; var _7: Int; var _8: Bool; var _9: Seq[Int]; var _10: Int; var _11: Int; var _12: Int; var _13: Int; var _14: Int; var _15: Seq[Int]; var _16: Seq[Int]; var _17: Int; var _18: Bool; var _19: Bool;
           unfold acc($FibTable(_1), write)
           _4 := (|_1.$FibTable_$_values| < _2)
           fold acc($FibTable(_1), write)
@@ -190,8 +190,10 @@ pure ghost fn fib(n: int) -> int
               }
             }
             _17 := (_2 - |_1.$FibTable_$_values|)
-            assert (_17 < _7)
-            assert (0 <= _7)
+            _18 := (_17 < _7)
+            assert _18
+            _19 := (0 <= _7)
+            assert _19
             _4 := (|_1.$FibTable_$_values| < _2)
             fold acc($FibTable(_1), write)
           }

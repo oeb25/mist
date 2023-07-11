@@ -85,6 +85,21 @@ impl BodyLower<'_> {
                     mir::TerminatorKind::QuantifyEnd(_) => {
                         todo!();
                     }
+                    &mir::TerminatorKind::Assertion { kind, expr: e, target: b } => {
+                        let exp = l.operand_to_ref(&e)?;
+                        let stmt = match kind {
+                            hir::AssertionKind::Assert => Stmt::Assert { exp },
+                            hir::AssertionKind::Assume => Stmt::Assume { exp },
+                            hir::AssertionKind::Inhale => Stmt::Inhale { exp },
+                            hir::AssertionKind::Exhale => Stmt::Exhale { exp },
+                        };
+                        insts.push(stmt);
+                        if l.should_continue(b, stop_at) {
+                            l.block(b, insts, stop_at)
+                        } else {
+                            Ok(Seqn::new(insts, vec![]))
+                        }
+                    }
                     mir::TerminatorKind::Switch(test, switch) => {
                         let next = l.postdominators[block];
 
@@ -263,16 +278,6 @@ impl BodyLower<'_> {
                             )
                         },
                     })
-                }
-                mir::Instruction::Assertion(kind, e) => {
-                    let exp = l.expr(inst, &e)?;
-                    let stmt = match kind {
-                        hir::AssertionKind::Assert => Stmt::Assert { exp },
-                        hir::AssertionKind::Assume => Stmt::Assume { exp },
-                        hir::AssertionKind::Inhale => Stmt::Inhale { exp },
-                        hir::AssertionKind::Exhale => Stmt::Exhale { exp },
-                    };
-                    insts.push(stmt);
                 }
                 mir::Instruction::PlaceMention(_) => {}
                 mir::Instruction::Folding(folding) => {
