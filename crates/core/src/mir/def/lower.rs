@@ -132,13 +132,13 @@ impl<'a> MirLower<'a> {
     fn alloc_quantified(&mut self, var: VariablePtr) -> SlotId {
         self.alloc_slot(Slot::Quantified(var), var.ty())
     }
-    fn alloc_local(&mut self, var: VariablePtr) -> SlotId {
-        self.alloc_slot(Slot::Local(var), var.ty())
+    fn alloc_var(&mut self, var: VariablePtr) -> SlotId {
+        self.alloc_slot(Slot::Variable(var), var.ty())
     }
     fn alloc_slot(&mut self, slot: Slot, ty: Type) -> SlotId {
         let id = match &slot {
             Slot::Temp => self.body.slots.alloc(slot),
-            Slot::Param(var) | Slot::Local(var) | Slot::Quantified(var) => {
+            Slot::Param(var) | Slot::Variable(var) | Slot::Quantified(var) => {
                 let var = *var;
                 let id = self.body.slots.alloc(slot);
                 self.source_map.register(var, id);
@@ -346,7 +346,7 @@ impl MirLower<'_> {
             StatementData::Expr(expr) => self.expr(expr, bid, target, Placement::Ignore),
             StatementData::Let(Let { variable, initializer }) => {
                 let dest = if let Some(var) = variable {
-                    self.alloc_local(var)
+                    self.alloc_var(var)
                 } else {
                     self.alloc_tmp(initializer.ty()).slot()
                 };

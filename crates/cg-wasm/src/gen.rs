@@ -93,7 +93,7 @@ impl<'a> FunctionLowerer<'a> {
     pub fn generate_func(&mut self) -> wasm::Func {
         let params = self.allocate_slots(0, self.ib.params().iter().copied());
         let results = self.allocate_slots(params.len(), self.ib.result_slot().into_iter());
-        let locals = self.allocate_slots(params.len() + results.len(), self.ib.locals());
+        let locals = self.allocate_slots(params.len() + results.len(), self.ib.body_locals());
 
         let type_use = wasm::TypeUse { type_idx: wasm::TypeIdx::Idx(0), params, results };
         let instrs = vec![];

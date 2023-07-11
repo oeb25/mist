@@ -195,7 +195,7 @@ impl<'db, A: Fn(InBlock<Action>) -> Option<String>> Serializer<'db, A> {
         match s.data(self.body) {
             Slot::Param(v) => w!(self, Cyan, "{s}_{}", v.name(self.db)),
             Slot::Quantified(v) => w!(self, Cyan, "{s}_{}", v.name(self.db)),
-            Slot::Local(v) => w!(self, Cyan, "{s}_{}", v.name(self.db)),
+            Slot::Variable(v) => w!(self, Cyan, "{s}_{}", v.name(self.db)),
             Slot::Result => w!(self, Magenta, "%result"),
             Slot::Self_ => w!(self, Magenta, "%self"),
             _ => w!(self, Cyan, "{s}"),

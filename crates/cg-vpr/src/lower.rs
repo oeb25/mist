@@ -524,7 +524,7 @@ impl BodyLower<'_> {
     }
     pub(super) fn slot_to_var(&mut self, x: mir::SlotId) -> Result<LocalVar> {
         Ok(match x.data(self.ib) {
-            mir::Slot::Local(var) => LocalVar::new(
+            mir::Slot::Variable(var) => LocalVar::new(
                 format!("{}_{}", var.name(self.db), x.into_raw()),
                 self.lower_type(x.ty(self.db, self.ib))?.vty,
             ),
@@ -551,7 +551,7 @@ impl BodyLower<'_> {
             | mir::Slot::Self_
             | mir::Slot::Param(_)
             | mir::Slot::Quantified(_)
-            | mir::Slot::Local(_) => {
+            | mir::Slot::Variable(_) => {
                 let exp = self.allocs(AbstractLocalVar::LocalVar(var));
                 if p.slot().ty(self.db, self.ib).is_shared_ref(self.db) {
                     q_ref_value(self, exp)

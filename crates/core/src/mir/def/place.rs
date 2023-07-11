@@ -29,7 +29,7 @@ pub enum Slot {
     Temp,
     Self_,
     Param(VariablePtr),
-    Local(VariablePtr),
+    Variable(VariablePtr),
     Quantified(VariablePtr),
     Result,
 }

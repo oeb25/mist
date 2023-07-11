@@ -467,9 +467,9 @@ impl mir::Body {
 
     /// Returns an iterator over everything that local to the body. This
     /// includes `mir::Slot::Temp` and `mir::Slot::Local(..)`.
-    pub fn locals(&self) -> impl Iterator<Item = mir::SlotId> + '_ {
+    pub fn body_locals(&self) -> impl Iterator<Item = mir::SlotId> + '_ {
         self.slots.iter().filter_map(|(sid, slot)| match slot {
-            mir::Slot::Temp | mir::Slot::Local(_) => Some(sid),
+            mir::Slot::Temp | mir::Slot::Variable(_) => Some(sid),
             _ => None,
         })
     }
