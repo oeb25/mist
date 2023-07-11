@@ -32,6 +32,16 @@ fn f()
         } else true }
         "###),
     );
+    check_desugar(
+        r#"
+fn f()
+  req forall$0 i in 1..10, j in i..10 { true }$0"#,
+        expect!(@r###"
+        forall(i: int, j: int) { if i in (1..10) && j in (i..10) {
+          true
+        } else true }
+        "###),
+    );
 }
 
 #[test]

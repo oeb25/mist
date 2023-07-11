@@ -125,11 +125,7 @@ fn expr_bp(p: &mut Parser, loc: Location, min_bp: u8) -> Option<BlockLike> {
                             if let T!['('] = p.current() {
                                 param_list(p);
                             } else {
-                                p.start_node(NAME_IN_EXPR, |p| {
-                                    name(p);
-                                    p.expect(T![in]);
-                                    expr(p, loc);
-                                });
+                                name_in_exprs(p);
                             }
 
                             expr_bp(p, loc, r_bp);
@@ -213,6 +209,24 @@ fn expr_bp(p: &mut Parser, loc: Location, min_bp: u8) -> Option<BlockLike> {
     }
 
     Some(block_like)
+}
+
+pub fn name_in_exprs(p: &mut Parser) {
+    p.start_node(NAME_IN_EXPRS, |p| loop {
+        name_in_expr(p);
+        match p.current() {
+            T![,] => p.bump(),
+            _ => break,
+        }
+    })
+}
+
+pub fn name_in_expr(p: &mut Parser) {
+    p.start_node(NAME_IN_EXPR, |p| {
+        name(p);
+        p.expect(T![in]);
+        expr(p, Location::NO_STRUCT);
+    });
 }
 
 pub fn if_expr(p: &mut Parser) {
@@ -304,6 +318,7 @@ pub fn is_start_of_expr(token: SyntaxKind) -> bool {
             | T![self]
             | T![true]
             | T![false]
+            | T![null]
             | T![result]
             | T![if]
             | T![while]

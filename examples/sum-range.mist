@@ -1,12 +1,11 @@
-pure fn sum(r: Range[int]) -> int
-  ens result == sum2(1..10)
+fn sum(r: Range[int]) -> int
+  req r.min <= r.max
+  ens result == sum2(r)
 {
-  let r = 1..10;
-
   let a = r.min * (r.min - 1) / 2;
   let b = r.max * (r.max - 1) / 2;
 
-  let sum = 0;
+  let mut sum = 0;
   for i in r
     inv sum == i * (i - 1) / 2 - a
   {
@@ -24,6 +23,22 @@ pure fn sum2(r: Range[int]) -> int {
   b - a
 }
 
+pure fn sum3(r: Range[int]) -> int
+  req r.min <= r.max
+{
+  if r.min < r.max {
+    r.min + sum3((r.min + 1)..r.max)
+  } else {
+    0
+  }
+}
+
 fn client() {
-  assert sum(1..10) == sum(1..10);
+  assert sum3(10..10) == 0;
+  assert sum3(9..10) == 9;
+  assert sum3(8..10) == 17;
+  assert sum3(7..10) == 24;
+  assert sum3(6..10) == 30;
+  assert sum3(5..10) == 35;
+  assert sum(5..10) == 35;
 }

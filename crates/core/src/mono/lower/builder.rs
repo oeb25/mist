@@ -118,6 +118,9 @@ macro_rules! build_ {
     ($b:expr, $src:expr, $l:tt || $r:tt) => {
         $crate::mono::lower::builder::binary_op!($b, $src, $l, $r, Type::bool($b.db), BinaryOp::LogicOp(LogicOp::Or))
     };
+    ($b:expr, $src:expr, $l:tt && $r:tt) => {
+        $crate::mono::lower::builder::binary_op!($b, $src, $l, $r, Type::bool($b.db), BinaryOp::LogicOp(LogicOp::And))
+    };
     ($b:expr, $src:expr, $l:tt < $r:tt) => {
         $crate::mono::lower::builder::binary_op!($b, $src, $l, $r, Type::bool($b.db), BinaryOp::lt())
     };

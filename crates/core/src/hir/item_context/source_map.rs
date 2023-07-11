@@ -5,7 +5,6 @@ use mist_syntax::{
     ptr::AstPtr,
     SourceSpan,
 };
-use tracing::info;
 
 use crate::{
     hir::{ExprIdx, StatementId, TypeSrc},
@@ -38,8 +37,6 @@ impl ItemSourceMap {
         name: AstPtr<ast::NameOrNameRef>,
         named: Named,
     ) -> Result<(), ItemSourceMapError> {
-        info!(?named, "registering named");
-
         let old = self.name_map.insert(name.clone(), named.clone());
         self.name_map_back.entry(named).or_default().push(name.clone());
         if let Some(old) = old {

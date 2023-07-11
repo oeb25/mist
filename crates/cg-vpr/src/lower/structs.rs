@@ -51,7 +51,10 @@ fn pure_struct(
                 .fields(db)
                 .iter()
                 .map(|f| {
-                    Ok(AnyLocalVarDecl::UnnamedLocalVarDecl { typ: l.lower_type(f.ty(db))?.vty })
+                    Ok(AnyLocalVarDecl::LocalVarDecl(LocalVarDecl {
+                        name: f.name(db).to_string(),
+                        typ: l.lower_type(f.ty(db))?.vty,
+                    }))
                 })
                 .collect::<Result<_>>()?,
             typ: adt_ty.clone(),
@@ -61,9 +64,16 @@ fn pure_struct(
         let self_decl = l.slot_to_decl(self_slot)?;
         let mut init_vars = vec![self_decl.clone()];
         let mut init_exps = vec![];
+        let mut eq_exps = vec![];
         let tmp_var = LocalVarDecl::new("tmp".to_string(), adt_ty.clone());
         let tmp =
             l.allocs(Exp::AbstractLocalVar(AbstractLocalVar::LocalVar(tmp_var.clone().into())));
+        let first_var = LocalVarDecl::new("first".to_string(), adt_ty.clone());
+        let first =
+            l.allocs(Exp::AbstractLocalVar(AbstractLocalVar::LocalVar(first_var.clone().into())));
+        let second_var = LocalVarDecl::new("second".to_string(), adt_ty.clone());
+        let second =
+            l.allocs(Exp::AbstractLocalVar(AbstractLocalVar::LocalVar(second_var.clone().into())));
         for (f_name, f_typ) in adt
             .fields(db)
             .into_iter()
@@ -82,11 +92,16 @@ fn pure_struct(
                 interpretation: None,
             });
 
-            let f_fn_tmp = l.allocs(Exp::new_func_app(f_name.clone(), vec![tmp]));
-            let f_var = LocalVarDecl::new(f_name + "_", f_typ);
+            let f_var = LocalVarDecl::new(f_name.clone() + "_", f_typ);
+            let mk_field =
+                |l: &mut BodyLower, c| l.allocs(Exp::new_func_app(f_name.clone(), vec![c]));
+            let f_fn_tmp = mk_field(l, tmp);
             init_vars.push(f_var.clone());
             let f_exp = l.allocs(Exp::AbstractLocalVar(AbstractLocalVar::LocalVar(f_var.into())));
             init_exps.push(l.allocs(Exp::eq_cmp(f_fn_tmp, f_exp)));
+
+            let eq_exp = Exp::eq_cmp(mk_field(l, first), mk_field(l, second));
+            eq_exps.push(l.allocs(eq_exp));
         }
         let fn_tmp_args = init_vars[1..]
             .iter()
@@ -104,6 +119,20 @@ fn pure_struct(
                     variables: init_vars.clone(),
                     triggers: Vec::new(),
                     exp: init_exp,
+                })),
+            });
+        }
+        let eq_exp_body =
+            eq_exps.into_iter().reduce(|acc, next| l.allocs(Exp::bin(acc, BinOp::And, next)));
+        if let Some(eq_exp_body) = eq_exp_body {
+            let eq = l.allocs(Exp::eq_cmp(first, second));
+            let eq_exp = l.allocs(Exp::eq_cmp(eq, eq_exp_body));
+            axioms.push(DomainAxiom {
+                name: Some(mangle::mangled_adt(db, adt) + "_eq_axiom"),
+                exp: l.allocs(Exp::Quantifier(QuantifierExp::Forall {
+                    variables: vec![first_var, second_var],
+                    triggers: Vec::new(),
+                    exp: eq_exp,
                 })),
             });
         }

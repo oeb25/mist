@@ -76,6 +76,9 @@ impl mir::BlockId {
     pub fn first_body_loc(self, body: &mir::Body) -> mir::BodyLocation {
         body.blocks[self].first_loc().in_block(self)
     }
+    pub fn last_body_loc(self) -> mir::BodyLocation {
+        mir::BlockLocation::Terminator(()).in_block(self)
+    }
     pub fn locations(self, body: &mir::Body) -> impl Iterator<Item = mir::BlockLocation> + '_ {
         body.blocks[self].locations()
     }

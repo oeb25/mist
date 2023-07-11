@@ -1,6 +1,8 @@
 domain ListToSet[T] {
   function list_to_set(l: Seq[T]): Set[T]
   function set_to_list(s: Set[T]): Seq[T]
+  function multi_set_to_list(s: Multiset[T]): Seq[T]
+  function list_to_multi_set(l: Seq[T]): Multiset[T]
 
   axiom {
     forall l: Seq[T] :: |l| >= |list_to_set(l)|
@@ -14,6 +16,25 @@ domain ListToSet[T] {
   axiom {
     forall s: Set[T] :: forall e: T :: e in s == e in set_to_list(s)
   }
+
+  axiom {
+    forall l: Seq[T] :: list_to_multi_set(l) ==
+      ((|l| == 0)
+        ? Multiset()
+        : Multiset(l[0]) union list_to_multi_set(l[1..]))
+  }
+  // axiom {
+  //   forall l: Seq[T] :: |l| == |list_to_multi_set(l)|
+  // }
+  // axiom {
+  //   forall l: Seq[T] :: forall e: T :: e in l == e in list_to_multi_set(l)
+  // }
+  // axiom {
+  //   forall s: Multiset[T] :: |s| == |multi_set_to_list(s)|
+  // }
+  // axiom {
+  //   forall s: Multiset[T] :: forall e: T :: e in s == e in multi_set_to_list(s)
+  // }
 }
 
 domain Range {
@@ -60,5 +81,29 @@ domain RangeIndex[T] {
   }
   axiom axRangeFromTo {
     forall from: Int, to: Int, s: Seq[T] :: range_index(s, range_from_to(from, to)) == s[from..to]
+  }
+}
+
+define QRefAcc(T, x, p) acc(T(fst(x)), snd(x) * p)
+define QRefUnfold(T, x, p) { unfold acc(T(fst(x)), snd(x) * p) }
+define QRefUnfolding(T, x, p, e) unfolding acc(T(fst(x)), snd(x) * p) in e
+define QRefFold(T, x, p) { fold acc(T(fst(x)), snd(x) * p) }
+define QRefReborrow(x) ( create(fst(x), snd(x) * 1/256) )
+define QRefProject(x, f) (create(fst(x).f, snd(x)))
+
+
+domain QRef {
+  function create($a: Ref, $b: Perm): QRef;
+  function fst($q: QRef): Ref;
+  function snd($q: QRef): Perm;
+
+  axiom {
+    forall $a: Ref, $b: Perm :: fst(create($a, $b)) == $a
+  }
+  axiom {
+    forall $a: Ref, $b: Perm :: snd(create($a, $b)) == $b
+  }
+  axiom {
+    forall $q: QRef :: snd($q) >= none
   }
 }

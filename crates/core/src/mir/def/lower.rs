@@ -718,7 +718,7 @@ impl MirLower<'_> {
             ExprData::Quantifier { quantifier, over, expr: q_expr } => {
                 let vars = match over {
                     QuantifierOver::Vars(vars) => vars,
-                    QuantifierOver::In(_, _) => {
+                    QuantifierOver::In(_) => {
                         unreachable!("we should desugar quantifier-in in hir")
                     }
                 };

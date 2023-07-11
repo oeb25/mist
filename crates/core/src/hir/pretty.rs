@@ -167,9 +167,12 @@ pub fn expr(pp: &impl PrettyPrint, db: &dyn crate::Db, expr: ExprIdx) -> String 
                         ty: pp.resolve_var_ty(db, var),
                     }),
                 ),
-                QuantifierOver::In(var, over) => {
-                    format!(" {} in {}", pp.resolve_var(*var), pp_expr(pp, db, *over))
-                }
+                QuantifierOver::In(vars) => vars
+                    .iter()
+                    .map(|(var, over)| {
+                        format!(" {} in {}", pp.resolve_var(*var), pp_expr(pp, db, *over))
+                    })
+                    .join(","),
             };
             format!("{quantifier}{over} {{ {} }}", pp_expr(pp, db, *expr))
         }

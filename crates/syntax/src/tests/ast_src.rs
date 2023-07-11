@@ -200,6 +200,7 @@ pub(crate) const KINDS_SRC: KindsSrc<'_> = KindsSrc {
         "QUANTIFIER_OVER",
         "QUANTIFIER",
         "NAME_IN_EXPR",
+        "NAME_IN_EXPRS",
         "IF_EXPR",
         "WHILE_EXPR",
         "LOOP_EXPR",

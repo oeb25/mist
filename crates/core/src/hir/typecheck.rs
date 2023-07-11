@@ -595,7 +595,7 @@ impl<'a> TypeProvider for TypeChecker<'a> {
         self.typer.try_adt_ty(adt)
     }
     fn fields_of(&self, adt: Adt) -> Vec<AdtField> {
-        self.typer.adt_fields(adt).to_vec()
+        self.typer.adt_fields(self.db, adt).to_vec()
     }
 }
 
@@ -624,6 +624,9 @@ impl<'a> TypingMut for TypeChecker<'a> {
 
     fn new_free(&mut self) -> TypeId {
         self.typer.new_free()
+    }
+    fn new_null(&mut self) -> TypeId {
+        self.typer.new_null()
     }
 
     fn create_adt_prototype(&mut self, kind: AdtKind, prototype: AdtPrototype) {

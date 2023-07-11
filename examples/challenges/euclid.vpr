@@ -1,0 +1,34 @@
+/* 
+ * Euclid's algorithm for computing the greatest common divisor?
+ * You can read more on https://en.wikipedia.org/wiki/Euclidean_algorithm
+ *
+ * Tasks:
+ * a) Define (but not necessarily implement) the function gcd such that
+ *    it returns the greatest common divisor of x and y.
+ * b) Verify (wrt. partial correctness) that the method euclid returns the gcd of n and m.
+ * c) Show that the method euclid terminates.
+ *
+ */
+
+function gcd(x: Int, y: Int): Int
+    requires x > 0 && y > 0
+    // TODO
+
+method euclid(n: Int, m: Int) returns (res: Int)
+    requires n > 0 && m > 0
+    ensures res == gcd(n,m) // TODO
+    // TODO: termination
+{
+    var a: Int := n
+    var b: Int := m
+    while (a != b) 
+    {
+        if (a > b) {
+            a := a - b
+        } else {
+            b := b - a
+        }
+        
+    }
+    res := a 
+}

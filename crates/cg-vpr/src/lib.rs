@@ -14,6 +14,7 @@ pub struct Jar(
     crate::gen::viper_item,
     crate::gen::ViperHints,
     crate::lower::ViperLowerErrors,
+    crate::lower::pure_next::PExpr,
 );
 
 pub trait Db: mist_core::Db + salsa::DbWithJar<Jar> {}

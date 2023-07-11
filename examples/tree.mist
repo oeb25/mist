@@ -1,0 +1,139 @@
+pure ghost fn reversed(a: [int], b: [int]) -> bool
+  req a.len == b.len
+{ forall idx in 0..a.len { a[a.len - idx - 1] == b[idx] } }
+
+fn reverse(s: [int]) -> [int]
+  ens s.len == result.len, reversed(s, result), same_elements(s, result)
+{
+  let mut res = [];
+  for i in 0..s.len
+    inv i == res.len, reversed(res, s[0..i])
+  {
+    res = [s[i]] + res;
+  }
+  res
+}
+
+pure ghost fn same_elements(a: [int], b: [int]) -> bool
+  req a.len == b.len
+{
+  a == b || a.to_multi_set() == b.to_multi_set()
+}
+
+// pure ghost fn reverse_pg(s: [int]) -> [int]
+//   ens s.len == result.len, reversed(s, result);
+
+// ghost fn lemma_reverse_inverse(s: [int])
+//   ens s == reverse_pg(reverse_pg(s))
+// {}
+
+// ghost fn lemma_reverse_2(a: [int], b: [int])
+//   ens reverse_pg(a + b) == reverse_pg(b) + reverse_pg(a)
+// {}
+
+// ghost fn lemma_reverse_same_elements(a: [int])
+//   ens same_elements(a, reverse_pg(a))
+// {}
+
+// pure fn sorted(s: [int]) -> bool {
+//   forall i in 0..s.len, j in i..s.len { s[i] <= s[j] }
+// }
+
+// pure fn all_smaller(a: [int], b: [int]) -> bool {
+//   forall i in 0..a.len, j in 0..b.len { a[i] <= b[j] }
+// }
+
+// pure ghost fn same_elements(a: [int], b: [int]) -> bool
+//   req a.len == b.len
+// {
+//   a == b || a.to_multi_set() == b.to_multi_set()
+// }
+
+// fn rev_sort(s: [int]) -> [int]
+//   // ens result.len == s.len, same_elements(result, s), sorted(result)
+// {
+//   let mut res = s;
+//   // for iter in 0..res.len
+//   //   inv res.len == s.len
+//   //   inv sorted(res[0..iter])
+//   //   inv all_smaller(res[0..iter], res[iter..])
+//   //   inv same_elements(res, s)
+//   // {
+//   //   for idx in iter..res.len
+//   //     inv sorted(res[0..iter])
+//   //     inv res.len == s.len
+//   //     inv all_smaller(res[0..iter], res[iter..])
+//   //     inv all_smaller(res[0..iter + 1], res[iter..idx])
+//   //     inv same_elements(res, s)
+//   //   {
+//   //     if res[idx] < res[iter] {
+//   //       lemma_reverse_same_elements(res[iter..idx+1]);
+//   //       res = res[0..iter] + reverse(res[iter..idx+1]) + res[idx+1..];
+//   //     }
+//   //   }
+//   // }
+//   res
+// }
+// fn rev_sort(s: [int]) -> [int]
+//   ens sorted(result)
+// {
+//   let mut res = s;
+
+//   for iter in 0..res.len
+//     inv res.len == s.len
+//     inv sorted(res[0..iter])
+//     inv forall i in 0..iter, j in iter..res.len { res[i] <= res[j] }
+//     //     res.to_multi_set() == s.to_multi_set()
+//   {
+//     let mut min_idx = iter;
+//     for idx in iter..res.len
+//       inv iter <= min_idx, min_idx < res.len
+//       inv forall j in iter..idx { res[min_idx] <= res[j] }
+//       inv sorted(res[0..iter])
+//     {
+//       if res[idx] < res[min_idx] {
+//         min_idx = idx;
+//       }
+//     }
+//     res = res[0..iter] + reverse(res[iter..min_idx + 1]) + res[min_idx + 1..];
+//   }
+//   res
+// }
+
+// struct Tree[T] {
+//   left: ?Tree[T],
+//   right: ?Tree[T],
+//   value: T,
+// }
+
+// pure fn content(t: &Tree[int]) -> [int] {
+//   let l = if t.left != null {
+//     content(&t.left!)
+//   } else {
+//     []
+//   };
+//   let r = if t.right != null {
+//     content(&t.right!)
+//   } else {
+//     []
+//   };
+//   l + [t.value] + r
+// }
+
+// fn flip(t: ?&Tree[int]) -> ?Tree[int]
+//   ens if t != null {
+//     result != null && content(t!) == reverse(content(&result!))
+//   }
+// {
+//   if t != null {
+//     let t = t!;
+//     let new: ?Tree[int] = Tree {
+//       left: flip(&t.right),
+//       right: flip(&t.left),
+//       value: t.value
+//     };
+//     new
+//   } else {
+//     null
+//   }
+// }

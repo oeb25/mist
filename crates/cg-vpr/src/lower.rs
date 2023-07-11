@@ -1,3 +1,9 @@
+mod folding;
+pub mod method;
+pub mod pure;
+pub mod pure_next;
+pub mod structs;
+
 use std::{
     cmp::Ordering,
     collections::{HashMap, HashSet},
@@ -30,7 +36,7 @@ use mist_syntax::{
 };
 use silvers::{
     expression::{
-        AbstractLocalVar, AccessPredicate, BinOp, Exp, LocalVar, MultisetExp, PermExp,
+        AbstractLocalVar, AccessPredicate, BinOp, Exp, FieldAccess, LocalVar, MultisetExp, PermExp,
         PredicateAccess, PredicateAccessPredicate, SeqExp, SetExp, UnOp,
     },
     program::{Field as VField, LocalVarDecl},
@@ -43,9 +49,7 @@ use crate::{
     mangle,
 };
 
-pub mod method;
-pub mod pure;
-pub mod structs;
+use self::folding::{q_ref_acc, q_ref_perm, q_ref_strip_value, q_ref_unfolding, q_ref_value};
 
 fn lower_binop(op: &BinaryOp) -> Option<BinOp> {
     use BinOp::*;
@@ -285,7 +289,14 @@ impl<'a> BodyLower<'a> {
                 VTy::int().into()
             }
             TypeData::Ref { is_mut, inner } => ViperType {
-                vty: VTy::ref_(),
+                vty: if is_mut {
+                    VTy::ref_()
+                } else {
+                    VTy::Domain {
+                        domain_name: "QRef".to_string(),
+                        partial_typ_vars_map: Default::default(),
+                    }
+                },
                 is_mut,
                 is_ref: true,
                 optional: false,
@@ -413,6 +424,10 @@ impl BodyLower<'_> {
                         let list = self.operand_to_ref(&args[0])?;
                         Exp::new_func_app("list_to_set".to_string(), vec![list])
                     }
+                    ListField::ToMultiSet => {
+                        let list = self.operand_to_ref(&args[0])?;
+                        Exp::new_func_app("list_to_multi_set".to_string(), vec![list])
+                    }
                 },
                 BuiltinField::Set(_, sf) => match sf {
                     SetField::Cardinality => todo!(),
@@ -448,7 +463,13 @@ impl BodyLower<'_> {
                         Exp::new_func_app("set_to_list".to_string(), vec![set])
                     }
                 },
-                BuiltinField::MultiSet(_, _) => todo!(),
+                BuiltinField::MultiSet(_, mf) => match mf {
+                    MultiSetField::Cardinality => todo!(),
+                    MultiSetField::ToList => {
+                        let set = self.operand_to_ref(&args[0])?;
+                        Exp::new_func_app("multi_set_to_list".to_string(), vec![set])
+                    }
+                },
                 BuiltinField::Range(_, _) => todo!(),
             },
             mir::Function::Index => {
@@ -525,22 +546,26 @@ impl BodyLower<'_> {
             }
         }
 
-        let exp = match p.slot().data(self.ib) {
+        let id = match p.slot().data(self.ib) {
             mir::Slot::Temp
             | mir::Slot::Self_
             | mir::Slot::Param(_)
             | mir::Slot::Quantified(_)
-            | mir::Slot::Local(_) => AbstractLocalVar::LocalVar(var),
-            mir::Slot::Result => {
-                if self.is_method {
-                    AbstractLocalVar::LocalVar(var)
+            | mir::Slot::Local(_) => {
+                let exp = self.allocs(AbstractLocalVar::LocalVar(var));
+                if p.slot().ty(self.db, self.ib).is_shared_ref(self.db) {
+                    q_ref_value(self, exp)
                 } else {
-                    AbstractLocalVar::Result { typ: var.typ }
+                    exp
                 }
             }
+            mir::Slot::Result => self.allocs(if self.is_method {
+                AbstractLocalVar::LocalVar(var)
+            } else {
+                AbstractLocalVar::Result { typ: var.typ }
+            }),
         };
 
-        let id = self.allocs(exp);
         self.var_refs.insert(p.slot(), id);
 
         p.projection_iter(self.db).try_fold(id, |base, proj| -> Result<_> {
@@ -552,7 +577,7 @@ impl BodyLower<'_> {
                                 let exp = SeqExp::Length { s: base };
                                 self.allocs(exp)
                             }
-                            BuiltinField::List(_, ListField::ToSet) => {
+                            BuiltinField::List(_, ListField::ToSet | ListField::ToMultiSet) => {
                                 unreachable!()
                             }
                             BuiltinField::Set(_, SetField::Cardinality) => {
@@ -571,6 +596,9 @@ impl BodyLower<'_> {
                             BuiltinField::MultiSet(_, MultiSetField::Cardinality) => {
                                 let exp = MultisetExp::Cardinality { s: base };
                                 self.allocs(exp)
+                            }
+                            BuiltinField::MultiSet(_, MultiSetField::ToList) => {
+                                unreachable!()
                             }
                             BuiltinField::Range(_, rf) => match rf {
                                 RangeField::Min => {
@@ -677,15 +705,15 @@ impl BodyLower<'_> {
         place: VExprId,
         ty: Type,
     ) -> Result<(Option<VExprId>, Option<VExprId>)> {
-        let ty = self.lower_type(ty)?;
-        match ty.adt {
+        let vty = self.lower_type(ty)?;
+        match vty.adt {
             Some(adt) if !adt.is_pure(self.db) => {
                 let perm = self.allocs(PermExp::Full);
                 let pred = self.allocs(AccessPredicate::Predicate(PredicateAccessPredicate::new(
                     PredicateAccess::new(mangle::mangled_adt(self.db, adt), vec![place]),
                     perm,
                 )));
-                let pred = if ty.optional {
+                let pred = if vty.optional {
                     let null = self.allocs(Exp::null());
                     let cond = self.allocs(Exp::bin(place, BinOp::NeCmp, null));
                     self.allocs(Exp::bin(cond, BinOp::Implies, pred))
@@ -696,20 +724,59 @@ impl BodyLower<'_> {
             }
             _ => (),
         }
-        if let Some(inner) = ty.inner {
-            if ty.is_ref {
+        if let Some(inner) = vty.inner {
+            if vty.is_ref {
                 if let Some(st) = inner.adt {
-                    let perm = if ty.is_mut {
-                        self.allocs(PermExp::Full)
+                    let (exp, end_exp) = if vty.is_mut {
+                        let perm = self.allocs(PermExp::Full);
+                        let exp =
+                            self.allocs(AccessPredicate::Predicate(PredicateAccessPredicate::new(
+                                PredicateAccess::new(mangle::mangled_adt(self.db, st), vec![place]),
+                                perm,
+                            )));
+                        (exp, exp)
                     } else {
-                        self.allocs(PermExp::Wildcard)
+                        let full = self.allocs(PermExp::Full);
+                        let place = q_ref_strip_value(self, place);
+                        let exp = q_ref_acc(self.db, self, st, place, full);
+                        let cur_perm = q_ref_perm(self, place);
+                        let none = self.allocs(PermExp::No);
+                        let positive_perm = self.allocs(Exp::bin(cur_perm, BinOp::GtCmp, none));
+                        let no_write_perm = self.allocs(Exp::bin(full, BinOp::GtCmp, cur_perm));
+                        let perm_bound_exp =
+                            self.allocs(Exp::bin(no_write_perm, BinOp::And, positive_perm));
+                        let exp = self.allocs(Exp::bin(exp, BinOp::And, perm_bound_exp));
+
+                        let place_value = q_ref_value(self, place);
+                        let end_exp = st.fields(self.db).iter().fold(exp, |acc, f| {
+                            let field = self.allocs(Exp::LocationAccess(
+                                silvers::expression::ResourceAccess::Location(
+                                    silvers::expression::LocationAccess::Field(FieldAccess {
+                                        rcr: place_value,
+                                        field: VField {
+                                            name: mangle::mangled_adt_field(self.db, st, *f),
+                                            typ: VTy::internal_type(),
+                                        },
+                                    }),
+                                ),
+                            ));
+                            let field = q_ref_unfolding(self.db, self, st, place, full, field);
+                            let old_field = self
+                                .allocs(Exp::Old(silvers::expression::OldExp::Old { exp: field }));
+                            let field_eq_old_field =
+                                self.allocs(Exp::bin(field, BinOp::EqCmp, old_field));
+
+                            self.allocs(Exp::bin(acc, BinOp::And, field_eq_old_field))
+                        });
+
+                        (exp, end_exp)
+
+                        // self.allocs(AccessPredicate::Predicate(PredicateAccessPredicate::new(
+                        //     PredicateAccess::new(mangle::mangled_adt(self.db, st), vec![place]),
+                        //     perm,
+                        // )))
                     };
-                    let exp =
-                        self.allocs(AccessPredicate::Predicate(PredicateAccessPredicate::new(
-                            PredicateAccess::new(mangle::mangled_adt(self.db, st), vec![place]),
-                            perm,
-                        )));
-                    return Ok((Some(exp), Some(exp)));
+                    return Ok((Some(exp), Some(end_exp)));
                 }
             }
         }

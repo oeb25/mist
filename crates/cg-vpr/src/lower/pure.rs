@@ -50,11 +50,11 @@ use mist_core::{
     hir, mir,
     mono::types::{Adt, AdtField},
 };
-use silvers::expression::{Exp, PermExp, PredicateAccess, PredicateAccessPredicate, QuantifierExp};
+use silvers::expression::{Exp, QuantifierExp};
 
 use crate::{gen::VExprId, mangle};
 
-use super::{BodyLower, Result, ViperLowerError};
+use super::{folding::folding_expr, BodyLower, Result, ViperLowerError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PureLowerResult {
@@ -94,7 +94,10 @@ impl PureLowerResult {
         }
     }
 
-    fn try_map_exp(self, mut f: impl FnMut(VExprId) -> Result<VExprId>) -> Result<PureLowerResult> {
+    pub(super) fn try_map_exp(
+        self,
+        mut f: impl FnMut(VExprId) -> Result<VExprId>,
+    ) -> Result<PureLowerResult> {
         Ok(match self {
             PureLowerResult::UnassignedExpression(exp, place, stopped_before) => {
                 PureLowerResult::UnassignedExpression(f(exp)?, place, stopped_before)
@@ -329,31 +332,7 @@ impl BodyLower<'_> {
                 acc.wrap_in_assignment(self, inst, *x, exp)?
             }
             mir::Instruction::Assertion(_, _) | mir::Instruction::PlaceMention(_) => acc,
-            mir::Instruction::Folding(folding) => {
-                let unfolding_place = match folding {
-                    mir::Folding::Unfold { consume, .. }
-                        if !self.pre_unfolded.contains(consume) =>
-                    {
-                        *consume
-                    }
-                    _ => return Ok(acc),
-                };
-                match unfolding_place.ty().ty_adt(self.db) {
-                    Some(adt) if !adt.is_pure(self.db) => acc.try_map_exp(|exp| {
-                        let place_ref = self.place_to_ref(unfolding_place)?;
-                        let pred_acc = PredicateAccessPredicate::new(
-                            PredicateAccess::new(
-                                mangle::mangled_adt(self.db, adt),
-                                vec![place_ref],
-                            ),
-                            self.alloc(inst, PermExp::Wildcard),
-                        );
-
-                        Ok(self.alloc(inst, Exp::new_unfolding(pred_acc, exp)))
-                    })?,
-                    _ => acc,
-                }
-            }
+            mir::Instruction::Folding(folding) => folding_expr(self.db, self, acc, *folding)?,
         })
     }
 

@@ -117,7 +117,7 @@ impl ExprData {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum QuantifierOver {
     Vars(Vec<VariableIdx>),
-    In(VariableIdx, ExprIdx),
+    In(Vec<(VariableIdx, ExprIdx)>),
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BuiltinExpr {

@@ -1,0 +1,133 @@
+function count_votes(votes: Seq[Int], candidate: Int, low: Int, high: Int): Int
+    requires 0 <= low
+    requires low <= high
+    requires high <= |votes|
+{
+    low == high
+        ? 0
+        : (votes[high-1] == candidate ? 1 : 0)
+          + count_votes(votes, candidate, low, high-1)
+}
+
+function has_majority(votes: Seq[Int], candidate: Int, low: Int, high: Int): Bool
+    requires 0 <= low
+    requires low <= high
+    requires high <= |votes|
+{
+    count_votes(votes, candidate, low, high) > (high - low) / 2
+}
+
+method lemma_distinct_candidate_votes(votes: Seq[Int],
+                                        candidate_a: Int, candidate_b: Int,
+                                        low: Int, high: Int)
+    requires 0 <= low
+    requires low <= high
+    requires high <= |votes|
+    ensures candidate_a != candidate_b
+                ==> count_votes(votes, candidate_a, low, high)
+                    + count_votes(votes, candidate_b, low, high)
+                    <= high - low
+{
+    var v: Int := high; assert v >= 0
+    if (low == high) {
+    } else {
+        assert high - 1 < v
+        lemma_distinct_candidate_votes(votes, candidate_a, candidate_b, low, high-1)
+    }
+}
+
+method lemma_split_vote_count(votes: Seq[Int], candidate: Int,
+                                low: Int, mid: Int, high: Int)
+    requires 0 <= low
+    requires low <= mid
+    requires mid <= high
+    requires high <= |votes|
+    ensures count_votes(votes, candidate, low, high) ==
+                count_votes(votes, candidate, low, mid)
+                + count_votes(votes, candidate, mid, high)
+{
+    var v: Int := high; assert v >= 0
+    if (low == mid) {
+        //assert count_votes(votes, candidate, low, mid) == 0
+    } else {
+        if (mid == high) {
+            //assert count_votes(votes, candidate, mid, high) == 0
+        } else {
+            // assert low < mid && mid < high
+            assert high - 1 < v
+            lemma_split_vote_count(votes, candidate, low, mid, high-1)
+        }
+    }
+}
+
+
+
+define V(votes, high) (|votes| - high)
+
+method search_winner(votes: Seq[Int],
+      ghost_has_winner: Bool, ghost_winner: Int
+)
+    returns (winner: Int)
+    requires |votes| > 0
+    requires ghost_has_winner ==> has_majority(votes, ghost_winner, 0, |votes|)
+    ensures ghost_has_winner ==> winner == ghost_winner
+{
+    winner := votes[0]
+    var low: Int := 0
+    var high: Int := 1
+    var count: Int := 1
+
+    assert votes[high-1] == winner
+
+    assert count_votes(votes, winner, low, high-1) == 0 // limited function
+
+    var return: Bool := false
+
+    while (!return && high < |votes|)
+        invariant 0 <= low && low <= high && high <= |votes|
+        invariant count == count_votes(votes, winner, low, high)
+        invariant !return ==> has_majority(votes, winner, low, high)
+        invariant return ==> low <= |votes|-1 && votes[|votes|-1] != winner
+                                && has_majority(votes, winner, low, |votes|-1)
+        invariant ghost_has_winner ==> has_majority(votes, ghost_winner, low, |votes|)
+    {
+        var v: Int := V(votes, high); assert v >= 0
+        if (votes[high] == winner) {
+            high := high + 1
+            count := count + 1
+        } else {
+            if (high + 1 - low < 2 * count) {
+                high := high + 1
+            } else {
+                high := high + 1
+                lemma_distinct_candidate_votes(votes, winner, ghost_winner, low, high)
+                lemma_split_vote_count(votes, ghost_winner, low, high, |votes|)
+                if (high == |votes|) {
+                    return := true
+                    /*
+                    assert has_majority(votes, winner, low, high-1)
+                    assert votes[high-1] != winner
+                    assert count_votes(votes, winner, low, high-1) == count_votes(votes, winner, low, high)
+
+                    assert has_majority(votes, winner, low, |votes|-1)
+
+                    if (ghost_has_winner) {
+                        assert has_majority(votes, ghost_winner, low, |votes|)
+                        assert winner == ghost_winner
+                    }
+                    */
+                } else {
+                    winner := votes[high]
+                    low := high
+                    high := high + 1
+
+                    assert count_votes(votes, winner, low, high-1) == 0 // limited function
+
+                    count := 1
+                }
+            }
+        }
+        assert V(votes, high) < v
+    }
+    lemma_distinct_candidate_votes(votes, winner, ghost_winner, low, |votes|)
+}

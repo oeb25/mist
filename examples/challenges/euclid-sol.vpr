@@ -1,0 +1,136 @@
+// Example: Euclid's algorithm for computing the greatest common divisor?
+// read more on https://en.wikipedia.org/wiki/Euclidean_algorithm
+// How should we specify that the code below computes the gcd?
+
+// Notice that we need no termination proofs for lemmas,
+// since no lemma is proven by induction
+
+function gcd(x: Int, y: Int): Int
+    requires x > 0 && y > 0
+    ensures result >= 1
+    ensures divides(result, x)
+    ensures divides(result, y)
+    ensures forall z: Int :: z >= 1 && divides(z, x) && divides(z, y) ==> z <= result
+
+define divides_prop(x,y,z) (z >= 0 && x * z == y)
+
+function divides(x:Int, y: Int): Bool
+    requires x > 0 && y > 0
+    ensures result == exists z:Int :: divides_prop(x,y,z)
+
+method lemma_show_divides(x: Int, y: Int, z: Int)
+    requires x > 0 && y > 0
+    requires divides_prop(x,y,z)
+    ensures divides(x, y)
+
+method lemma_divides(x: Int, y: Int) returns (z: Int)
+    requires x > 0 && y > 0
+    requires divides(x, y)
+    ensures divides_prop(x,y,z)
+
+method lemma_gcd(x: Int, y: Int)
+    requires x > 0 && y > 0
+    ensures gcd(x + y, y) == gcd(x, y)
+{
+    lemma_gcd_lower(x,y)
+    lemma_gcd_upper(x,y)
+}
+
+method lemma_gcd_upper(x: Int, y: Int)
+    requires x > 0 && y > 0
+    ensures gcd(x + y, y) >= gcd(x, y)
+{
+    var z: Int := x + y
+    var m: Int := gcd(x+y, y)
+    var n: Int := gcd(y, x)
+
+    //assert divides(n, y)
+    var c: Int
+    c := lemma_divides(n, y)
+
+    //assert divides(n, x)
+    var d: Int
+    d := lemma_divides(n, x)
+
+    //assert c * n == y
+    //assert d * n == x
+    //assert (c+d) * n == x + y
+
+    lemma_show_divides(n, x+y, c+d)
+    //assert divides(n, x+y)
+
+    //assert n >= 1 && divides(n, x+y) && divides(n, y)
+    //assert n <= gcd(x+y, y)
+}
+
+method lemma_gcd_lower(x: Int, y: Int)
+    requires x > 0 && y > 0
+    ensures gcd(x + y, y) <= gcd(x, y)
+{
+
+    var z: Int := x + y
+    var m: Int := gcd(x+y, y)
+
+//    assert divides(m, z)
+    var c: Int
+    c := lemma_divides(m, z)
+
+//    assert divides(m, y)
+    var d: Int
+    d := lemma_divides(m, y)
+
+//    assert x == m * (c - d)
+//    assert m >= 1
+    lemma_show_divides(m, x, (c - d))
+
+    //assert m >= 1 && divides(m, x) && divides(m, y)
+    //assert m <= gcd(y, x)
+
+}
+
+method lemma_gcd_idempotent(x: Int)
+    requires x > 0
+    ensures gcd(x, x) == x
+{
+    lemma_show_divides(x, x, 1)
+}
+
+
+define V(x,y) (x+y)
+
+method euclid(n: Int, m: Int) returns (res: Int)
+    requires n > 0 && m > 0
+    ensures res == gcd(n,m)
+{
+    var a: Int := n
+    var b: Int := m
+    while (a != b)
+        invariant a > 0 && b > 0
+        invariant gcd(a,b) == gcd(n,m)
+        // decreases V(a,b), encoded below
+    {
+        var v: Int  := V(a,b); assert v >= 0
+        if (a > b) {
+            // gcd(a,b) == gcd(n,m)
+            a := a - b
+            // gcd(a + b,b) == gcd(n,m)
+            lemma_gcd(a, b) // <--- invoke lemma to conclude gcd(a+b, b) == gcd(a,b)
+        } else {
+            // gcd(a,b) == gcd(n,m)
+            b := b - a
+            // gcd(a,b + a) == gcd(n,m)
+            //lemma_gcd_right(a, b) // <--- invoke lemma to conclude gcd(a, b + a) == gcd(a,b)
+            lemma_gcd(b, a)
+        }
+        assert V(a,b) >= 0
+        assert V(a,b) < v
+
+    }
+
+    assert a == b && gcd(a,b) == gcd(n,m)
+    lemma_gcd_idempotent(a)
+    assert gcd(n,m) == a
+
+    res := a
+
+}

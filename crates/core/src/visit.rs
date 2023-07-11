@@ -536,7 +536,11 @@ where
                         // NOTE: don't walk anything here, since it will be
                         // covered by walking the vars some other place
                     }
-                    hir::QuantifierOver::In(_, expr) => self.walk_expr(visitor, expr)?,
+                    hir::QuantifierOver::In(vars) => {
+                        for (_, expr) in vars {
+                            self.walk_expr(visitor, expr)?
+                        }
+                    }
                 }
 
                 self.walk_expr(visitor, expr)?;

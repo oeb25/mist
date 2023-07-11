@@ -25,6 +25,7 @@ pub(crate) trait TypingMut: TypeProvider {
 
     fn lookup_named_ty(&self, name: Name) -> Option<NamedType>;
     fn new_free(&mut self) -> TypeId;
+    fn new_null(&mut self) -> TypeId;
     fn new_generic(&mut self, generic: Generic) -> TypeId;
 
     fn create_adt_prototype(&mut self, kind: AdtKind, prototype: AdtPrototype);

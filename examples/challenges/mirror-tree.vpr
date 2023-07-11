@@ -1,0 +1,76 @@
+/*
+ * Our goal is to mirror a binary tree, i.e. for every node, we swap the left and right child.
+ *
+ * Tasks:
+ * a) Give a sensible implementation of the function mirror.
+ * b) Verify the method client_mirror_size(), which states that
+ *    mirroring a tree yields a tree of the same size.
+ * c) Verify the method client_mirror_mirror(), which states that
+ *    mirroring a tree twice yields the original tree again.
+ *
+ */
+
+function mirror(t: Tree): Tree // TODO: implement
+
+function size(t: Tree): Int
+{
+  is_leaf(t) ? 1 : size(left(t)) + size(right(t))
+}
+
+method client_mirror_size() { // TODO: should verify
+    var t: Tree
+    assert size(mirror(t)) == size(t)
+}
+
+method client_mirror_mirror() // TODO: should verify
+{
+    var t: Tree
+    assert mirror(mirror(t)) == t
+}
+
+
+// axiomatization of binary trees as considered before
+domain Tree { 
+    
+    // constructors
+    function leaf(value: Int): Tree // <-- base case
+    function node(left: Tree, right: Tree): Tree // composite case
+
+    // discriminators (is_node is implicit via !is_leaf(t))
+    function is_leaf(t: Tree): Bool 
+
+    // destructors
+    function value(t: Tree): Int 
+    function left(t: Tree): Tree
+    function right(t: Tree): Tree
+
+    // axioms
+    axiom def_is_leaf {
+        forall x: Int :: is_leaf(leaf(x)) 
+    }
+
+    axiom def_not_is_leaf {
+        forall l: Tree, r: Tree :: !is_leaf(node(l,r))
+    }
+
+    axiom all_variants {
+        forall t: Tree ::
+            (is_leaf(t) && exists x: Int :: t == leaf(x))
+            || (!is_leaf(t) && exists l: Tree, r: Tree :: t == node(l, r))
+    }
+
+    axiom value_over_leaf {
+        forall x: Int :: value(leaf(x)) == x
+    }
+
+    axiom left_over_node {
+        forall l: Tree, r: Tree ::
+            left(node(l, r)) == l
+    }
+
+    axiom right_over_node {
+        forall l: Tree, r: Tree ::
+            right(node(l, r)) == r
+    }
+}
+

@@ -337,6 +337,7 @@ pub enum SyntaxKind {
     QUANTIFIER_OVER,
     QUANTIFIER,
     NAME_IN_EXPR,
+    NAME_IN_EXPRS,
     IF_EXPR,
     WHILE_EXPR,
     LOOP_EXPR,
@@ -2611,6 +2612,30 @@ impl AstNode for Quantifier {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct NameInExprs {
+    pub(crate) syntax: SyntaxNode,
+}
+impl NameInExprs {
+    pub fn name_in_exprs(&self) -> AstChildren<NameInExpr> {
+        support::children(&self.syntax)
+    }
+}
+impl AstNode for NameInExprs {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == NAME_IN_EXPRS
+    }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NameInExpr {
     pub(crate) syntax: SyntaxNode,
 }
@@ -2619,6 +2644,9 @@ impl crate::ast::HasExpr for NameInExpr {}
 impl NameInExpr {
     pub fn in_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![in])
+    }
+    pub fn comma_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, T ! [,])
     }
 }
 impl AstNode for NameInExpr {
@@ -3073,26 +3101,26 @@ impl AstNode for IfExprElse {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum QuantifierOver {
     ParamList(ParamList),
-    NameInExpr(NameInExpr),
+    NameInExprs(NameInExprs),
 }
 impl From<ParamList> for QuantifierOver {
     fn from(node: ParamList) -> QuantifierOver {
         QuantifierOver::ParamList(node)
     }
 }
-impl From<NameInExpr> for QuantifierOver {
-    fn from(node: NameInExpr) -> QuantifierOver {
-        QuantifierOver::NameInExpr(node)
+impl From<NameInExprs> for QuantifierOver {
+    fn from(node: NameInExprs) -> QuantifierOver {
+        QuantifierOver::NameInExprs(node)
     }
 }
 impl AstNode for QuantifierOver {
     fn can_cast(kind: SyntaxKind) -> bool {
-        matches!(kind, PARAM_LIST | NAME_IN_EXPR)
+        matches!(kind, PARAM_LIST | NAME_IN_EXPRS)
     }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         let res = match syntax.kind() {
             PARAM_LIST => QuantifierOver::ParamList(ParamList { syntax }),
-            NAME_IN_EXPR => QuantifierOver::NameInExpr(NameInExpr { syntax }),
+            NAME_IN_EXPRS => QuantifierOver::NameInExprs(NameInExprs { syntax }),
             _ => return None,
         };
         Some(res)
@@ -3100,7 +3128,7 @@ impl AstNode for QuantifierOver {
     fn syntax(&self) -> &SyntaxNode {
         match self {
             QuantifierOver::ParamList(it) => &it.syntax,
-            QuantifierOver::NameInExpr(it) => &it.syntax,
+            QuantifierOver::NameInExprs(it) => &it.syntax,
         }
     }
 }
@@ -3420,6 +3448,11 @@ impl std::fmt::Display for StructExprField {
     }
 }
 impl std::fmt::Display for Quantifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for NameInExprs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }

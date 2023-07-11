@@ -3,21 +3,22 @@ struct List {
     elem: int,
 }
 
-// struct List {
-//     next: &List?,
-//     ghost next_life: Perm,
-//     elem: int,
-// }
+pure fn content(list: &List) -> [int] {
+    if list.next != null {
+        [list.elem] + content(&list.next!)
+    } else {
+        []
+    }
+}
 
 fn head(this: &mut List) -> int {
     this.elem
 }
 
-ghost fn append(this: &mut List, e: int) {
+fn append(this: &mut List, e: int) {
     if this.next == null {
-        let n = create();
         this.elem = e;
-        this.next = n;
+        this.next = null;
     } else {
         append(&mut this.next!, e);
     }
@@ -27,14 +28,15 @@ fn prepend(this: List, e: int) -> List {
     List { next: this, elem: e }
 }
 
-ghost fn create() -> List;
 
-fn concat(this: &mut List, that: List) {
+fn concat(this: &mut List, that: List)
+    // ens content(this) == old(content(this) + content(&that))
+{
     if this.next == null {
         this.next = that.next;
         this.elem = that.elem;
     } else {
-        concat(&mut this.next, that);
+        concat(&mut this.next!, that);
     }
 }
 
@@ -47,10 +49,11 @@ fn reverse_helper(this: List, last: ?List) -> List {
         if last == null {
             this
         } else {
-            last
+            last!
         }
     } else {
         let n = this.next;
+        this.next = null;
         reverse_helper(n, this)
     }
 }

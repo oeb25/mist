@@ -1,0 +1,54 @@
+/*
+ * A recursive implementation of insertion sort.
+ *
+ * Tasks:
+ * a) Implement the function sorted, which should return true if and
+ *    only if the given sequences is sorted in ascending order.
+ * b) As a sanity check of your implementation in (a) prove the lemma 
+ *    lemma_total_order, which states that, for any two values i <= j
+ *    in a sorted sequence xs, we have xs[i] <= xs[j].
+ * c) Prove (wrt. partial correctness) that the method insertion_sort produces a
+      sorted sequence.
+ * d) Prove that the method insertion_sort sorts the input sequence, that is,
+ *    formalize and verify that ys is indeed a permutation of xs.
+ * e) Prove that the method insertion_sort terminates.
+ */
+
+function sorted(xs: Seq[Int]): Bool // TODO
+
+
+method lemma_total_order(xs: Seq[Int], i: Int, j: Int)
+    requires sorted(xs)
+    requires 0 <= i && i <= j && j < |xs|
+    ensures xs[i] <= xs[j]
+    // TODO
+
+method insertion_sort(xs: Seq[Int]) returns (ys: Seq[Int])
+    ensures sorted(ys) 
+    // TODO
+{
+    if (|xs| == 0) {
+        ys := Seq[Int]()
+    } else {
+        ys := insertion_sort(xs[1..])
+        ys := insert(xs[0], ys)
+    }
+}
+
+
+
+method insert(x: Int, xs: Seq[Int]) returns (ys: Seq[Int])
+    // TODO
+{
+    if (|xs| == 0) {
+        ys := Seq(x)
+    } else {
+        var y:Int := xs[0]
+        if (x < y) {
+            ys := Seq(x) ++ xs
+        } else {
+            ys := insert(x, xs[1..])
+            ys := Seq(y) ++ ys
+        }
+    }
+}

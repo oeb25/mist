@@ -419,7 +419,7 @@ mod test {
         #[test]
         fn folding_tree_lattice_lub_idempotent(Input { ctx, trees } in arb_ctx_trees(1)) {
             let [tree]: [_; 1] = trees.try_into().unwrap();
-            let lub = tree.lub(ctx.body(), &tree);
+            let lub = tree.lub(&(), &tree);
             prop_assert!(
                 lub == tree,
                 "{} != {}",
@@ -432,8 +432,8 @@ mod test {
         #[test]
         fn folding_tree_lattice_lub_identity(Input { ctx, trees } in arb_ctx_trees(1)) {
             let [tree]: [_; 1] = trees.try_into().unwrap();
-            let lub_1 = tree.lub(ctx.body(), &FoldingForrest::default());
-            let lub_2 = FoldingForrest::default().lub(ctx.body(), &tree);
+            let lub_1 = tree.lub(&(), &FoldingForrest::default());
+            let lub_2 = FoldingForrest::default().lub(&(), &tree);
             prop_assert!(
                 lub_1 == tree,
                 "{} != {}",
@@ -453,8 +453,8 @@ mod test {
         #[test]
         fn folding_tree_lattice_commute(Input { ctx, trees } in arb_ctx_trees(2)) {
             let [lhs, rhs]: [_; 2] = trees.try_into().unwrap();
-            let lub_lr = lhs.lub(ctx.body(), &rhs);
-            let lub_rl = rhs.lub(ctx.body(), &lhs);
+            let lub_lr = lhs.lub(&(), &rhs);
+            let lub_rl = rhs.lub(&(), &lhs);
 
             eprintln!(
                 "lub({}, {}) = {}",
@@ -486,7 +486,7 @@ mod test {
             let cases = [a, b, c]
                 .into_iter()
                 .permutations(3)
-                .map(|ts| ts[0].lub(ctx.body(), &ts[1].lub(ctx.body(), &ts[2])))
+                .map(|ts| ts[0].lub(&(), &ts[1].lub(&(), &ts[2])))
                 .collect_vec();
 
             for (x, y) in cases.iter().tuple_windows() {
@@ -510,8 +510,8 @@ mod test {
                 .into_iter()
                 .permutations(3)
                 .map(|ts| (
-                    ts[0].lub(ctx.body(), &ts[1].lub(ctx.body(), &ts[2])),
-                    ts[0].lub(ctx.body(), &ts[1]).lub(ctx.body(), &ts[2]),
+                    ts[0].lub(&(), &ts[1].lub(&(), &ts[2])),
+                    ts[0].lub(&(), &ts[1]).lub(&(), &ts[2]),
                 ))
                 .collect_vec();
 
@@ -531,7 +531,7 @@ mod test {
         #[test]
         fn folding_tree_lattice_lub_2(Input { ctx, trees } in arb_ctx_trees(2)) {
             let [lhs, rhs]: [_; 2] = trees.try_into().unwrap();
-            let lub = lhs.lub(ctx.body(), &rhs);
+            let lub = lhs.lub(&(), &rhs);
 
             eprintln!(
                 "lub({}, {}) = {}",
@@ -544,13 +544,13 @@ mod test {
             // ⋣
 
             prop_assert!(
-                lub.contains(ctx.body(), &lhs),
+                lub.contains(&(), &lhs),
                 "{} ⋣ {}",
                 debug_folding_tree_ctx(&ctx, &lub),
                 debug_folding_tree_ctx(&ctx, &lhs),
             );
             prop_assert!(
-                lub.contains(ctx.body(), &rhs),
+                lub.contains(&(), &rhs),
                 "{} ⋣ {}",
                 debug_folding_tree_ctx(&ctx, &lub),
                 debug_folding_tree_ctx(&ctx, &rhs),
@@ -567,7 +567,7 @@ mod test {
                 .into_iter()
                 .permutations(3)
                 .map(|ts| {
-                    let lub = ts[0].lub(ctx.body(), &ts[1]).lub(ctx.body(), &ts[2]);
+                    let lub = ts[0].lub(&(), &ts[1]).lub(&(), &ts[2]);
                     (ts, lub)
                 })
                 .collect_vec();
@@ -575,7 +575,7 @@ mod test {
             for (ts, lub) in cases.iter() {
                 for t in ts {
                     prop_assert!(
-                        lub.contains(ctx.body(), t),
+                        lub.contains(&(), t),
                         "{} ⋣ {}",
                         debug_folding_tree_ctx(&ctx, lub),
                         debug_folding_tree_ctx(&ctx, t),

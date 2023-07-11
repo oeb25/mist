@@ -1,0 +1,84 @@
+/*
+ * The method search_winner aims to determine the clear winner of an election
+ * (i.e. a candidate with 50% + 1 of all votes).
+ *
+ * To simplify verification, we have added two ghost variables stating whether there exists
+ * a clear winner and, if yes, who the clear winner is. We use these variables to formalize
+ * that search_winner should return the clear winner if there is one; otherwise, the result
+ * does not matter.
+ *
+ * Votes are given by a sequence of integers, where every integer corresponds to a candidate.
+ * 
+ * Tasks: 
+ * a) Verify that search_winner returns the clear winner if there is one and if the method terminates
+ * b) Show that search_winner terminates.
+ *
+ */
+
+/*
+ * Returns the number of votes in the interval [low, high) for the given candidate
+ */
+function count_votes(votes: Seq[Int], candidate: Int, low: Int, high: Int): Int 
+    requires 0 <= low 
+    requires low <= high
+    requires high <= |votes|
+{
+    low == high 
+        ? 0
+        : (votes[high-1] == candidate ? 1 : 0)
+          + count_votes(votes, candidate, low, high-1)
+}
+
+
+/*
+ * Checks if the given candidate has an absolute majority for the votes in the interval [low, high)
+ */
+function has_majority(votes: Seq[Int], candidate: Int, low: Int, high: Int): Bool
+    requires 0 <= low 
+    requires low <= high
+    requires high <= |votes|
+{
+    count_votes(votes, candidate, low, high) > (high - low) / 2
+}
+
+
+method search_winner(votes: Seq[Int], 
+      ghost_has_winner: Bool, // ghost variable indicating there is a winner
+      ghost_winner: Int // ghost variable indicating who the winner is
+) 
+    returns (winner: Int)
+    requires |votes| > 0
+    requires ghost_has_winner ==> has_majority(votes, ghost_winner, 0, |votes|)
+    ensures ghost_has_winner ==> winner == ghost_winner // <--- if there is a winner, it is the expected one
+    // TODO: termination
+{
+    winner := votes[0]
+    var low: Int := 0
+    var high: Int := 1 
+    var count: Int := 1
+
+    var return: Bool := false
+    while (!return && high < |votes|)
+        invariant 0 <= low && low <= high && high <= |votes|
+        // TODO
+    {
+        if (votes[high] == winner) {
+            high := high + 1
+            count := count + 1
+        } else { 
+            if (high + 1 - low < 2 * count) {
+                high := high + 1
+            } else {
+                high := high + 1
+                if (high == |votes|) {
+                    return := true
+                } else {
+                    winner := votes[high]
+                    low := high 
+                    high := high + 1
+                    count := 1
+                }
+            }
+        }
+    }
+}

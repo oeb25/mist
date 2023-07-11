@@ -471,7 +471,8 @@ impl Backend {
 
     fn viperserver_jar(&self) -> PathBuf {
         // TODO: do not hard code this
-        PathBuf::from("/Users/oeb25/Projects/thesis/vipers/server/viperserver/target/scala-2.13/viperserver.jar")
+        // PathBuf::from("/Users/oeb25/Projects/thesis/vipers/server/viperserver/target/scala-2.13/viperserver.jar")
+        PathBuf::from("/Users/oeb25/Downloads/ViperToolsMac/backends/viperserver.jar")
     }
 }
 

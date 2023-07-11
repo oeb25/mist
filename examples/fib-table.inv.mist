@@ -5,7 +5,7 @@ struct FibTable {
 invariant FibTable {
   forall(i) if 0 <= i && i < self.values.len {
     self.values[i] == fib(i)
-  } else { true }
+  }
 }
 
 fn make(n: int) -> FibTable

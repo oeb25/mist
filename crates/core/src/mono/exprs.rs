@@ -103,7 +103,7 @@ pub enum Field {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum QuantifierOver {
     Vars(Vec<VariablePtr>),
-    In(VariablePtr, ExprPtr),
+    In(Vec<(VariablePtr, ExprPtr)>),
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BuiltinExpr {
@@ -247,7 +247,11 @@ impl ExprPtr {
             }
             ExprData::Quantifier { over, expr, .. } => {
                 match over {
-                    QuantifierOver::In(_, e) => e.visit(db, f),
+                    QuantifierOver::In(vars) => {
+                        for (_, e) in vars {
+                            e.visit(db, f)
+                        }
+                    }
                     QuantifierOver::Vars(_) => {}
                 }
                 expr.visit(db, f);
@@ -363,13 +367,15 @@ impl ExprPtr {
                         expr.display(db)
                     )
                 }
-                QuantifierOver::In(var, in_expr) => {
-                    format!(
-                        "{quantifier} {} in {} {{ {} }}",
-                        var.name(db),
-                        in_expr.display(db),
-                        expr.display(db)
-                    )
+                QuantifierOver::In(vars) => {
+                    let vars = vars
+                        .iter()
+                        .map(|(var, in_expr)| {
+                            format!("{} in {}", var.name(db), in_expr.display(db),)
+                        })
+                        .format(", ");
+
+                    format!("{quantifier} {vars} {{ {} }}", expr.display(db))
                 }
             },
             ExprData::Result => todo!(),

@@ -5,8 +5,15 @@ pure struct FoldingTree {
 pure struct Place {
     slot: int,
     projection: [int],
-    fields: [int],
 }
+
+// invariant Place {
+//     0 <= self.slot && self.slot <= 0 &&
+//     forall idx in 0..self.projection.len {
+//         0 <= self.projection[idx] &&
+//              self.projection[idx] <= 0
+//     }
+// }
 
 pure fn prefix(p: Place) -> Set[Place] {
     if p.projection == [] {
@@ -15,9 +22,25 @@ pure fn prefix(p: Place) -> Set[Place] {
         let parent = Place {
             slot: p.slot,
             projection: p.projection[0..p.projection.len - 1],
-            fields: []
         };
         prefix(parent).union([p].to_set())
+    }
+}
+
+pure fn fields_of_ty(ty: int) -> Set[int] {
+    let types = [
+        [1, 2],
+        [3, 4],
+        [5, 6, 7],
+        [],
+        [],
+        [8, 9],
+    ];
+
+    if 0 <= ty && ty < types.len {
+        types[ty].to_set()
+    } else {
+        [].to_set()
     }
 }
 
@@ -32,7 +55,12 @@ pure fn prefix(p: Place) -> Set[Place] {
 // }
 
 pure fn fields(p: Place) -> Set[Place] {
-    fields_helper(p, p.fields)
+    let fs =  if p.projection == [] {
+        fields_of_ty(p.slot).to_list()
+    } else {
+        fields_of_ty(p.projection[p.projection.len - 1]).to_list()
+    };
+    fields_helper(p, fs)
 }
 pure fn fields_helper(p: Place, fs: [int]) -> Set[Place] {
     if fs == [] {
@@ -41,7 +69,6 @@ pure fn fields_helper(p: Place, fs: [int]) -> Set[Place] {
         let np = Place {
             slot: p.slot,
             projection: p.projection + [fs[0]],
-            fields: [],
         };
         [np].to_set().union(fields_helper(p, fs[1..]))
     }
@@ -51,7 +78,12 @@ pure fn leaves(t: FoldingTree) -> Set[Place] {
     leaves_helper(t, t.places.to_list())
 }
 pure fn leaves_helper(t: FoldingTree, ps: [Place]) -> Set[Place]
-    ens forall p in result { true }
+    req forall idx in 0..ps.len { t.places.contains(ps[idx]) }
+    ens forall(p, f) if result.contains(p) && fields(p).contains(f) {
+        !(result.contains(f))
+    } else {
+        true
+    }
 {
     if ps == [] {
         [].to_set()
@@ -66,16 +98,20 @@ pure fn leaves_helper(t: FoldingTree, ps: [Place]) -> Set[Place]
     }
 }
 
+fn smoke() -> bool {
+    assert false;
+    false
+}
+
 pure fn unfold_(p: Place, t: FoldingTree) -> FoldingTree
-    req forall(p)
-        if t.places.contains(p) {
+    req forall p in t.places {
             t.places.intersection(prefix(p)) == prefix(p)
-        } else {
-            true
-        }
-    req leaves(t).contains(p)
-    ens forall(f) { if fields(p).contains(f) { result.places.contains(f) } else { true } }
-    ens forall(f) { if fields(p).contains(f) { leaves(result).contains(f) } else { true } }
+        },
+        leaves(t).contains(p)
+    ens forall f in fields(p) { !(t.places.contains(f)) }
+    ens forall p in t.places { result.places.contains(p) }
+    ens forall f in fields(p) { result.places.contains(f) }
+    ens forall f in fields(p) { leaves(result).contains(f) }
 {
     FoldingTree {
         places: t.places.union(fields(p))

@@ -224,6 +224,9 @@ impl ena::unify::UnifyValue for TypeData {
         match (ty1, ty2) {
             (TypeData { kind: TDK::Free, .. }, other)
             | (other, TypeData { kind: TDK::Free, .. }) => Ok(other.clone()),
+            // TODO: we should check that we only unify with Nulls and Optional
+            (TypeData { kind: TDK::Null, .. }, other)
+            | (other, TypeData { kind: TDK::Null, .. }) => Ok(other.clone()),
             _ => {
                 error!("could not unify {ty1:?} with {ty2:?}");
                 Err(())
@@ -257,6 +260,9 @@ impl<T> TypeData<T> {
 
     pub fn is_void(&self) -> bool {
         matches!(self.kind, TDK::Void)
+    }
+    pub fn is_bool(&self) -> bool {
+        matches!(self.kind, TDK::Primitive(Primitive::Bool))
     }
     pub fn is_ghost(&self) -> bool {
         self.is_ghost

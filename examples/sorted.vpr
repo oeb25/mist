@@ -1,0 +1,31 @@
+field xs: Seq[Int]
+field min: Int
+
+predicate Sorted(s: Ref) {
+  acc(s.xs, write) && acc(s.min, write) &&
+  (forall i: Int, j: Int :: 0 <= i && i < j && j < |s.xs| ==> s.xs[i] <= s.xs[j]) &&
+  (s.xs != Seq() ==> s.xs[0] == s.min)
+}
+
+define SortedEq(a, b) (a.xs == b.xs && a.min == b.min)
+
+method sum(s: Ref, p: Perm) returns (res: Int)
+  requires p > none && acc(Sorted(s), p)
+  ensures acc(Sorted(s), p) && unfolding acc(Sorted(s), p) in
+      SortedEq(s, old(unfolding acc(Sorted(s), p) in s)) &&
+      res >= s.min * |s.xs|
+{
+  res := 0
+  var index: Int := 0
+  while (index < unfolding acc(Sorted(s), p) in |s.xs|)
+    invariant acc(Sorted(s), p) && unfolding acc(Sorted(s), p) in
+      SortedEq(s, old(unfolding acc(Sorted(s), p) in s)) &&
+      0 <= index && index <= |s.xs| &&
+      res >= s.min * index
+  {
+    unfold acc(Sorted(s), p)
+    res := res + s.xs[index]
+    index := index + 1
+    fold acc(Sorted(s), p)
+  }
+}

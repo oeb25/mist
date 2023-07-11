@@ -8,7 +8,7 @@ use silvers::{
 
 use crate::{gen::VExprId, lower::pure::PureLowerResult, mangle};
 
-use super::{BodyLower, Result, ViperLowerError};
+use super::{folding::fold_stmt, BodyLower, Result, ViperLowerError};
 
 impl BodyLower<'_> {
     #[tracing::instrument(skip_all)]
@@ -115,8 +115,8 @@ impl BodyLower<'_> {
                                 .map(|s| {
                                     let place = s.place(l.db, l.ib);
                                     let place_ref = l.place_to_ref(place)?;
-                                    let (pre, _) = l.ty_to_condition(place_ref, place.ty())?;
-                                    Ok(pre)
+                                    let (_, post) = l.ty_to_condition(place_ref, place.ty())?;
+                                    Ok(post)
                                 })
                                 .filter_map(|s| s.transpose())
                                 .collect::<Result<Vec<_>>>()?;
@@ -276,24 +276,8 @@ impl BodyLower<'_> {
                 }
                 mir::Instruction::PlaceMention(_) => {}
                 mir::Instruction::Folding(folding) => {
-                    let place = match folding {
-                        mir::Folding::Fold { into, .. } => into,
-                        mir::Folding::Unfold { consume, .. } => consume,
-                    };
-                    if let Some(adt) = place.ty().ty_adt(l.db) {
-                        if !adt.is_pure(l.db) {
-                            let name = mangle::mangled_adt(l.db, adt);
-                            let place_ref = l.place_to_ref(place)?;
-                            let acc = PredicateAccessPredicate::new(
-                                PredicateAccess::new(name, vec![place_ref]),
-                                l.allocs(PermExp::Full),
-                            );
-
-                            insts.push(match folding {
-                                mir::Folding::Fold { .. } => Stmt::Fold { acc },
-                                mir::Folding::Unfold { .. } => Stmt::Unfold { acc },
-                            });
-                        }
+                    if let Some(stmt) = fold_stmt(l.db, l, folding)? {
+                        insts.push(stmt);
                     }
                 }
             }

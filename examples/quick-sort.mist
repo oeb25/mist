@@ -1,0 +1,36 @@
+pure struct Tuple[T, S] {
+  fst: T,
+  snd: S,
+}
+
+fn qs(xs: [int]) -> [int]
+  ens forall i in 0..result.len, j in i..result.len { result[i] <= result[j] }
+{
+  if xs == [] {
+    xs
+  } else {
+    let res = partition(xs[1..], xs[0]);
+    qs(res.fst) + [xs[0]] + qs(res.snd)
+  }
+}
+
+pure fn partition(xs: [int], p: int) -> Tuple[[int], [int]]
+  ens forall i in 0..result.fst.len, j in 0..result.snd.len { result.fst[i] <= p && p < result.snd[j] }
+{
+  if xs.len == 0 {
+    Tuple { fst: [], snd: [] }
+  } else {
+    let r = partition(xs[1..], p);
+    if xs[0] <= p {
+      Tuple {
+        fst: [xs[0]] + r.fst,
+        snd: r.snd,
+      }
+    } else {
+      Tuple {
+        fst: r.fst,
+        snd: [xs[0]] + r.snd,
+      }
+    }
+  }
+}

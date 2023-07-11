@@ -1,0 +1,29 @@
+ghost pure fn sumTo(n: int) -> int
+  req n >= 0
+  ens result ==
+    n * (n - 1) / 2;
+// {
+//   let mut sum = 0;
+//   for i in 0..n
+//     inv sum ==
+//       i * (i - 1) / 2
+//   {
+//     sum = sum + i;
+//   }
+//   sum
+// }
+//@ align
+fn sumOf(r: Range[int]) -> int
+  req 0 <= r.min, r.min <= r.max
+  ens result ==
+    sumTo(r.max) - sumTo(r.min)
+{
+  let mut sum = 0;
+  for i in r
+    inv sum ==
+      sumTo(i) - sumTo(r.min)
+  {
+    sum = sum + i;
+  }
+  sum
+}

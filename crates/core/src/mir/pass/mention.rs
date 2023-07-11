@@ -17,7 +17,14 @@ impl Pass for MentionPass {
         let cfg = Cfg::compute(db, ib);
 
         for scc in cfg.scc() {
-            let entry_loc = scc.entry().first_body_loc(ib);
+            let mut entry = scc.entry();
+            while let Some(term) = entry.terminator(ib) {
+                if term.targets(db).len() > 1 {
+                    break;
+                }
+                entry = term.targets(db)[0];
+            }
+            let entry_loc = entry.first_body_loc(ib);
             let mut seen = IdxSet::default();
             for s in ib.slots_referenced(db, scc.blocks()) {
                 if liveness.entry(entry_loc).contains_idx(s) {
@@ -25,7 +32,21 @@ impl Pass for MentionPass {
                 }
             }
             for s in seen.iter() {
-                let loc = scc.entry().first_body_loc(ib);
+                let s_ty = &s.ty(db, ib);
+                if !s_ty.is_ref(db) && !s_ty.is_adt(db) {
+                    continue;
+                }
+
+                if let Some(t) = entry.terminator(ib) {
+                    for bid in t.targets(db) {
+                        // TODO: This should really be `first_body_loc`
+                        let loc = bid.last_body_loc();
+                        let place = ib.place(db, s);
+                        ib.insert_instruction_before(loc, Instruction::PlaceMention(place));
+                    }
+                }
+
+                let loc = entry.last_body_loc();
                 let place = ib.place(db, s);
                 ib.insert_instruction_before(loc, Instruction::PlaceMention(place));
             }

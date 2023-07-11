@@ -25,28 +25,37 @@ pub fn desugar_expr(db: &dyn crate::Db, expr: ExprPtr) -> ExprPtr {
 }
 
 fn desugar_quantifier_in(db: &dyn crate::Db, b: &Builder, src: ExprPtr) -> ExprPtr {
-    let ExprData::Quantifier { quantifier, over: QuantifierOver::In(var, in_expr), expr: body } =
+    let ExprData::Quantifier { quantifier, over: QuantifierOver::In(vars), expr: body } =
         src.data(db)
     else {
         return src;
     };
 
-    let over = QuantifierOver::Vars(vec![var]);
+    let over = QuantifierOver::Vars(vars.iter().map(|(var, _)| *var).collect());
 
-    let var_expr = b.var_expr(src, var);
-    let condition = match in_expr.ty().kind(db) {
-        TypeData::Builtin(bit) => match bit.kind(db) {
-            BuiltinKind::Set => ExprData::Call {
-                fun: ExprFunction::Builtin(BuiltinField::Set(in_expr.ty(), Contains)),
-                args: [in_expr, var_expr].to_vec(),
-            },
-            BuiltinKind::Range => ExprData::Builtin(BuiltinExpr::InRange(var_expr, in_expr)),
-            // TODO
-            _ => b.lit(src, false).data(db),
-        },
-        _ => b.lit(src, false).data(db),
-    };
-    let condition = b.alloc(in_expr, Type::bool(db), condition);
+    let condition = vars
+        .iter()
+        .map(|&(var, in_expr)| {
+            let var_expr = b.var_expr(src, var);
+            let condition = match in_expr.ty().kind(db) {
+                TypeData::Builtin(bit) => match bit.kind(db) {
+                    BuiltinKind::Set => ExprData::Call {
+                        fun: ExprFunction::Builtin(BuiltinField::Set(in_expr.ty(), Contains)),
+                        args: [in_expr, var_expr].to_vec(),
+                    },
+                    BuiltinKind::Range => {
+                        ExprData::Builtin(BuiltinExpr::InRange(var_expr, in_expr))
+                    }
+                    // TODO
+                    _ => b.lit(src, false).data(db),
+                },
+                _ => b.lit(src, false).data(db),
+            };
+            b.alloc(in_expr, Type::bool(db), condition)
+        })
+        .reduce(|l, r| build!(b, src, l && r))
+        .unwrap();
+
     let else_branch = b.lit(src, true);
 
     let new_body = build!(b, src, if condition { body } else { else_branch });

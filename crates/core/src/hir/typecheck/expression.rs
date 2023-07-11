@@ -2,10 +2,13 @@ use itertools::{
     Either::{self, Left, Right},
     Itertools,
 };
-use mist_syntax::ast::{
-    self,
-    operators::{ArithOp, BinaryOp, CmpOp},
-    HasAttrs, HasExpr, HasName, Spanned,
+use mist_syntax::{
+    ast::{
+        self,
+        operators::{ArithOp, BinaryOp, CmpOp},
+        HasAttrs, HasExpr, HasName, Spanned,
+    },
+    SourceSpan,
 };
 use tracing::warn;
 
@@ -16,7 +19,7 @@ use crate::{
         SpanOrAstPtr, StructExprField, WhileExpr,
     },
     types::{
-        primitive::{bool, error, ghost_bool, ghost_int, int, null, void},
+        primitive::{bool, error, ghost_bool, ghost_int, int, void},
         BuiltinField, BuiltinKind, Field, GenericArgs, Primitive, TypeData, TypeId, TypeProvider,
         TDK,
     },
@@ -473,6 +476,8 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                     }
                 },
                 TDK::Adt(s) => {
+                    // NOTE: Query the ADT to give it a chance to finish initialization
+                    tc.adt_ty(s);
                     if let Some(field) =
                         tc.fields_of(s).into_iter().find(|f| f.name(tc.db) == field)
                     {
@@ -631,7 +636,7 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                 ExprData::Ident(var).typed(ty)
             }
         }
-        ast::Expr::NullExpr(_) => ExprData::Literal(Literal::Null).typed(null()),
+        ast::Expr::NullExpr(_) => ExprData::Literal(Literal::Null).typed(tc.new_null()),
         ast::Expr::ResultExpr(_) => {
             // TODO: Perhaps this should be an error, as commented out below
             // let ty = if let Some(return_ty) = tc.return_ty() {
@@ -677,31 +682,44 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                         })
                         .collect(),
                 ),
-                Some(ast::QuantifierOver::NameInExpr(it)) => {
-                    let ty = tc.new_free();
-                    let ty = tc.unsourced_ty(ty);
-                    let name = it.name().unwrap();
-                    let name_span = name.span();
-                    let var_decl = tc.declare_variable(
-                        VariableDeclaration::new_let(name, false),
-                        ty,
-                        name_span,
-                    );
-                    let over_expr = check_opt(tc, it.span(), it.expr());
+                Some(ast::QuantifierOver::NameInExprs(it)) => {
+                    let ins = it
+                        .name_in_exprs()
+                        .map(|it| {
+                            let ty = tc.new_free();
+                            let ty = tc.unsourced_ty(ty);
+                            let name = it.name().unwrap();
+                            let name_span = name.span();
+                            let var_decl = tc.declare_variable(
+                                VariableDeclaration::new_let(name, false),
+                                ty,
+                                name_span,
+                            );
+                            let over_expr = check_opt(tc, it.span(), it.expr());
 
-                    let range_ty = match tc.ty_kind(tc.expr_ty(over_expr)) {
-                        TDK::Builtin(BuiltinKind::Range, _) => {
-                            tc.alloc_ty_data(TypeData::range(tc.db, ty.ty(tc.db)).kind.ghost())
-                        }
-                        TDK::Builtin(BuiltinKind::Set, _) => {
-                            tc.alloc_ty_data(TypeData::set(tc.db, ty.ty(tc.db)).kind.ghost())
-                        }
-                        // Fallback
-                        _ => tc.alloc_ty_data(TypeData::range(tc.db, ty.ty(tc.db)).kind.ghost()),
-                    };
+                            let range_ty = match tc.ty_kind(tc.expr_ty(over_expr)) {
+                                TDK::Builtin(BuiltinKind::Range, _) => tc.alloc_ty_data(
+                                    TypeData::range(tc.db, ty.ty(tc.db)).kind.ghost(),
+                                ),
+                                TDK::Builtin(BuiltinKind::Set, _) => tc
+                                    .alloc_ty_data(TypeData::set(tc.db, ty.ty(tc.db)).kind.ghost()),
+                                // Fallback
+                                _ => tc.alloc_ty_data(
+                                    TypeData::range(tc.db, ty.ty(tc.db)).kind.ghost(),
+                                ),
+                            };
 
-                    tc.expect_ty((it.expr().as_ref(), name_span), range_ty, tc.expr_ty(over_expr));
-                    QuantifierOver::In(var_decl, over_expr)
+                            tc.expect_ty(
+                                (it.expr().as_ref(), name_span),
+                                range_ty,
+                                tc.expr_ty(over_expr),
+                            );
+
+                            (var_decl, over_expr)
+                        })
+                        .collect();
+
+                    QuantifierOver::In(ins)
                 }
                 None => {
                     warn!("quantifier does not quantify over anything");
@@ -759,6 +777,13 @@ fn check_if_expr(tc: &mut TypeChecker, if_expr: ast::IfExpr) -> ExprIdx {
                 (tail_span, tc.alloc_expr(Expr::new_block(block), b.span()))
             }
         })
+        .or_else(|| {
+            tc.ty_data(then_ty).is_bool().then(|| {
+                let span_end = if_expr.span().end();
+                let span = SourceSpan::new_start_end(span_end, span_end);
+                (span, tc.alloc_expr(ExprData::Literal(Literal::Bool(true)).typed(bool()), span))
+            })
+        })
         .unzip();
     // TODO: tail_span should perhaps be a general concept for exprs, to
     // provide better spans in more cases
@@ -766,6 +791,12 @@ fn check_if_expr(tc: &mut TypeChecker, if_expr: ast::IfExpr) -> ExprIdx {
     let ty = if let Some(b) = else_branch {
         let span = else_tail_span.unwrap_or_else(|| if_expr.span());
         let then_ty = then_ty.with_ghost(tc, is_ghost);
+        eprintln!(
+            "if {} else {} ({})",
+            tc.pretty_ty(then_ty),
+            tc.pretty_ty(tc.expr_ty(b)),
+            tc.cx.pretty_expr(tc.db, b)
+        );
         tc.unify(span, then_ty, tc.expr_ty(b))
     } else {
         let else_ty = void().with_ghost(tc, is_ghost);

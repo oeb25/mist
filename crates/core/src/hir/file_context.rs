@@ -149,6 +149,9 @@ impl FileContext {
                 FileContextBuilderEvent::NewFree => {
                     typer.new_free();
                 }
+                FileContextBuilderEvent::NewNull => {
+                    typer.new_null();
+                }
                 FileContextBuilderEvent::NewGeneric(generic) => {
                     typer.new_generic(*generic);
                 }
@@ -179,6 +182,7 @@ struct FileContextBuilder<'a> {
 enum FileContextBuilderEvent {
     AllocTy(TypeData),
     NewFree,
+    NewNull,
     NewGeneric(Generic),
     InstantiateAdt(AdtKind, GenericArgs),
     CreateAdtPrototype(AdtKind, AdtPrototype),
@@ -193,7 +197,7 @@ impl<'a> TypeProvider for FileContextBuilder<'a> {
         self.typer.try_adt_ty(adt)
     }
     fn fields_of(&self, adt: Adt) -> Vec<AdtField> {
-        self.typer.adt_fields(adt).to_vec()
+        self.typer.adt_fields(self.db, adt).to_vec()
     }
 }
 
@@ -222,6 +226,10 @@ impl<'a> TypingMut for FileContextBuilder<'a> {
     fn new_free(&mut self) -> TypeId {
         self.fc.events.push(FileContextBuilderEvent::NewFree);
         self.typer.new_free()
+    }
+    fn new_null(&mut self) -> TypeId {
+        self.fc.events.push(FileContextBuilderEvent::NewNull);
+        self.typer.new_null()
     }
 
     fn new_generic(&mut self, generic: Generic) -> TypeId {

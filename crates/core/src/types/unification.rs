@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use std::{collections::HashMap, sync::Mutex};
 
 use ena::unify::InPlaceUnificationTable;
@@ -145,13 +148,17 @@ type_prelude! {
     2 => (int, TDK::Primitive(Primitive::Int)),
     3 => (ghost_int, TDK::Primitive(Primitive::Int).ghost()),
     4 => (void, TDK::Void),
-    5 => (null, TDK::Null),
-    6 => (error, TDK::Error),
+    5 => (error, TDK::Error),
 }
 
 impl Typer {
     pub fn new_free(&mut self) -> TypeId {
         let key = self.ty_table.lock().unwrap().new_key(TDK::Free.into());
+        self.ty_keys.push(key);
+        key
+    }
+    pub fn new_null(&mut self) -> TypeId {
+        let key = self.ty_table.lock().unwrap().new_key(TDK::Null.into());
         self.ty_keys.push(key);
         key
     }
@@ -258,8 +265,12 @@ impl Typer {
             .collect();
         self.adt_instantiations.insert(adt, AdtInstantiation { adt, ty, fields });
     }
-    pub fn adt_fields(&self, adt: Adt) -> &[AdtField] {
-        &self.adt_instantiations[&adt].fields
+    pub fn adt_fields(&self, db: &dyn crate::Db, adt: Adt) -> &[AdtField] {
+        if let Some(inst) = self.adt_instantiations.get(&adt) {
+            &inst.fields
+        } else {
+            todo!("Adt {} was not initialized when fields were queried: {adt:?}", adt.name(db))
+        }
     }
 
     pub fn unify(
@@ -311,7 +322,14 @@ impl Typer {
                 self.unify(db, inner1, inner2)?;
                 expected
             }
-            (TDK::Optional(inner), TDK::Adt(_)) if inner == actual => expected,
+            (TDK::Optional(inner), TDK::Adt(_)) => {
+                self.unify(db, inner, actual)?;
+                expected
+            }
+            (TDK::Optional(inner), TDK::Ref { .. }) => {
+                self.unify(db, inner, actual)?;
+                expected
+            }
             (TDK::Adt(_), TDK::Optional(inner)) if inner == expected => actual,
             (TDK::Primitive(p1), TDK::Primitive(p2)) if p1 == p2 => expected,
             (TDK::Adt(s1), TDK::Adt(s2))
@@ -322,9 +340,18 @@ impl Typer {
                 }
                 expected
             }
-            (TDK::Null, TDK::Null) => expected,
-            (TDK::Null, TDK::Optional(_)) => actual,
-            (TDK::Optional(_), TDK::Null) => expected,
+            (TDK::Null, TDK::Null) => {
+                self.ty_table.lock().unwrap().unify_var_var(expected, actual).unwrap();
+                expected
+            }
+            (TDK::Null, TDK::Optional(_)) => {
+                self.ty_table.lock().unwrap().unify_var_var(expected, actual).unwrap();
+                actual
+            }
+            (TDK::Optional(_), TDK::Null) => {
+                self.ty_table.lock().unwrap().unify_var_var(expected, actual).unwrap();
+                expected
+            }
             (TDK::Free, _) | (_, TDK::Free) => {
                 self.ty_table.lock().unwrap().unify_var_var(expected, actual).unwrap();
                 expected

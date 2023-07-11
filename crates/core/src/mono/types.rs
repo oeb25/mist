@@ -121,11 +121,30 @@ impl Adt {
         Type::new(db, false, TypeData::Adt(*self))
     }
     pub fn is_monomophic(self, db: &dyn crate::Db) -> bool {
-        self.fields(db).iter().all(|f| f.ty(db).is_monomophic(db))
+        self.is_monomophic_fixpoint(db, &|_| false)
+    }
+    fn is_monomophic_fixpoint(self, db: &dyn crate::Db, seen: &dyn Fn(Adt) -> bool) -> bool {
+        if seen(self) {
+            return true;
+        }
+
+        let seen = |t| t == self || seen(t);
+        self.fields(db).iter().all(|f| f.ty(db).is_monomophic_fixpoint(db, &seen))
     }
     pub fn is_pure(self, db: &dyn crate::Db) -> bool {
+        self.is_pure_fixpoint(db, &|_| false)
+    }
+    fn is_pure_fixpoint(self, db: &dyn crate::Db, seen: &dyn Fn(Adt) -> bool) -> bool {
+        if seen(self) {
+            return true;
+        }
+
+        let seen = |t| t == self || seen(t);
         self.kind(db).is_pure(db)
-            && self.fields(db).iter().all(|f| f.ty(db).is_pure(db).is_some_and(|pure| pure))
+            && self
+                .fields(db)
+                .iter()
+                .all(|f| f.ty(db).is_pure_fixpoint(db, &seen).is_some_and(|pure| pure))
     }
 }
 #[salsa::tracked]
@@ -218,8 +237,14 @@ impl Type {
     pub fn is_ref(&self, db: &dyn crate::Db) -> bool {
         matches!(self.kind(db), TypeData::Ref { .. })
     }
+    pub fn is_shared_ref(&self, db: &dyn crate::Db) -> bool {
+        matches!(self.kind(db), TypeData::Ref { is_mut: false, .. })
+    }
     /// A type is monomophic if it does not contains any generics
     pub fn is_monomophic(self, db: &dyn crate::Db) -> bool {
+        self.is_monomophic_fixpoint(db, &|_| false)
+    }
+    fn is_monomophic_fixpoint(self, db: &dyn crate::Db, seen: &dyn Fn(Adt) -> bool) -> bool {
         match self.kind(db) {
             TypeData::Generic(_) => false,
             TypeData::Error
@@ -227,24 +252,34 @@ impl Type {
             | TypeData::Primitive(_)
             | TypeData::Null
             | TypeData::Function(_) => true,
-            TypeData::Ref { inner, .. } | TypeData::Optional(inner) => inner.is_monomophic(db),
-            TypeData::Adt(adt) => adt.is_monomophic(db),
-            TypeData::Builtin(b) => b.generic_args(db).iter().all(|ty| ty.is_monomophic(db)),
+            TypeData::Ref { inner, .. } | TypeData::Optional(inner) => {
+                inner.is_monomophic_fixpoint(db, seen)
+            }
+            TypeData::Adt(adt) => adt.is_monomophic_fixpoint(db, seen),
+            TypeData::Builtin(b) => {
+                b.generic_args(db).iter().all(|ty| ty.is_monomophic_fixpoint(db, seen))
+            }
         }
     }
     /// A type is pure if all it contains is pure. If it contains unresolved
     /// types, such as [`TypeData::Error`], it returns [`None`].
     pub fn is_pure(self, db: &dyn crate::Db) -> Option<bool> {
+        self.is_pure_fixpoint(db, &|_| false)
+    }
+    pub fn is_pure_fixpoint(self, db: &dyn crate::Db, seen: &dyn Fn(Adt) -> bool) -> Option<bool> {
         match self.kind(db) {
             TypeData::Generic(_) | TypeData::Error => None,
             TypeData::Void | TypeData::Primitive(_) | TypeData::Null | TypeData::Function(_) => {
                 Some(true)
             }
-            TypeData::Ref { inner, .. } | TypeData::Optional(inner) => inner.is_pure(db),
-            TypeData::Adt(adt) => Some(adt.is_pure(db)),
-            TypeData::Builtin(b) => {
-                b.generic_args(db).iter().fold(Some(true), |acc, ty| Some(acc? && ty.is_pure(db)?))
+            TypeData::Ref { inner, .. } | TypeData::Optional(inner) => {
+                inner.is_pure_fixpoint(db, seen)
             }
+            TypeData::Adt(adt) => Some(adt.is_pure_fixpoint(db, seen)),
+            TypeData::Builtin(b) => b
+                .generic_args(db)
+                .iter()
+                .fold(Some(true), |acc, ty| Some(acc? && ty.is_pure_fixpoint(db, seen)?)),
         }
     }
 

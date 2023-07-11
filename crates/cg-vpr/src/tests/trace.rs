@@ -140,6 +140,7 @@ ghost fn f() -> T
             ^^^^^^^^^^^^^^^^^^
           ensures
             (unfolding acc($T(_0), wildcard) in _0.$T_$_b)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
         "###),
     )
 }
@@ -207,6 +208,7 @@ fn f(t: T) {
           while (_2)
             invariant
               (unfolding acc($T(_1), wildcard) in _1.$T_$_b)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
             invariant
               (true == _2)
           {

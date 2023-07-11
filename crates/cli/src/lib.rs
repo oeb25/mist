@@ -135,6 +135,7 @@ impl VerificationContext<'_> {
                     outer_errors.push(err);
                 }
             }
+            Vs::QuantifierChosenTriggersMessage { .. } => {}
             Vs::ProgramOutline { .. } => {}
             Vs::ProgramDefinitions { .. } => {}
             Vs::Statistics { .. } => {}
@@ -148,6 +149,7 @@ impl VerificationContext<'_> {
                 }
             }
             Vs::BackendSubProcessReport { .. } => eprintln!("? {status:?}"),
+            Vs::VerificationTerminationMessage { .. } => {}
         }
 
         outer_errors

@@ -223,7 +223,7 @@ type VExprData = Exp<VExprId>;
 impl_idx!(VExprId, VExpr, default_debug);
 #[derive(new, Debug, Clone, PartialEq, Eq, Hash, derive_more::Deref)]
 pub struct VExpr {
-    data: VExprData,
+    pub data: VExprData,
 }
 
 #[doc(hidden)]
@@ -545,6 +545,7 @@ mod write_impl {
                     w!(w, "(", left, " {op} ", right, ")")
                 }
                 PermExp::Current { res: _ } => w!(w, " // TODO: PermExp::Current"),
+                PermExp::Exp(e) => w!(w, e),
             }
         }
     }
@@ -639,7 +640,7 @@ mod write_impl {
                 Stmt::LocalVarDeclStmt { .. } => w!(w, "// TODO: LocalVarDeclStmt"),
                 Stmt::Quasihavoc { .. } => w!(w, "// TODO: Quasihavoc"),
                 Stmt::Quasihavocall { .. } => w!(w, "// TODO: Quasihavocall"),
-                Stmt::Expression(_) => w!(w, "// TODO: Expression"),
+                Stmt::Expression(e) => w!(w, e),
             }
         }
     }

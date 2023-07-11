@@ -1,7 +1,7 @@
 mod builder;
 mod desugar;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use indexmap::IndexSet;
 
@@ -36,21 +36,51 @@ impl<'db> MonoLower<'db> {
         let mut mdl = MonoDefLower::new(self.db, cx);
 
         for adt_inst in cx.ty_table().adt_instantiations() {
-            let adt = mdl.lower_adt(adt_inst.adt);
-            self.items.insert(Item::new(self.db, ItemKind::Adt(adt)));
+            let _adt = mdl.lower_adt(adt_inst.adt);
         }
 
         match def.kind(self.db) {
             DefKind::Function(f) => {
                 let fun = mdl.lower_fn(f);
                 self.items.insert(Item::new(self.db, ItemKind::Function(fun)));
+                for &adt in mdl.adt_cache.values() {
+                    self.items.insert(Item::new(self.db, ItemKind::Adt(adt)));
+                }
             }
             DefKind::TypeInvariant(_ty_inv) => {}
             // NOTE: we do nothing for these, as we only look at instantiated types
             DefKind::Struct(_) | DefKind::StructField(_) => {}
         }
+        for &adt in mdl.adt_cache.values() {
+            self.items.insert(Item::new(self.db, ItemKind::Adt(adt)));
+        }
     }
-    pub fn finish(self) -> Monomorphized {
+    pub fn finish(mut self) -> Monomorphized {
+        let mut len = 0;
+        while len != self.items.len() {
+            len = self.items.len();
+
+            let mut new = HashSet::new();
+            for item in &self.items {
+                match item.kind(self.db) {
+                    ItemKind::Adt(adt) => {
+                        for f in adt.fields(self.db) {
+                            if let Some(adt) = f.ty(self.db).ty_adt(self.db) {
+                                let item = Item::new(self.db, ItemKind::Adt(adt));
+                                if !self.items.contains(&item) {
+                                    new.insert(item);
+                                }
+                            }
+                        }
+                    }
+                    ItemKind::Function(_) => {}
+                }
+            }
+            for i in new {
+                self.items.insert(i);
+            }
+        }
+
         Monomorphized::new(self.db, self.items.into_iter().collect())
     }
 }
@@ -234,9 +264,11 @@ impl<'db, 'a> MonoDefLower<'db, 'a> {
                     hir::QuantifierOver::Vars(vars) => {
                         QuantifierOver::Vars(vars.iter().map(|var| self.lower_var(*var)).collect())
                     }
-                    hir::QuantifierOver::In(var, expr) => {
-                        QuantifierOver::In(self.lower_var(*var), self.lower_expr(*expr))
-                    }
+                    hir::QuantifierOver::In(vars) => QuantifierOver::In(
+                        vars.iter()
+                            .map(|(var, expr)| (self.lower_var(*var), self.lower_expr(*expr)))
+                            .collect(),
+                    ),
                 },
                 expr: self.lower_expr(*expr),
             },

@@ -170,6 +170,8 @@ pure ghost fn fib(n: int) -> int
           {
             unfold acc($FibTable(_1), write)
             _7 := (_2 - |_1.$FibTable_$_values|)
+            fold acc($FibTable(_1), write)
+            unfold acc($FibTable(_1), write)
             _8 := (|_1.$FibTable_$_values| < 2)
             {
               if (_8)
@@ -190,8 +192,6 @@ pure ghost fn fib(n: int) -> int
             _17 := (_2 - |_1.$FibTable_$_values|)
             assert (_17 < _7)
             assert (0 <= _7)
-            fold acc($FibTable(_1), write)
-            unfold acc($FibTable(_1), write)
             _4 := (|_1.$FibTable_$_values| < _2)
             fold acc($FibTable(_1), write)
           }

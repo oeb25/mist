@@ -1,0 +1,215 @@
+domain $Gaussian {
+  function $Gaussian_unsafe_init(re: Int, im: Int): $Gaussian
+  function $Gaussian_$_re(_0: $Gaussian): Int
+  function $Gaussian_$_im(_0: $Gaussian): Int
+  axiom $Gaussian_init_axiom {
+    (forall $Gaussian_$_re_: Int, $Gaussian_$_im_: Int :: (let tmp == ($Gaussian_unsafe_init($Gaussian_$_re_, $Gaussian_$_im_)) in
+    (($Gaussian_$_re(tmp) == $Gaussian_$_re_) && ($Gaussian_$_im(tmp) == $Gaussian_$_im_))))
+  }
+  axiom eq {
+    forall a: $Gaussian, b: $Gaussian ::
+      (a == b) == ($Gaussian_$_re(a) == $Gaussian_$_re(b) && $Gaussian_$_im(a) == $Gaussian_$_im(b))
+  }
+
+}
+domain $Tuple$_int$_int {
+  function $Tuple$_int$_int_unsafe_init(fst: Int, snd: Int): $Tuple$_int$_int
+  function $Tuple$_int$_int_$_fst(_0: $Tuple$_int$_int): Int
+  function $Tuple$_int$_int_$_snd(_0: $Tuple$_int$_int): Int
+  axiom $Tuple$_int$_int_init_axiom {
+    (forall _0: $Tuple$_int$_int, $Tuple$_int$_int_$_fst_: Int, $Tuple$_int$_int_$_snd_: Int :: (let tmp == ($Tuple$_int$_int_unsafe_init($Tuple$_int$_int_$_fst_, $Tuple$_int$_int_$_snd_)) in
+    (($Tuple$_int$_int_$_fst(tmp) == $Tuple$_int$_int_$_fst_) && ($Tuple$_int$_int_$_snd(tmp) == $Tuple$_int$_int_$_snd_))))
+  }
+
+}
+function $Gaussian_init($Gaussian_$_re_: Int, $Gaussian_$_im_: Int): $Gaussian
+  ensures
+    (result == $Gaussian_unsafe_init($Gaussian_$_re_, $Gaussian_$_im_))
+function $Tuple$_int$_int_init($Tuple$_int$_int_$_fst_: Int, $Tuple$_int$_int_$_snd_: Int): $Tuple$_int$_int
+  ensures
+    (result == $Tuple$_int$_int_unsafe_init($Tuple$_int$_int_$_fst_, $Tuple$_int$_int_$_snd_))
+function one(): $Gaussian {
+  $Gaussian_init(1, 0)
+}
+function zero(): $Gaussian {
+  $Gaussian_init(0, 0)
+}
+function conj(_1: $Gaussian): $Gaussian {
+  $Gaussian_init($Gaussian_$_re(_1), -$Gaussian_$_im(_1))
+}
+function norm(_1: $Gaussian): Int {
+  (($Gaussian_$_re(_1) * $Gaussian_$_re(_1)) + ($Gaussian_$_im(_1) * $Gaussian_$_im(_1)))
+}
+function add(_1: $Gaussian, _2: $Gaussian): $Gaussian {
+  $Gaussian_init(($Gaussian_$_re(_1) + $Gaussian_$_re(_2)), ($Gaussian_$_im(_1) + $Gaussian_$_im(_2)))
+}
+function sub(_1: $Gaussian, _2: $Gaussian): $Gaussian {
+  $Gaussian_init(($Gaussian_$_re(_1) - $Gaussian_$_re(_2)), ($Gaussian_$_im(_1) - $Gaussian_$_im(_2)))
+}
+function mul(_1: $Gaussian, _2: $Gaussian): $Gaussian {
+  $Gaussian_init((($Gaussian_$_re(_1) * $Gaussian_$_re(_2)) - ($Gaussian_$_im(_1) * $Gaussian_$_im(_2))), (($Gaussian_$_re(_1) * $Gaussian_$_im(_2)) + ($Gaussian_$_im(_1) * $Gaussian_$_re(_2))))
+}
+function div(_1: $Gaussian, _2: $Gaussian): $Gaussian
+  requires
+    ((($Gaussian_$_re(_2) * $Gaussian_$_re(_2)) + ($Gaussian_$_im(_2) * $Gaussian_$_im(_2))) != 0)
+{
+  (let denum_7 == ((($Gaussian_$_re(_2) * $Gaussian_$_re(_2)) + ($Gaussian_$_im(_2) * $Gaussian_$_im(_2)))) in
+  $Gaussian_init(((($Gaussian_$_re(_1) * $Gaussian_$_re(_2)) + ($Gaussian_$_im(_1) * $Gaussian_$_im(_2))) / denum_7), ((($Gaussian_$_im(_1) * $Gaussian_$_re(_2)) - ($Gaussian_$_re(_1) * $Gaussian_$_im(_2))) / denum_7)))
+}
+method lemma_conj_inverse(_1: $Gaussian)
+  ensures
+    (conj(conj(_1)) == _1)
+{
+  var _2: Bool; var _3: $Gaussian; var _4: $Gaussian;
+  label end
+}
+method lemma_norm_conj(_1: $Gaussian)
+  ensures
+    ($Gaussian_$_re(mul(_1, conj(_1))) == norm(_1))
+  ensures
+    ($Gaussian_$_im(mul(_1, conj(_1))) == 0)
+{
+  var _2: Bool; var _3: $Gaussian; var _4: $Gaussian; var _5: Int; var _6: Bool; var _7: $Gaussian; var _8: $Gaussian;
+  label end
+}
+method gcd(_1: $Gaussian, _2: $Gaussian) returns (_0: $Tuple$_int$_int) {
+  var r0_3: $Gaussian; var s0_4: $Gaussian; var t0_5: $Gaussian; var r1_6: $Gaussian; var s1_7: $Gaussian; var t1_8: $Gaussian; var _9: Bool; var _10: $Gaussian; var _11: $Gaussian; var _12: Bool; var _13: Bool; var _14: Bool; var _15: $Gaussian; var _16: $Gaussian; var _17: $Gaussian; var _18: Bool; var _19: $Gaussian; var _20: $Gaussian; var _21: $Gaussian; var _22: Int; var q_23: $Gaussian; var rn_24: $Gaussian; var _25: $Gaussian; var sn_26: $Gaussian; var _27: $Gaussian; var tn_28: $Gaussian; var _29: $Gaussian; var _30: Int;
+  assert true
+  r0_3 := _1
+  s0_4 := one()
+  t0_5 := zero()
+  r1_6 := _2
+  s1_7 := zero()
+  t1_8 := one()
+  while (r1_6 != zero())
+    invariant
+      (add(mul(s0_4, _1), mul(t0_5, _2)) == r0_3)
+    invariant
+      (add(mul(s1_7, _1), mul(t1_8, _2)) == r1_6)
+  {
+    _22 := norm(r1_6)
+    q_23 := div(r0_3, r1_6)
+    _25 := mul(q_23, r1_6)
+    rn_24 := sub(r0_3, _25)
+    _27 := mul(q_23, s1_7)
+    sn_26 := sub(s0_4, _27)
+    _29 := mul(q_23, t1_8)
+    tn_28 := sub(t0_5, _29)
+    r0_3 := r1_6
+    s0_4 := s1_7
+    t0_5 := t1_8
+    r1_6 := rn_24
+    s1_7 := sn_26
+    t1_8 := tn_28
+    _9 := (r1_6 != zero())
+  }
+  _0 := $Tuple$_int$_int_init(0, 0)
+  label end
+}
+domain ListToSet[T] {
+  function list_to_set(l: Seq[T]): Set[T]
+  function set_to_list(s: Set[T]): Seq[T]
+  function multi_set_to_list(s: Multiset[T]): Seq[T]
+  function list_to_multi_set(l: Seq[T]): Multiset[T]
+
+  axiom {
+    forall l: Seq[T] :: |l| >= |list_to_set(l)|
+  }
+  axiom {
+    forall l: Seq[T] :: forall e: T :: e in l == e in list_to_set(l)
+  }
+  axiom {
+    forall s: Set[T] :: |s| == |set_to_list(s)|
+  }
+  axiom {
+    forall s: Set[T] :: forall e: T :: e in s == e in set_to_list(s)
+  }
+
+  axiom {
+    forall l: Seq[T] :: list_to_multi_set(l) ==
+      ((|l| == 0)
+        ? Multiset()
+        : Multiset(l[0]) union list_to_multi_set(l))
+  }
+  // axiom {
+  //   forall l: Seq[T] :: |l| == |list_to_multi_set(l)|
+  // }
+  // axiom {
+  //   forall l: Seq[T] :: forall e: T :: e in l == e in list_to_multi_set(l)
+  // }
+  // axiom {
+  //   forall s: Multiset[T] :: |s| == |multi_set_to_list(s)|
+  // }
+  // axiom {
+  //   forall s: Multiset[T] :: forall e: T :: e in s == e in multi_set_to_list(s)
+  // }
+}
+
+domain Range {
+  function range_from(x: Int): Range
+  function range_to(x: Int): Range
+  function range_from_to(from: Int, to: Int): Range
+
+  function range_min(r: Range): Int
+  function range_max(r: Range): Int
+
+  function in_range(idx: Int, r: Range): Bool
+
+  axiom axRangeMin {
+    forall x: Int, y: Int ::
+      range_min(range_from(x)) == x &&
+      range_min(range_from_to(x, y)) == x
+  }
+  axiom axRangeMax {
+    forall x: Int, y: Int ::
+      range_max(range_from_to(x, y)) == y &&
+      range_max(range_to(y)) == y
+  }
+
+  axiom axRangeIn {
+    forall x: Int, y: Int, idx: Int ::
+      in_range(idx, range_from(x)) == (x <= idx) &&
+      in_range(idx, range_from_to(x, y)) == (x <= idx && idx < y) &&
+      in_range(idx, range_to(y)) == (idx < y)
+  }
+
+  axiom axRangeOrdered {
+    forall r: Range, idx: Int ::
+      in_range(idx, r) ==> range_min(r) < range_max(r)
+  }
+}
+
+domain RangeIndex[T] {
+  function range_index(x: Seq[T], r: Range): Seq[T]
+  axiom axRangefrom {
+    forall x: Int, s: Seq[T] :: range_index(s, range_from(x)) == s[x..]
+  }
+  axiom axRangeto {
+    forall x: Int, s: Seq[T] :: range_index(s, range_to(x)) == s[x..]
+  }
+  axiom axRangeFromTo {
+    forall from: Int, to: Int, s: Seq[T] :: range_index(s, range_from_to(from, to)) == s[from..to]
+  }
+}
+
+define QRefAcc(T, x, p) acc(T(fst(x)), snd(x) * p)
+define QRefUnfold(T, x, p) { unfold acc(T(fst(x)), snd(x) * p) }
+define QRefUnfolding(T, x, p, e) unfolding acc(T(fst(x)), snd(x) * p) in e
+define QRefFold(T, x, p) { fold acc(T(fst(x)), snd(x) * p) }
+define QRefReborrow(x) ( create(fst(x), snd(x) * 1/256) )
+
+domain QRef {
+    function create(a: Ref, b: Perm): QRef;
+    function fst(b: QRef): Ref;
+    function snd(b: QRef): Perm;
+
+    axiom {
+        forall a: Ref, b: Perm :: fst(create(a, b)) == a
+    }
+    axiom {
+        forall a: Ref, b: Perm :: snd(create(a, b)) == b
+    }
+    axiom {
+      forall q: QRef :: snd(q) >= none
+    }
+}

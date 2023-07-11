@@ -1,0 +1,83 @@
+pure struct Gaussian {
+    re: int,
+    im: int,
+}
+
+pure fn one() -> Gaussian { Gaussian { re: 1, im: 0 } }
+pure fn zero() -> Gaussian { Gaussian { re: 0, im: 0 } }
+pure fn conj(z: Gaussian) -> Gaussian {
+    Gaussian { re: z.re, im: -z.im }
+}
+pure fn norm(z: Gaussian) -> int {
+    z.re * z.re + z.im * z.im
+}
+pure fn add(z: Gaussian, w: Gaussian) -> Gaussian {
+    Gaussian {
+        re: z.re + w.re,
+        im: z.im + w.im,
+    }
+}
+pure fn sub(z: Gaussian, w: Gaussian) -> Gaussian {
+    Gaussian {
+        re: z.re - w.re,
+        im: z.im - w.im,
+    }
+}
+pure fn mul(z: Gaussian, w: Gaussian) -> Gaussian {
+    Gaussian {
+        re: z.re * w.re - z.im * w.im,
+        im: z.re * w.im + z.im * w.re,
+    }
+}
+pure fn div(z: Gaussian, w: Gaussian) -> Gaussian
+    req norm(w) != 0
+{
+    let denum = norm(w);
+    Gaussian {
+        re: (z.re * w.re + z.im * w.im) / denum,
+        im: (z.im * w.re - z.re * w.im) / denum,
+    }
+}
+
+ghost fn lemma_conj_inverse(z: Gaussian)
+    ens conj(conj(z)) == z
+{}
+
+ghost fn lemma_norm_conj(z: Gaussian)
+    ens mul(z, conj(z)).re == norm(z)
+    ens mul(z, conj(z)).im == 0
+{}
+
+pure struct Tuple[T, S] {
+    fst: T,
+    snd: S,
+}
+
+fn gcd(f: Gaussian, g: Gaussian) -> Tuple[int, int] {
+    let mut r0 = f;
+    let mut s0 = one();
+    let mut t0 = zero();
+    let mut r1 = g;
+    let mut s1 = zero();
+    let mut t1 = one();
+
+    // assert add(mul(s0, f), mul(t0, g)) == r0,
+    //        add(mul(s1, f), mul(t1, g)) == r1;
+
+    // while r1 != zero()
+    // //     // s * f + t * g == r
+    //     // inv add(mul(s0, f), mul(t0, g)) == r0
+    //     // inv add(mul(s1, f), mul(t1, g)) == r1
+    //     // dec norm(r1)
+    // {
+    //     assert norm(r1) != 0;
+    //     let q = div(r0, r1);
+    //     let rn = sub(r0, mul(q, r1));
+    //     let sn = sub(s0, mul(q, s1));
+    //     let tn = sub(t0, mul(q, t1));
+    //     r0 = r1; s0 = s1; t0 = t1;
+    //     r1 = rn; s1 = sn; t1 = tn;
+    // }
+
+    Tuple { fst: 0, snd: 0 }
+}

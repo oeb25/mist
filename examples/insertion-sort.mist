@@ -1,9 +1,7 @@
 pure fn sorted(xs: [int]) -> bool
-    dec xs.len
+    dec xs
 {
-    if xs.len <= 1 {
-        true
-    } else {
+    if xs.len > 1 {
         xs[0] <= xs[1] && sorted(xs[1..])
     }
 }
@@ -13,58 +11,40 @@ ghost fn lemma_total_order(xs: [int], i: int, j: int)
     req sorted(xs),
         0 <= i, i <= j, j < xs.len
     ens xs[i] <= xs[j]
-    dec xs.len
+    dec xs
 {
-    let v = i + j;
-    assert v >= 0;
     if i != 0 {
-        assert i-1 + j - 1 < v;
         lemma_total_order(xs[1..], i-1, j-1);
     } else if i != j {
-        assert 0 + j - 1 < v;
         lemma_total_order(xs[1..], 0, j-1);
     }
 }
 
-pure ghost fn to_multiset(xs: [int]) -> MultiSet[int]
-    dec xs.len;
-// {
-//     if xs.len == 0 {
-//         MultiSet::empty()
-//     } else {
-//         MultiSet::union(MultiSet::singleton(xs[0]), to_multiset(xs))
-//     }
-// }
-
 pure ghost fn same_elements(xs: [int], ys: [int]) -> bool {
-    to_multiset(xs) == to_multiset(ys)
+    xs.to_multi_set() == ys.to_multi_set()
 }
 
 fn insertion_sort(xs: [int]) -> [int]
     ens sorted(result),
-        result.len == xs.len,
         same_elements(xs, result)
-    dec xs.len
+    dec xs
 {
-    if xs.len == 0 {
+    if xs == [] {
         []
     } else {
-        assert xs[1..].len < xs.len;
         insert(xs[0], insertion_sort(xs[1..]))
     }
 }
-
-
 
 fn insert(x: int, xs: [int]) -> [int]
     req sorted(xs)
     ens sorted(result),
         result.len == xs.len + 1,
-        if xs.len == 0 { result[0] == x } else { result[0] == x || result[0] == xs[0] },
+        if xs == [] { result[0] == x } else { result[0] == x || result[0] == xs[0] },
         same_elements([x] + xs, result)
-    dec xs.len
+    dec xs
 {
-    if xs.len == 0 {
+    if xs == [] {
         [x]
     } else {
         let y = xs[0];
@@ -80,10 +60,10 @@ fn insert(x: int, xs: [int]) -> [int]
 }
 
 ghost fn lemma_insert_smallest(x: int, xs: [int])
-    req sorted(xs), if xs.len > 0 { x <= xs[0] } else { true }
+    req sorted(xs), if xs != [] { x <= xs[0] }
     ens sorted([x] + xs)
 {
-    if xs.len > 0 {
+    if xs != [] {
         let ys = [x] + xs;
         assert xs == ys[1..]; // triggering ground term
     }

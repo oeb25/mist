@@ -61,7 +61,7 @@ impl<T> BuiltinField<T> {
         match self {
             BuiltinField::List(_, lf) => match lf {
                 ListField::Len => false,
-                ListField::ToSet => true,
+                ListField::ToSet | ListField::ToMultiSet => true,
             },
             BuiltinField::Set(_, sf) => match sf {
                 SetField::Contains
@@ -72,6 +72,7 @@ impl<T> BuiltinField<T> {
             },
             BuiltinField::MultiSet(_, sf) => match sf {
                 MultiSetField::Cardinality => false,
+                MultiSetField::ToList => true,
             },
             BuiltinField::Range(_, sf) => match sf {
                 RangeField::Min | RangeField::Max => false,
@@ -83,6 +84,7 @@ impl<T> BuiltinField<T> {
             BuiltinField::List(_, lf) => match lf {
                 ListField::Len => Name::new("len"),
                 ListField::ToSet => Name::new("to_set"),
+                ListField::ToMultiSet => Name::new("to_multi_set"),
             },
             BuiltinField::Set(_, sf) => match sf {
                 SetField::Cardinality => Name::new("cardinality"),
@@ -93,6 +95,7 @@ impl<T> BuiltinField<T> {
             },
             BuiltinField::MultiSet(_, sf) => match sf {
                 MultiSetField::Cardinality => Name::new("cardinality"),
+                MultiSetField::ToList => Name::new("to_list"),
             },
             BuiltinField::Range(_, sf) => match sf {
                 RangeField::Min => Name::new("min"),
@@ -105,6 +108,7 @@ impl<T> BuiltinField<T> {
             BuiltinField::List(_, lf) => match lf {
                 ListField::Len => false,
                 ListField::ToSet => false,
+                ListField::ToMultiSet => false,
             },
             BuiltinField::Set(_, lf) => match lf {
                 SetField::Cardinality => false,
@@ -115,6 +119,7 @@ impl<T> BuiltinField<T> {
             },
             BuiltinField::MultiSet(_, lf) => match lf {
                 MultiSetField::Cardinality => false,
+                MultiSetField::ToList => false,
             },
             BuiltinField::Range(_, lf) => match lf {
                 RangeField::Min | RangeField::Max => false,
@@ -149,6 +154,7 @@ impl BuiltinField<TypeId> {
             },
             BuiltinKind::MultiSet => match name {
                 "cardinality" => Some(BuiltinField::MultiSet(parent, MultiSetField::Cardinality)),
+                "to_list" => Some(BuiltinField::MultiSet(parent, MultiSetField::ToList)),
                 _ => None,
             },
             BuiltinKind::Map => match name {
@@ -157,6 +163,7 @@ impl BuiltinField<TypeId> {
             BuiltinKind::List => match name {
                 "len" => Some(BuiltinField::List(parent, ListField::Len)),
                 "to_set" => Some(BuiltinField::List(parent, ListField::ToSet)),
+                "to_multi_set" => Some(BuiltinField::List(parent, ListField::ToMultiSet)),
                 _ => None,
             },
             BuiltinKind::Range => match name {
@@ -168,30 +175,53 @@ impl BuiltinField<TypeId> {
     }
     pub(crate) fn ty(self, tm: &mut impl TypingMut) -> TypeId {
         match self {
-            BuiltinField::List(list_ty, lf) => match lf {
-                ListField::Len => primitive::int(),
-                ListField::ToSet => {
-                    let elem_ty = match tm.ty_kind(list_ty) {
-                        TDK::Builtin(_, args) => {
-                            args.args(tm.db()).first().copied().unwrap_or(primitive::error())
-                        }
-                        _ => primitive::error(),
-                    };
-                    let set_ty = tm.alloc_ty_data(
-                        TDK::Builtin(BuiltinKind::Set, GenericArgs::new(tm.db(), vec![elem_ty]))
+            BuiltinField::List(list_ty, lf) => {
+                let elem_ty = match tm.ty_kind(list_ty) {
+                    TDK::Builtin(_, args) => {
+                        args.args(tm.db()).first().copied().unwrap_or(primitive::error())
+                    }
+                    _ => primitive::error(),
+                };
+                match lf {
+                    ListField::Len => primitive::int(),
+                    ListField::ToSet => {
+                        let set_ty = tm.alloc_ty_data(
+                            TDK::Builtin(
+                                BuiltinKind::Set,
+                                GenericArgs::new(tm.db(), vec![elem_ty]),
+                            )
                             .into(),
-                    );
-                    tm.alloc_ty_data(
-                        TDK::Function {
-                            attrs: AttrFlags::PURE,
-                            name: Some(Name::new("to_set")),
-                            params: Vec::new(),
-                            return_ty: set_ty,
-                        }
-                        .into(),
-                    )
+                        );
+                        tm.alloc_ty_data(
+                            TDK::Function {
+                                attrs: AttrFlags::PURE,
+                                name: Some(Name::new("to_set")),
+                                params: Vec::new(),
+                                return_ty: set_ty,
+                            }
+                            .into(),
+                        )
+                    }
+                    ListField::ToMultiSet => {
+                        let set_ty = tm.alloc_ty_data(
+                            TDK::Builtin(
+                                BuiltinKind::MultiSet,
+                                GenericArgs::new(tm.db(), vec![elem_ty]),
+                            )
+                            .into(),
+                        );
+                        tm.alloc_ty_data(
+                            TDK::Function {
+                                attrs: AttrFlags::PURE,
+                                name: Some(Name::new("to_multi_set")),
+                                params: Vec::new(),
+                                return_ty: set_ty,
+                            }
+                            .into(),
+                        )
+                    }
                 }
-            },
+            }
             BuiltinField::Set(set_ty, lf) => {
                 let elem_ty = match tm.ty_kind(set_ty) {
                     TDK::Builtin(_, args) => {
@@ -269,9 +299,35 @@ impl BuiltinField<TypeId> {
                     }
                 }
             }
-            BuiltinField::MultiSet(_, lf) => match lf {
-                MultiSetField::Cardinality => primitive::int(),
-            },
+            BuiltinField::MultiSet(set_ty, lf) => {
+                let elem_ty = match tm.ty_kind(set_ty) {
+                    TDK::Builtin(_, args) => {
+                        args.args(tm.db()).first().copied().unwrap_or(primitive::error())
+                    }
+                    _ => primitive::error(),
+                };
+                match lf {
+                    MultiSetField::Cardinality => primitive::int(),
+                    MultiSetField::ToList => {
+                        let list_ty = tm.alloc_ty_data(
+                            TDK::Builtin(
+                                BuiltinKind::List,
+                                GenericArgs::new(tm.db(), vec![elem_ty]),
+                            )
+                            .into(),
+                        );
+                        tm.alloc_ty_data(
+                            TDK::Function {
+                                attrs: AttrFlags::PURE,
+                                name: Some(Name::new("to_list")),
+                                params: Vec::new(),
+                                return_ty: list_ty,
+                            }
+                            .into(),
+                        )
+                    }
+                }
+            }
             BuiltinField::Range(_, lf) => match lf {
                 RangeField::Min | RangeField::Max => primitive::int(),
             },
@@ -291,12 +347,14 @@ pub enum SetField {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MultiSetField {
     Cardinality,
+    ToList,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ListField {
     Len,
     ToSet,
+    ToMultiSet,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

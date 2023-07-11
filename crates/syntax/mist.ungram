@@ -239,9 +239,11 @@ ResultExpr = 'result'
 
 QuantifierExpr = Quantifier QuantifierOver Expr
 
-QuantifierOver = ParamList | NameInExpr
+QuantifierOver = ParamList | NameInExprs
 
-NameInExpr = Name 'in' Expr
+NameInExpr = Name 'in' Expr ','?
+
+NameInExprs = NameInExpr*
 
 Quantifier =
   'forall' | 'exists'

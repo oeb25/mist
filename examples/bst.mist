@@ -1,0 +1,41 @@
+struct Bst {
+    nodes: [Node],
+}
+
+pure struct Node {
+    left: int,
+    right: int,
+    elem: int,
+    ghost leaf: bool,
+}
+
+invariant Bst {
+    forall i in 0..self.nodes.len {
+        let n = self.nodes[i];
+
+        if !n.leaf {
+            i < n.left && n.left < self.nodes.len &&
+            i < n.right && n.right < self.nodes.len
+        }
+    }
+}
+
+pure fn content(b: &Bst, i: int) -> [int]
+    req 0 <= i, i < b.nodes.len
+{
+    if b.nodes[i].leaf {
+        []
+    } else {
+        let n = b.nodes[i];
+        content(b, n.left) + [n.elem] + content(b, n.right)
+    }
+}
+
+fn insert(b: &mut Bst, index: int, x: int)
+    ens content(b, 0)[0..index] + [x] + content(b, 0)[index..] == content(b, 0)
+{
+    let mut cur = 0;
+    while !(b.nodes[cur].leaf) {
+
+    }
+}

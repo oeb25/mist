@@ -2,18 +2,19 @@ pure ghost fn gcd(x: int, y: int) -> int
   req x > 0, y > 0
   ens result >= 1,
       divides(result, x), divides(result, y),
-      forall(z: int) if z >= 1 && divides(z, x) && divides(z, y) {
+      forall(z) if z >= 1 && divides(z, x) && divides(z, y) {
         z <= result
-      } else { true };
+      };
 
 // macro divides_prop(x, y, z) { z >= 0 && x * z == y }
 // pure fn divides_prop(x: int, y: int, z: int) -> bool { z >= 0 && x * z == y }
-pure ghost fn divides_prop(x: int, y: int, z: int) -> bool
-  ens result == (z >= 0 && x * z == y);
+pure ghost fn divides_prop(x: int, y: int, z: int) -> bool {
+  z >= 0 && x * z == y
+}
 
 pure ghost fn divides(x: int, y: int) -> bool
   req x > 0, y > 0
-  ens result == exists(z: int) divides_prop(x, y, z);
+  ens result == exists(z) divides_prop(x, y, z);
 
 
 ghost fn lemma_show_divides(x: int, y: int, z: int)
@@ -73,8 +74,8 @@ fn euclid(n: int, m: int) -> int
   ens result == gcd(n, m)
   dec _
 {
-  let a = n;
-  let b = m;
+  let mut a = n;
+  let mut b = m;
   while a != b
     inv a > 0, b > 0,
         gcd(a, b) == gcd(n, m)
@@ -88,10 +89,7 @@ fn euclid(n: int, m: int) -> int
       lemma_gcd(b, a);
     }
   }
-
-  // assert a == b, gcd(a, b) == gcd(n, m);
   lemma_gcd_idempotent(a);
-  assert gcd(n, m) == a;
 
   a
 }

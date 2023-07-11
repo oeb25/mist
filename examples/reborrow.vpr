@@ -67,6 +67,7 @@ method f(x: Ref, p: Perm)
 
 define ptrAcc(T, x, p) acc(T(fst(x)), snd(x) * p)
 define ptrUnfold(T, x, p) { unfold acc(T(fst(x)), snd(x) * p) }
+define ptrUnfolding(T, x, p, e) unfolding acc(T(fst(x)), snd(x) * p) in e
 define ptrFold(T, x, p) { fold acc(T(fst(x)), snd(x) * p) }
 
 define ptrReborrow(T, x, p) ( create(fst(x), snd(x) * p) )

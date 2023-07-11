@@ -1,4 +1,4 @@
-use std::{io::Write, path::PathBuf};
+use std::{fmt, io::Write, path::PathBuf, time::Instant};
 
 use clap::Parser;
 use futures_util::StreamExt;
@@ -29,7 +29,12 @@ async fn main() -> Result<()> {
                 .with_default_directive(tracing_subscriber::filter::LevelFilter::INFO.into())
                 .from_env_lossy(),
         )
-        .with(tracing_subscriber::fmt::layer().with_target(false).without_time())
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_target(false)
+                .without_time()
+                .with_writer(std::io::stderr),
+        )
         .with(tracing_subscriber::filter::FilterFn::new(|m| !m.target().contains("salsa")))
         .init();
 
@@ -58,11 +63,31 @@ enum Cli {
     Viper {
         #[clap(long, short, env)]
         viperserver_jar: PathBuf,
+        #[clap(long, short, default_value_t=ViperBackend::default())]
+        backend: ViperBackend,
         file: PathBuf,
     },
 }
 
+#[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
+enum ViperBackend {
+    #[default]
+    Silicon,
+    Carbon,
+}
+
+impl fmt::Display for ViperBackend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ViperBackend::Silicon => write!(f, "silicon"),
+            ViperBackend::Carbon => write!(f, "carbon"),
+        }
+    }
+}
+
 async fn cli() -> Result<()> {
+    let program_start = Instant::now();
+
     match Cli::parse() {
         Cli::Dump {
             mir: dump_mir,
@@ -143,7 +168,7 @@ async fn cli() -> Result<()> {
                 }
             }
         }
-        Cli::Viper { viperserver_jar, file: src_file } => {
+        Cli::Viper { viperserver_jar, backend, file: src_file } => {
             let db = Database::default();
 
             let src = std::fs::read_to_string(&src_file)
@@ -170,6 +195,9 @@ async fn cli() -> Result<()> {
 
             info!("Starting verification...");
 
+            let ts_spawn_viperserver = Instant::now();
+            eprintln!("Spawning viperserver: {:?}", program_start.elapsed());
+
             let server = viperserver::server::ViperServer::builder()
                 .spawn_http(viperserver_jar)
                 .await
@@ -177,11 +205,20 @@ async fn cli() -> Result<()> {
 
             let client = viperserver::client::Client::new(server).await.into_diagnostic()?;
 
-            let req = viperserver::client::VerificationRequest::silicon()
-                .detect_z3()
-                .into_diagnostic()?
-                .verify_file(&viper_file)
-                .into_diagnostic()?;
+            let ts_start_verification = Instant::now();
+            eprintln!("Starting verification: {:?}", program_start.elapsed());
+
+            let req = match backend {
+                ViperBackend::Silicon => viperserver::client::VerificationRequest::silicon()
+                    .detect_z3()
+                    .into_diagnostic()?
+                    .verify_file(&viper_file),
+                ViperBackend::Carbon => viperserver::client::VerificationRequest::carbon()
+                    .detect_z3()
+                    .into_diagnostic()?
+                    .verify_file(&viper_file),
+            }
+            .into_diagnostic()?;
 
             let res = client.post(req).await.into_diagnostic()?;
 
@@ -205,6 +242,25 @@ async fn cli() -> Result<()> {
 
             if !errors.is_empty() {
                 bail!("failed due to {} previous errors", errors.len());
+            }
+
+            const PRINT_TIMINGS: bool = false;
+
+            let ts_finished = Instant::now();
+
+            if PRINT_TIMINGS {
+                eprintln!("Finished: {:?}", program_start.elapsed());
+
+                for (name, (a, b)) in ["prepare", "viperserver", "verification"].into_iter().zip(
+                    [program_start, ts_spawn_viperserver, ts_start_verification, ts_finished]
+                        .into_iter()
+                        .tuple_windows(),
+                ) {
+                    let d = b.duration_since(a);
+                    let ms = (d.as_nanos() as f64) / 1000000.0;
+                    eprintln!("{name:>20}: {:>20}ms", ms);
+                    print!("{ms},");
+                }
             }
 
             info!("Successfully verified!");
