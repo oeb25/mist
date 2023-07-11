@@ -179,11 +179,11 @@ impl BodyLower<'_> {
                     {
                         PureLowerResult::UnassignedExpression(exp, place, stopped_before) => {
                             for s in over {
-                                l.internally_bound_slots.insert(*s, ());
+                                l.internally_bound_locals.insert(*s, ());
                             }
 
                             let variables =
-                                over.iter().map(|s| l.slot_to_decl(*s)).collect::<Result<_>>()?;
+                                over.iter().map(|s| l.local_to_decl(*s)).collect::<Result<_>>()?;
                             let triggers = vec![];
 
                             PureLowerResult::UnassignedExpression(
@@ -197,7 +197,7 @@ impl BodyLower<'_> {
                                 }),
                                 // TODO
                                 place,
-                                // l.ib.result_slot().unwrap().into(),
+                                // l.ib.result_local().unwrap().into(),
                                 stopped_before,
                             )
                         }
@@ -237,10 +237,10 @@ impl BodyLower<'_> {
                         let cont = values.try_fold(otherwise_result, |els, (value, target)| {
                             match (els, l.pure_block(target, Some(next))?) {
                                 (
-                                    PureLowerResult::UnassignedExpression(els, els_slot, _),
-                                    PureLowerResult::UnassignedExpression(thn, thn_slot, _),
+                                    PureLowerResult::UnassignedExpression(els, els_local, _),
+                                    PureLowerResult::UnassignedExpression(thn, thn_local, _),
                                 ) => {
-                                    if thn_slot != els_slot {
+                                    if thn_local != els_local {
                                         return Err(ViperLowerError::NotYetImplemented {
                                             msg: "divergent branches".to_string(),
                                             def: l.ib.item(),
@@ -254,16 +254,16 @@ impl BodyLower<'_> {
                                     };
                                     Ok(PureLowerResult::UnassignedExpression(
                                         l.alloc(block, Exp::new_cond(cond, thn, els)),
-                                        thn_slot,
+                                        thn_local,
                                         Some(next),
                                     ))
                                 }
                                 (
-                                    PureLowerResult::UnassignedExpression(els, els_slot, _),
+                                    PureLowerResult::UnassignedExpression(els, els_local, _),
                                     PureLowerResult::Empty { .. },
                                 ) => Ok(PureLowerResult::UnassignedExpression(
                                     els,
-                                    els_slot,
+                                    els_local,
                                     Some(next),
                                 )),
                                 (PureLowerResult::Empty { .. }, _) => {
@@ -282,12 +282,12 @@ impl BodyLower<'_> {
                             }
                         })?;
 
-                        let (exp, slot) = match cont {
-                            PureLowerResult::UnassignedExpression(exp, slot, _) => (exp, slot),
+                        let (exp, local) = match cont {
+                            PureLowerResult::UnassignedExpression(exp, local, _) => (exp, local),
                             PureLowerResult::Empty { .. } => todo!(),
                         };
 
-                        l.conditional_continue(stop_at, next, block, slot, exp)?
+                        l.conditional_continue(stop_at, next, block, local, exp)?
                     }
                     mir::TerminatorKind::Call { func, args, destination, target } => {
                         let f = l.function(*func, args)?;

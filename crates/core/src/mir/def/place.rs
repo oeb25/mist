@@ -12,19 +12,19 @@ use crate::{
 
 use super::Body;
 
-impl_idx!(SlotId, Slot);
-impl fmt::Debug for SlotId {
+impl_idx!(LocalId, Local);
+impl fmt::Debug for LocalId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "%{}", self.0.into_raw())
     }
 }
-impl fmt::Display for SlotId {
+impl fmt::Display for LocalId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "%{}", self.0.into_raw())
     }
 }
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Slot {
+pub enum Local {
     #[default]
     Temp,
     Self_,
@@ -33,7 +33,7 @@ pub enum Slot {
     Quantified(VariablePtr),
     Result,
 }
-impl Slot {
+impl Local {
     #[must_use]
     pub fn is_result(&self) -> bool {
         matches!(self, Self::Result)
@@ -42,17 +42,17 @@ impl Slot {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Place {
-    slot: SlotId,
+    local: LocalId,
     projection: Option<ProjectionList>,
     ty: Type,
 }
 impl Place {
-    fn new(slot: SlotId, projection: Option<ProjectionList>, ty: Type) -> Place {
-        Place { slot, projection, ty }
+    fn new(local: LocalId, projection: Option<ProjectionList>, ty: Type) -> Place {
+        Place { local, projection, ty }
     }
 
-    pub fn slot(self) -> SlotId {
-        self.slot
+    pub fn local(self) -> LocalId {
+        self.local
     }
 
     pub fn ty(self) -> Type {
@@ -77,8 +77,8 @@ impl Place {
 
     pub fn replace_projection(&self, db: &dyn crate::Db, projection: ProjectionList) -> Place {
         match projection.last(db) {
-            Some(p) => Place::new(self.slot, Some(projection), p.ty(db)),
-            None => Place::new(self.slot, None, self.ty),
+            Some(p) => Place::new(self.local, Some(projection), p.ty(db)),
+            None => Place::new(self.local, None, self.ty),
         }
     }
 
@@ -112,7 +112,7 @@ impl Place {
 
     pub fn display(self, db: &dyn crate::Db) -> String {
         if !self.has_projection(db) {
-            self.slot().to_string()
+            self.local().to_string()
         } else {
             let projection = self
                 .projection_iter(db)
@@ -126,23 +126,23 @@ impl Place {
                     }
                 })
                 .format("");
-            format!("{}{}", self.slot(), projection)
+            format!("{}{}", self.local(), projection)
         }
     }
 }
 
-impl SlotId {
+impl LocalId {
     pub fn ty(self, db: &dyn crate::Db, body: &Body) -> Type {
-        body.slot_ty(db, self)
+        body.local_ty(db, self)
     }
     pub fn is_result(self, body: &Body) -> bool {
-        body.slots[self].is_result()
+        body.locals[self].is_result()
     }
     pub fn place(self, db: &dyn crate::Db, body: &Body) -> Place {
         Place::new(self, None, self.ty(db, body))
     }
-    pub fn data(self, body: &Body) -> Slot {
-        body.slots[self]
+    pub fn data(self, body: &Body) -> Local {
+        body.locals[self]
     }
 }
 
@@ -154,7 +154,7 @@ pub struct ProjectionList {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Projection {
     Field(Field),
-    Index(SlotId, Type),
+    Index(LocalId, Type),
 }
 impl Projection {
     /// Construct an empty [`ProjectionList`]

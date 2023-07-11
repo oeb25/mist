@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    mir::{BlockOrInstruction, InstructionId, SlotId},
+    mir::{BlockOrInstruction, InstructionId, LocalId},
     mono::exprs::{ExprPtr, VariablePtr},
     util::{IdxMap, SourceMapped, SourceMappedMulti},
 };
@@ -14,8 +14,8 @@ pub struct BodySourceMap {
     expr_instr_map_back: IdxMap<InstructionId, ExprPtr>,
     expr_block_map: HashMap<ExprPtr, BlockId>,
     expr_block_map_back: IdxMap<BlockId, ExprPtr>,
-    var_map: HashMap<VariablePtr, SlotId>,
-    var_map_back: IdxMap<SlotId, VariablePtr>,
+    var_map: HashMap<VariablePtr, LocalId>,
+    var_map_back: IdxMap<LocalId, VariablePtr>,
 }
 
 impl SourceMapped<ExprPtr, BlockId> for BodySourceMap {
@@ -48,17 +48,17 @@ impl SourceMappedMulti<ExprPtr, InstructionId> for BodySourceMap {
     }
 }
 
-impl SourceMapped<VariablePtr, SlotId> for BodySourceMap {
-    fn register(&mut self, src: VariablePtr, dst: SlotId) {
+impl SourceMapped<VariablePtr, LocalId> for BodySourceMap {
+    fn register(&mut self, src: VariablePtr, dst: LocalId) {
         self.var_map.insert(src, dst);
         self.var_map_back.insert(dst, src);
     }
 
-    fn find(&self, src: VariablePtr) -> Option<SlotId> {
+    fn find(&self, src: VariablePtr) -> Option<LocalId> {
         self.var_map.get(&src).copied()
     }
 
-    fn back(&self, dst: SlotId) -> Option<VariablePtr> {
+    fn back(&self, dst: LocalId) -> Option<VariablePtr> {
         self.var_map_back.get(dst).copied()
     }
 }

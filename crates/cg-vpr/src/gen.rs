@@ -89,7 +89,7 @@ fn internal_viper_item(
         mono::ItemKind::Adt(adt) => {
             if adt.is_monomophic(db) {
                 let mut lower = lowerer.body_lower(db, ib, false);
-                lower.adt_lower(ib.self_slot().unwrap(), adt, ib.invariants().iter().copied())
+                lower.adt_lower(ib.self_local().unwrap(), adt, ib.invariants().iter().copied())
             } else {
                 Ok(Vec::new())
             }
@@ -121,13 +121,13 @@ fn internal_viper_item(
                             }
                         }
 
-                        l.slot_to_decl(s)
+                        l.local_to_decl(s)
                     })
                 })
                 .collect::<Result<_>>()?;
 
             let return_ty = ib
-                .result_slot()
+                .result_local()
                 .and_then(|s| if s.ty(db, ib).is_void(db) { None } else { Some(s) })
                 .map(|s| {
                     // TODO: Don't lower explicitly from 0
@@ -142,7 +142,7 @@ fn internal_viper_item(
                             }
                         }
 
-                        l.slot_to_decl(s)
+                        l.local_to_decl(s)
                     })
                 })
                 .transpose()?;

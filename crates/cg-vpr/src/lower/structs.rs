@@ -16,14 +16,14 @@ use super::{BodyLower, Result};
 impl BodyLower<'_> {
     pub fn adt_lower(
         &mut self,
-        self_slot: mir::SlotId,
+        self_local: mir::LocalId,
         adt: Adt,
         invariants: impl IntoIterator<Item = mir::BlockId>,
     ) -> Result<Vec<ViperItem<VExprId>>> {
         if adt.is_pure(self.db) {
-            pure_struct(self.db, self, adt, self_slot, invariants)
+            pure_struct(self.db, self, adt, self_local, invariants)
         } else {
-            impure_struct(self.db, self, adt, self_slot, invariants)
+            impure_struct(self.db, self, adt, self_local, invariants)
         }
     }
 }
@@ -32,12 +32,12 @@ fn pure_struct(
     db: &dyn crate::Db,
     l: &mut BodyLower,
     adt: Adt,
-    self_slot: mir::SlotId,
+    self_local: mir::LocalId,
     invariants: impl IntoIterator<Item = mir::BlockId>,
 ) -> Result<Vec<ViperItem<VExprId>>> {
     let mut viper_items = vec![];
 
-    let self_place = self_slot.place(db, l.ib);
+    let self_place = self_local.place(db, l.ib);
 
     // TODO: is this really a good source?
     let source = mir::BlockId::from_raw(0.into());
@@ -61,7 +61,7 @@ fn pure_struct(
             unique: false,
             interpretation: None,
         });
-        let self_decl = l.slot_to_decl(self_slot)?;
+        let self_decl = l.local_to_decl(self_local)?;
         let mut init_vars = vec![self_decl.clone()];
         let mut init_exps = vec![];
         let mut eq_exps = vec![];
@@ -203,7 +203,7 @@ fn impure_struct(
     db: &dyn crate::Db,
     l: &mut BodyLower,
     adt: Adt,
-    self_slot: mir::SlotId,
+    self_local: mir::LocalId,
     invariants: impl IntoIterator<Item = mir::BlockId>,
 ) -> Result<Vec<ViperItem<VExprId>>> {
     let mut viper_items = Vec::new();
@@ -211,9 +211,9 @@ fn impure_struct(
     // TODO: is this really a good source?
     let source = mir::BlockId::from_raw(0.into());
     l.begin_scope(source, |l| {
-        let self_var = l.slot_to_var(self_slot)?;
+        let self_var = l.local_to_var(self_local)?;
         let self_var = LocalVar { name: self_var.name, typ: silvers::typ::Type::ref_() };
-        let self_place = self_slot.place(db, l.ib);
+        let self_place = self_local.place(db, l.ib);
         let self_ = l.allocs(AbstractLocalVar::LocalVar(self_var.clone()));
 
         l.pre_unfolded.insert(self_place);

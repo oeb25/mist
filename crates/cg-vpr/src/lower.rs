@@ -214,7 +214,7 @@ pub struct BodyLower<'a> {
     is_method: bool,
     cfg: cfg::Cfg,
     postdominators: cfg::Postdominators,
-    var_refs: IdxMap<mir::SlotId, VExprId>,
+    var_refs: IdxMap<mir::LocalId, VExprId>,
     current_source: Option<mir::BlockOrInstruction>,
     /// Places which are implicitly already unfolded.
     ///
@@ -223,7 +223,7 @@ pub struct BodyLower<'a> {
     pre_unfolded: HashSet<mir::Place>,
     inlined: IdxMap<VExprId, VExprId>,
     place_alias: HashMap<mir::Place, VExprId>,
-    internally_bound_slots: IdxMap<mir::SlotId, ()>,
+    internally_bound_locals: IdxMap<mir::LocalId, ()>,
 }
 
 impl<'a> BodyLower<'a> {
@@ -248,7 +248,7 @@ impl<'a> BodyLower<'a> {
             pre_unfolded: Default::default(),
             inlined: Default::default(),
             place_alias: Default::default(),
-            internally_bound_slots: Default::default(),
+            internally_bound_locals: Default::default(),
         }
     }
 
@@ -374,13 +374,13 @@ impl<'a> BodyLower<'a> {
     fn can_inline(&self, x: mir::Place, exp: VExprId) -> bool {
         // TODO: This entire thing should be better specified
         // return false;
-        let n = self.ib.reference_to(self.db, x.slot()).count();
+        let n = self.ib.reference_to(self.db, x.local()).count();
         match &*self.viper_body[exp] {
-            _ if n < 2 && !x.slot().is_result(self.ib) => true,
+            _ if n < 2 && !x.local().is_result(self.ib) => true,
             // Exp::Literal(_) => true,
             Exp::AbstractLocalVar(_) => {
                 // TODO: We should be able inline these, as long as the
-                // assignmed slot is immutable
+                // assignmed local is immutable
                 false
             }
             _ => false,
@@ -518,13 +518,13 @@ impl BodyLower<'_> {
         })
     }
 
-    pub(super) fn slot_to_decl(&mut self, x: mir::SlotId) -> Result<LocalVarDecl> {
-        let var = self.slot_to_var(x)?;
+    pub(super) fn local_to_decl(&mut self, x: mir::LocalId) -> Result<LocalVarDecl> {
+        let var = self.local_to_var(x)?;
         Ok(LocalVarDecl::new(var.name, var.typ))
     }
-    pub(super) fn slot_to_var(&mut self, x: mir::SlotId) -> Result<LocalVar> {
+    pub(super) fn local_to_var(&mut self, x: mir::LocalId) -> Result<LocalVar> {
         Ok(match x.data(self.ib) {
-            mir::Slot::Variable(var) => LocalVar::new(
+            mir::Local::Variable(var) => LocalVar::new(
                 format!("{}_{}", var.name(self.db), x.into_raw()),
                 self.lower_type(x.ty(self.db, self.ib))?.vty,
             ),
@@ -539,34 +539,34 @@ impl BodyLower<'_> {
             return Ok(alias);
         }
 
-        let var = self.slot_to_var(p.slot())?;
+        let var = self.local_to_var(p.local())?;
         if !p.has_projection(self.db) {
-            if let Some(exp) = self.var_refs.get(p.slot()).copied() {
+            if let Some(exp) = self.var_refs.get(p.local()).copied() {
                 return Ok(exp);
             }
         }
 
-        let id = match p.slot().data(self.ib) {
-            mir::Slot::Temp
-            | mir::Slot::Self_
-            | mir::Slot::Param(_)
-            | mir::Slot::Quantified(_)
-            | mir::Slot::Variable(_) => {
+        let id = match p.local().data(self.ib) {
+            mir::Local::Temp
+            | mir::Local::Self_
+            | mir::Local::Param(_)
+            | mir::Local::Quantified(_)
+            | mir::Local::Variable(_) => {
                 let exp = self.allocs(AbstractLocalVar::LocalVar(var));
-                if p.slot().ty(self.db, self.ib).is_shared_ref(self.db) {
+                if p.local().ty(self.db, self.ib).is_shared_ref(self.db) {
                     q_ref_value(self, exp)
                 } else {
                     exp
                 }
             }
-            mir::Slot::Result => self.allocs(if self.is_method {
+            mir::Local::Result => self.allocs(if self.is_method {
                 AbstractLocalVar::LocalVar(var)
             } else {
                 AbstractLocalVar::Result { typ: var.typ }
             }),
         };
 
-        self.var_refs.insert(p.slot(), id);
+        self.var_refs.insert(p.local(), id);
 
         p.projection_iter(self.db).try_fold(id, |base, proj| -> Result<_> {
             Ok(match proj {
@@ -633,7 +633,7 @@ impl BodyLower<'_> {
                     }
                 }
                 mir::Projection::Index(index, _) => {
-                    let idx = self.slot_to_var(index)?;
+                    let idx = self.local_to_var(index)?;
                     let idx = self.allocs(AbstractLocalVar::LocalVar(idx));
                     self.allocs(SeqExp::Index { s: base, idx })
                 }
@@ -649,7 +649,7 @@ impl BodyLower<'_> {
     }
     fn place_for_assignment(&mut self, dest: mir::Place) -> Result<LocalVar> {
         if !dest.has_projection(self.db) {
-            self.slot_to_var(dest.slot())
+            self.local_to_var(dest.local())
         } else {
             todo!()
         }

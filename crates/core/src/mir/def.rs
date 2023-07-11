@@ -19,7 +19,7 @@ use crate::{
     util::{impl_idx, IdxArena, IdxMap},
 };
 
-use place::{Place, SlotId};
+use place::{LocalId, Place};
 
 impl_idx!(BlockId, Block);
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
@@ -38,7 +38,7 @@ pub struct Terminator {
 pub enum TerminatorKind {
     Return,
     Goto(BlockId),
-    Quantify(Quantifier, Vec<SlotId>, BlockId),
+    Quantify(Quantifier, Vec<LocalId>, BlockId),
     QuantifyEnd(BlockId),
     Switch(Operand, SwitchTargets),
     Call { func: Function, args: Vec<Operand>, destination: Place, target: Option<BlockId> },
@@ -120,7 +120,7 @@ pub struct ItemBody {
 
     body: Body,
 
-    params: Vec<SlotId>,
+    params: Vec<LocalId>,
 
     requires: Vec<BlockId>,
     ensures: Vec<BlockId>,
@@ -133,14 +133,14 @@ pub struct ItemBody {
 pub struct Body {
     item: Item,
 
-    self_slot: Option<SlotId>,
-    result_slot: Option<SlotId>,
+    self_local: Option<LocalId>,
+    result_local: Option<LocalId>,
 
     blocks: IdxArena<BlockId>,
     instructions: IdxArena<InstructionId>,
-    slots: IdxArena<SlotId>,
+    locals: IdxArena<LocalId>,
     block_invariants: IdxMap<BlockId, Vec<BlockId>>,
-    slot_type: IdxMap<SlotId, Type>,
+    local_type: IdxMap<LocalId, Type>,
 }
 
 impl std::ops::Deref for ItemBody {

@@ -6,23 +6,23 @@ use crate::{mir, util::IdxMap};
 use super::monotone::Lattice;
 
 /// A [`FoldingForrest`] maintains the the state of foldings and unfoldings of
-/// [slots](crate::mir::Slot) and their projections.
+/// [locals](crate::mir::Local) and their projections.
 #[derive(Default, Debug, Clone, Eq)]
 pub struct FoldingForrest {
-    inner: IdxMap<mir::SlotId, FoldingTree<mir::ProjectionList>>,
+    inner: IdxMap<mir::LocalId, FoldingTree<mir::ProjectionList>>,
 }
 
 impl PartialEq for FoldingForrest {
     fn eq(&self, other: &Self) -> bool {
         self.inner == other.inner
-            || (self.inner.iter().all(|(slot, a_ft)| {
-                if let Some(b_ft) = other.inner.get(slot) {
+            || (self.inner.iter().all(|(local, a_ft)| {
+                if let Some(b_ft) = other.inner.get(local) {
                     a_ft == b_ft
                 } else {
                     a_ft.is_folded()
                 }
-            }) && other.inner.iter().all(|(slot, b_ft)| {
-                if let Some(a_ft) = self.inner.get(slot) {
+            }) && other.inner.iter().all(|(local, b_ft)| {
+                if let Some(a_ft) = self.inner.get(local) {
                     b_ft == a_ft
                 } else {
                     b_ft.is_folded()
@@ -36,22 +36,22 @@ impl FoldingForrest {
         let entries = self
             .inner
             .iter()
-            .map(|(slot, ft)| {
+            .map(|(local, ft)| {
                 let new_ft = ft.map_edges(|e| match e.last(db) {
                     Some(mir::Projection::Field(f)) => {
                         format!(".{}", f.name(db))
                     }
                     Some(mir::Projection::Index(idx, _)) => format!(
                         "[{}]",
-                        mir::serialize::serialize_slot(mir::serialize::Color::No, db, body, idx)
+                        mir::serialize::serialize_local(mir::serialize::Color::No, db, body, idx)
                     ),
                     None => "#".to_string(),
                 });
 
-                let slot =
-                    mir::serialize::serialize_slot(mir::serialize::Color::No, db, body, slot);
+                let local =
+                    mir::serialize::serialize_local(mir::serialize::Color::No, db, body, local);
 
-                format!("{slot}: {new_ft}")
+                format!("{local}: {new_ft}")
             })
             .format(", ");
         format!("{{{entries}}}")
@@ -71,7 +71,7 @@ impl FoldingForrest {
 
         let mut foldings = vec![];
 
-        let ft = self.inner.entry(place.slot()).or_default();
+        let ft = self.inner.entry(place.local()).or_default();
         ft.soft_require(
             |kind, path| {
                 let p = if let Some(pl) = path.last() {
@@ -96,7 +96,7 @@ impl FoldingForrest {
     /// This is useful when performing an assignment to a place, where all
     /// previous unfoldings into that place are lost.
     pub fn drop(&mut self, db: &dyn crate::Db, place: mir::Place) {
-        if let Some(ft) = self.inner.get_mut(place.slot()) {
+        if let Some(ft) = self.inner.get_mut(place.local()) {
             ft.drop(place.projection_path_iter(db).skip(1))
         }
     }
@@ -108,13 +108,13 @@ impl FoldingForrest {
         target: &FoldingForrest,
     ) -> Vec<mir::Folding> {
         let mut foldings = vec![];
-        for (slot, target_ft) in target.inner.iter() {
-            self.inner.entry(slot).or_default().transition_into(
+        for (local, target_ft) in target.inner.iter() {
+            self.inner.entry(local).or_default().transition_into(
                 |kind, path| {
                     let p = if let Some(&projection) = path.last() {
-                        slot.place(db, body).replace_projection(db, projection)
+                        local.place(db, body).replace_projection(db, projection)
                     } else {
-                        slot.place(db, body)
+                        local.place(db, body)
                     };
                     foldings.push(match kind {
                         folding_tree::EventKind::Unfold => mir::Folding::Unfold { consume: p },
@@ -197,29 +197,29 @@ impl FoldingForrest {
         other: &'b FoldingForrest,
     ) -> impl Iterator<
         Item = (
-            mir::SlotId,
+            mir::LocalId,
             Option<&'a FoldingTree<mir::ProjectionList>>,
             Option<&'b FoldingTree<mir::ProjectionList>>,
         ),
     > {
-        self.inner.iter().map(|(slot, a_ft)| (slot, Some(a_ft), other.inner.get(slot))).chain(
-            other.inner.iter().filter_map(|(slot, b_ft)| {
-                if self.inner.contains_idx(slot) {
+        self.inner.iter().map(|(local, a_ft)| (local, Some(a_ft), other.inner.get(local))).chain(
+            other.inner.iter().filter_map(|(local, b_ft)| {
+                if self.inner.contains_idx(local) {
                     None
                 } else {
-                    Some((slot, None, Some(b_ft)))
+                    Some((local, None, Some(b_ft)))
                 }
             }),
         )
     }
 
     fn fold(&mut self, db: &dyn crate::Db, p: mir::Place) {
-        let ft = self.inner.entry(p.slot()).or_default();
+        let ft = self.inner.entry(p.local()).or_default();
         // TODO: Perhaps we should check that these are valid
         let _ = ft.fold(p.projection_path_iter(db).skip(1));
     }
     fn unfold(&mut self, db: &dyn crate::Db, p: mir::Place) {
-        let ft = self.inner.entry(p.slot()).or_default();
+        let ft = self.inner.entry(p.local()).or_default();
         // TODO: Perhaps we should check that these are valid
         let _ = ft.unfold(p.projection_path_iter(db).skip(1));
     }
@@ -233,13 +233,13 @@ impl<T> Lattice<T> for FoldingForrest {
     fn lub(&self, _body: &T, other: &Self) -> Self {
         let inner = self
             .zip(other)
-            .filter_map(|(slot, a_ft, b_ft)| {
+            .filter_map(|(local, a_ft, b_ft)| {
                 let new_ft = match (a_ft, b_ft) {
                     (Some(a_ft), Some(b_ft)) => a_ft.meet(b_ft),
                     (None, Some(x_ft)) | (Some(x_ft), None) => x_ft.clone(),
                     (None, None) => return None,
                 };
-                Some((slot, new_ft))
+                Some((local, new_ft))
             })
             .collect();
 
@@ -385,13 +385,13 @@ mod test {
     }
     prop_compose! {
         fn arb_place(ctx: Context)
-            (slot in prop::sample::select(ctx.body().slots().collect_vec()),
+            (local in prop::sample::select(ctx.body().locals().collect_vec()),
              projection in arb_projection_list(ctx.clone()),
              ctx in Just(ctx)
             )
             -> Place
         {
-            slot.place(ctx.db(), ctx.body()).replace_projection(ctx.db(), projection)
+            local.place(ctx.db(), ctx.body()).replace_projection(ctx.db(), projection)
         }
     }
     prop_compose! {

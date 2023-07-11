@@ -30,7 +30,7 @@ pub enum MemorySource {
 #[derive(Debug, Default, Clone)]
 struct Memory {
     condition: Vec<(mir::Operand, Option<u128>)>,
-    values: IdxMap<mir::SlotId, MemorySource>,
+    values: IdxMap<mir::LocalId, MemorySource>,
 }
 
 fn pure_expr(db: &dyn crate::Db, ib: &mir::ItemBody) -> Option<PExpr> {
@@ -66,7 +66,7 @@ fn pure_expr(db: &dyn crate::Db, ib: &mir::ItemBody) -> Option<PExpr> {
 
                         if entry_mem
                             .values
-                            .insert(place.slot(), MemorySource::MExpr(*exp))
+                            .insert(place.local(), MemorySource::MExpr(*exp))
                             .is_some()
                         {
                             todo!()
@@ -84,15 +84,15 @@ fn pure_expr(db: &dyn crate::Db, ib: &mir::ItemBody) -> Option<PExpr> {
     }
 
     let final_bid = ib.exit_blocks(db).next()?;
-    Some(reconstruct(db, &memories[final_bid], ib.result_slot()?))
+    Some(reconstruct(db, &memories[final_bid], ib.result_local()?))
 }
 
-fn reconstruct(_db: &dyn crate::Db, mem: &Memory, _slot: mir::SlotId) -> PExpr {
+fn reconstruct(_db: &dyn crate::Db, mem: &Memory, _local: mir::LocalId) -> PExpr {
     dbg!(mem);
 
     todo!()
 
-    // match mem.values[slot] {
+    // match mem.values[local] {
     //     MemorySource::MExpr(exp) => {
     //         match exp {
     //             mir::MExpr::Use(op) => {

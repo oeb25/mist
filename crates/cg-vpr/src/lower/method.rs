@@ -26,7 +26,7 @@ impl BodyLower<'_> {
         result.ss.push(Stmt::Label(Label::new("end".to_string(), vec![])));
 
         for x in self.ib.body_locals() {
-            let var = self.slot_to_decl(x)?;
+            let var = self.local_to_decl(x)?;
             result
                 .scoped_seqn_declarations
                 .push(Declaration::LocalVar(AnyLocalVarDecl::LocalVarDecl(var)));

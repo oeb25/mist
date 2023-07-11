@@ -7,7 +7,7 @@ struct ProjectionList {
 }
 
 struct Place {
-    slot: int,
+    local: int,
     projection: ProjectionList,
 }
 

@@ -15,12 +15,12 @@ use crate::{
 use super::{Operand, SwitchTargets};
 
 impl mir::MExpr {
-    pub fn all_slot_usages(&self) -> impl IntoIterator<Item = mir::SlotId> + '_ {
+    pub fn all_local_usages(&self) -> impl IntoIterator<Item = mir::LocalId> + '_ {
         match self {
-            mir::MExpr::Use(s) => s.slot().into_iter().collect(),
-            mir::MExpr::BinaryOp(_, l, r) => l.slot().into_iter().chain(r.slot()).collect(),
-            mir::MExpr::Ref(_, p) => vec![p.slot()],
-            mir::MExpr::UnaryOp(_, o) => o.slot().into_iter().collect(),
+            mir::MExpr::Use(s) => s.local().into_iter().collect(),
+            mir::MExpr::BinaryOp(_, l, r) => l.local().into_iter().chain(r.local()).collect(),
+            mir::MExpr::Ref(_, p) => vec![p.local()],
+            mir::MExpr::UnaryOp(_, o) => o.local().into_iter().collect(),
         }
     }
     pub fn all_operands(&self) -> impl IntoIterator<Item = &mir::Operand> {
@@ -153,7 +153,7 @@ impl mir::Terminator {
     pub fn quantify(
         db: &dyn crate::Db,
         quantifier: Quantifier,
-        vars: Vec<mir::SlotId>,
+        vars: Vec<mir::LocalId>,
         bid: mir::BlockId,
     ) -> mir::Terminator {
         mir::Terminator::new(db, mir::TerminatorKind::Quantify(quantifier, vars, bid))
@@ -265,13 +265,13 @@ impl mir::ItemBody {
     pub fn invariants(&self) -> &[mir::BlockId] {
         self.invariants.as_ref()
     }
-    pub fn params(&self) -> &[mir::SlotId] {
+    pub fn params(&self) -> &[mir::LocalId] {
         self.params.as_ref()
     }
     pub fn item(&self) -> Item {
         self.item
     }
-    pub fn place(&self, db: &dyn crate::Db, s: mir::SlotId) -> mir::Place {
+    pub fn place(&self, db: &dyn crate::Db, s: mir::LocalId) -> mir::Place {
         self.body.place(db, s)
     }
 }
@@ -281,48 +281,48 @@ impl mir::Body {
         mir::Body {
             item,
 
-            self_slot: None,
-            result_slot: None,
+            self_local: None,
+            result_local: None,
 
             blocks: Default::default(),
             instructions: Default::default(),
-            slots: Default::default(),
+            locals: Default::default(),
             block_invariants: Default::default(),
-            slot_type: Default::default(),
+            local_type: Default::default(),
         }
     }
     pub fn item(&self) -> Item {
         self.item
     }
 
-    pub fn place(&self, db: &dyn crate::Db, s: mir::SlotId) -> mir::Place {
+    pub fn place(&self, db: &dyn crate::Db, s: mir::LocalId) -> mir::Place {
         s.place(db, self)
     }
 
-    pub fn slots(&self) -> impl Iterator<Item = mir::SlotId> + '_ {
-        self.slots.idxs()
+    pub fn locals(&self) -> impl Iterator<Item = mir::LocalId> + '_ {
+        self.locals.idxs()
     }
 
     pub fn blocks(&self) -> impl Iterator<Item = mir::BlockId> + '_ {
         self.blocks.idxs()
     }
 
-    pub fn assignments_to(&self, x: mir::SlotId) -> impl Iterator<Item = mir::InstructionId> + '_ {
+    pub fn assignments_to(&self, x: mir::LocalId) -> impl Iterator<Item = mir::InstructionId> + '_ {
         self.instructions.iter().filter_map(move |(id, inst)| match inst {
-            mir::Instruction::Assign(y, _) if x == y.slot() => Some(id),
+            mir::Instruction::Assign(y, _) if x == y.local() => Some(id),
             _ => None,
         })
     }
     pub fn reference_to<'a>(
         &'a self,
         db: &'a dyn crate::Db,
-        x: mir::SlotId,
+        x: mir::LocalId,
     ) -> impl Iterator<Item = mir::Action> + 'a {
         self.instructions
             .iter()
             .filter_map(move |(id, inst)| match inst {
                 mir::Instruction::Assign(_, e) | mir::Instruction::Assertion(_, e)
-                    if e.all_slot_usages().into_iter().any(|y| x == y) =>
+                    if e.all_local_usages().into_iter().any(|y| x == y) =>
                 {
                     Some(id)
                 }
@@ -339,10 +339,10 @@ impl mir::Body {
                                 over.contains(&x).then_some(term)
                             }
                             mir::TerminatorKind::Switch(op, _) => {
-                                (Some(x) == op.slot()).then_some(term)
+                                (Some(x) == op.local()).then_some(term)
                             }
                             mir::TerminatorKind::Call { args, .. } => {
-                                args.iter().any(|arg| Some(x) == arg.slot()).then_some(term)
+                                args.iter().any(|arg| Some(x) == arg.local()).then_some(term)
                             }
 
                             mir::TerminatorKind::Return
@@ -354,15 +354,15 @@ impl mir::Body {
             )
     }
 
-    pub fn self_slot(&self) -> Option<mir::SlotId> {
-        self.self_slot
+    pub fn self_local(&self) -> Option<mir::LocalId> {
+        self.self_local
     }
-    pub fn result_slot(&self) -> Option<mir::SlotId> {
-        self.result_slot
+    pub fn result_local(&self) -> Option<mir::LocalId> {
+        self.result_local
     }
 
-    pub(super) fn slot_ty(&self, db: &dyn crate::Db, slot: mir::SlotId) -> Type {
-        self.slot_type.get(slot).copied().unwrap_or_else(|| Type::error(db))
+    pub(super) fn local_ty(&self, db: &dyn crate::Db, local: mir::LocalId) -> Type {
+        self.local_type.get(local).copied().unwrap_or_else(|| Type::error(db))
     }
 
     pub fn block_invariants(&self, block: mir::BlockId) -> &[mir::BlockId] {
@@ -438,13 +438,13 @@ impl mir::Body {
         // }
     }
 
-    pub fn slots_referenced<'a>(
+    pub fn locals_referenced<'a>(
         &'a self,
         db: &'a dyn crate::Db,
         blocks: &'a [mir::BlockId],
-    ) -> impl Iterator<Item = mir::SlotId> + 'a {
+    ) -> impl Iterator<Item = mir::LocalId> + 'a {
         blocks.iter().flat_map(|bid| {
-            bid.actions(self).flat_map(|act| act.places_referenced(db, self).map(|p| p.slot()))
+            bid.actions(self).flat_map(|act| act.places_referenced(db, self).map(|p| p.local()))
         })
     }
 
@@ -466,10 +466,10 @@ impl mir::Body {
     }
 
     /// Returns an iterator over everything that local to the body. This
-    /// includes `mir::Slot::Temp` and `mir::Slot::Local(..)`.
-    pub fn body_locals(&self) -> impl Iterator<Item = mir::SlotId> + '_ {
-        self.slots.iter().filter_map(|(sid, slot)| match slot {
-            mir::Slot::Temp | mir::Slot::Variable(_) => Some(sid),
+    /// includes `mir::Local::Temp` and `mir::Local::Local(..)`.
+    pub fn body_locals(&self) -> impl Iterator<Item = mir::LocalId> + '_ {
+        self.locals.iter().filter_map(|(sid, local)| match local {
+            mir::Local::Temp | mir::Local::Variable(_) => Some(sid),
             _ => None,
         })
     }
@@ -585,8 +585,8 @@ impl mir::Operand {
             mir::Operand::Literal(_) => None,
         }
     }
-    pub fn slot(&self) -> Option<mir::SlotId> {
-        self.place().map(|s| s.slot())
+    pub fn local(&self) -> Option<mir::LocalId> {
+        self.place().map(|s| s.local())
     }
 }
 

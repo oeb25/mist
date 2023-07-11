@@ -30,22 +30,22 @@ pub fn generate_module(db: &dyn crate::Db, file: SourceFile) -> Result<wasm::Mod
 struct FunctionLowerer<'a> {
     db: &'a dyn crate::Db,
     ib: &'a mir::ItemBody,
-    slots_stack_offsets: IdxMap<mir::SlotId, usize>,
+    locals_stack_offsets: IdxMap<mir::LocalId, usize>,
 }
 
 impl<'a> FunctionLowerer<'a> {
     fn new(db: &'a dyn crate::Db, ib: &'a mir::ItemBody) -> Self {
-        Self { db, ib, slots_stack_offsets: Default::default() }
+        Self { db, ib, locals_stack_offsets: Default::default() }
     }
 
-    fn allocate_slots<T: From<wasm::ValType>>(
+    fn allocate_locals<T: From<wasm::ValType>>(
         &mut self,
         offset: usize,
-        slots: impl Iterator<Item = mir::SlotId>,
+        locals: impl Iterator<Item = mir::LocalId>,
     ) -> Vec<T> {
-        slots.fold(Vec::new(), |mut items, sid| {
+        locals.fold(Vec::new(), |mut items, sid| {
             let idx = offset + items.len();
-            self.slots_stack_offsets.insert(sid, idx);
+            self.locals_stack_offsets.insert(sid, idx);
             let types = self.compute_ty_layout(sid.ty(self.db, self.ib));
             items.extend(types.into_iter().map_into());
             items
@@ -91,9 +91,9 @@ impl<'a> FunctionLowerer<'a> {
     }
 
     pub fn generate_func(&mut self) -> wasm::Func {
-        let params = self.allocate_slots(0, self.ib.params().iter().copied());
-        let results = self.allocate_slots(params.len(), self.ib.result_slot().into_iter());
-        let locals = self.allocate_slots(params.len() + results.len(), self.ib.body_locals());
+        let params = self.allocate_locals(0, self.ib.params().iter().copied());
+        let results = self.allocate_locals(params.len(), self.ib.result_local().into_iter());
+        let locals = self.allocate_locals(params.len() + results.len(), self.ib.body_locals());
 
         let type_use = wasm::TypeUse { type_idx: wasm::TypeIdx::Idx(0), params, results };
         let instrs = vec![];

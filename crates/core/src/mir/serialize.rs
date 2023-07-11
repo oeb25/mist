@@ -7,7 +7,7 @@ use crate::mir::{Projection, Terminator};
 
 use super::{
     def::InBlock, Action, BlockId, Body, BorrowKind, Folding, Function, Instruction, InstructionId,
-    MExpr, Operand, Place, Slot, SlotId, TerminatorKind,
+    Local, LocalId, MExpr, Operand, Place, TerminatorKind,
 };
 
 #[derive(new)]
@@ -66,9 +66,9 @@ pub fn serialize_block(color: Color, db: &dyn crate::Db, body: &Body, bid: Block
     s.block(bid);
     s.output
 }
-pub fn serialize_slot(color: Color, db: &dyn crate::Db, body: &Body, slot: SlotId) -> String {
+pub fn serialize_local(color: Color, db: &dyn crate::Db, body: &Body, local: LocalId) -> String {
     let mut s = Serializer::new(color, db, body, |_| None).with_color(color);
-    s.slot(slot);
+    s.local(local);
     s.output
 }
 pub fn serialize_place(color: Color, db: &dyn crate::Db, body: &Body, place: Place) -> String {
@@ -165,13 +165,13 @@ impl<'db, A: Fn(InBlock<Action>) -> Option<String>> Serializer<'db, A> {
                 self.place(*t);
                 w!(self, Default, " := {} {{", s.name(self.db));
                 let mut first = true;
-                for (field, slot) in fields {
+                for (field, local) in fields {
                     if !first {
                         w!(self, Default, ",");
                     }
                     first = false;
                     w!(self, Default, " {}: ", field.name(self.db));
-                    self.operand(slot);
+                    self.operand(local);
                 }
                 wln!(self, Default, " }}");
             }
@@ -191,22 +191,22 @@ impl<'db, A: Fn(InBlock<Action>) -> Option<String>> Serializer<'db, A> {
         }
     }
 
-    fn slot(&mut self, s: SlotId) {
+    fn local(&mut self, s: LocalId) {
         match s.data(self.body) {
-            Slot::Param(v) => w!(self, Cyan, "{s}_{}", v.name(self.db)),
-            Slot::Quantified(v) => w!(self, Cyan, "{s}_{}", v.name(self.db)),
-            Slot::Variable(v) => w!(self, Cyan, "{s}_{}", v.name(self.db)),
-            Slot::Result => w!(self, Magenta, "%result"),
-            Slot::Self_ => w!(self, Magenta, "%self"),
+            Local::Param(v) => w!(self, Cyan, "{s}_{}", v.name(self.db)),
+            Local::Quantified(v) => w!(self, Cyan, "{s}_{}", v.name(self.db)),
+            Local::Variable(v) => w!(self, Cyan, "{s}_{}", v.name(self.db)),
+            Local::Result => w!(self, Magenta, "%result"),
+            Local::Self_ => w!(self, Magenta, "%self"),
             _ => w!(self, Cyan, "{s}"),
         }
     }
 
     fn place(&mut self, s: Place) {
         if !s.has_projection(self.db) {
-            self.slot(s.slot());
+            self.local(s.local());
         } else {
-            self.slot(s.slot());
+            self.local(s.local());
             for p in s.projection_iter(self.db) {
                 match p {
                     Projection::Field(f) => {
@@ -215,7 +215,7 @@ impl<'db, A: Fn(InBlock<Action>) -> Option<String>> Serializer<'db, A> {
                     }
                     Projection::Index(idx, _) => {
                         w!(self, Default, "[");
-                        self.slot(idx);
+                        self.local(idx);
                         w!(self, Default, "]");
                     }
                 }
@@ -312,7 +312,7 @@ impl<'db, A: Fn(InBlock<Action>) -> Option<String>> Serializer<'db, A> {
             TerminatorKind::Quantify(q, over, b) => {
                 w!(self, Yellow, "!{q} ");
                 for s in over {
-                    self.slot(*s);
+                    self.local(*s);
                 }
                 w!(self, Default, " :: ");
                 self.block_id(Some(*b));

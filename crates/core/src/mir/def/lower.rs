@@ -7,7 +7,7 @@ use tracing::debug;
 
 use crate::{
     hir::{self, AssertionKind},
-    mir::{BodySourceMap, ItemMir, MirError, MirErrors, Operand, Projection, Slot},
+    mir::{BodySourceMap, ItemMir, Local, MirError, MirErrors, Operand, Projection},
     mono::{
         exprs::{
             Block as MonoBlock, BuiltinExpr, Decreases, ExprData, ExprFunction, ExprPtr, Field,
@@ -21,8 +21,8 @@ use crate::{
 };
 
 use super::{
-    BlockId, Body, BorrowKind, Function, Instruction, InstructionId, ItemBody, MExpr, Place,
-    RangeKind, SlotId, SwitchTargets, Terminator, TerminatorKind,
+    BlockId, Body, BorrowKind, Function, Instruction, InstructionId, ItemBody, LocalId, MExpr,
+    Place, RangeKind, SwitchTargets, Terminator, TerminatorKind,
 };
 
 #[salsa::tracked]
@@ -43,9 +43,9 @@ fn lower_item_internal(db: &dyn crate::Db, item: Item) -> Option<ItemMir> {
     match item.kind(db) {
         ItemKind::Adt(adt) => {
             for ty_inv in adt.invariants(db) {
-                let slot = lower.alloc_place_for_expr(ty_inv);
+                let local = lower.alloc_place_for_expr(ty_inv);
                 let entry_bid = lower.alloc_block(Some(ty_inv));
-                lower.expr(ty_inv, entry_bid, None, Placement::Assign(slot));
+                lower.expr(ty_inv, entry_bid, None, Placement::Assign(local));
                 invariants.push(entry_bid);
             }
         }
@@ -53,24 +53,24 @@ fn lower_item_internal(db: &dyn crate::Db, item: Item) -> Option<ItemMir> {
             params = fun
                 .params(db)
                 .iter()
-                .map(|param| lower.alloc_slot(Slot::Param(param.name), param.ty))
+                .map(|param| lower.alloc_local(Local::Param(param.name), param.ty))
                 .collect();
 
             for cond in fun.conditions(db) {
                 match cond {
                     Condition::Requires(es) => {
                         for e in es {
-                            let slot = lower.alloc_place_for_expr(e);
+                            let local = lower.alloc_place_for_expr(e);
                             let entry_bid = lower.alloc_block(Some(e));
-                            lower.expr(e, entry_bid, None, Placement::Assign(slot));
+                            lower.expr(e, entry_bid, None, Placement::Assign(local));
                             requires.push(entry_bid);
                         }
                     }
                     Condition::Ensures(es) => {
                         for e in es {
-                            let slot = lower.alloc_place_for_expr(e);
+                            let local = lower.alloc_place_for_expr(e);
                             let entry_bid = lower.alloc_block(Some(e));
-                            lower.expr(e, entry_bid, None, Placement::Assign(slot));
+                            lower.expr(e, entry_bid, None, Placement::Assign(local));
                             ensures.push(entry_bid);
                         }
                     }
@@ -78,8 +78,8 @@ fn lower_item_internal(db: &dyn crate::Db, item: Item) -> Option<ItemMir> {
             }
 
             if let Some(body) = fun.body(db) {
-                let placement = match lower.body.result_slot {
-                    Some(slot) => Placement::Assign(slot.place(db, &lower.body)),
+                let placement = match lower.body.result_local {
+                    Some(local) => Placement::Assign(local.place(db, &lower.body)),
                     None => Placement::Ignore,
                 };
                 let body_bid = lower.alloc_block(Some(body));
@@ -108,56 +108,56 @@ impl<'a> MirLower<'a> {
             ItemKind::Adt(adt) => Some(adt.ty(db)),
             ItemKind::Function(_) => None,
         };
-        l.body.self_slot = self_ty.map(|ty| l.alloc_slot(Slot::Self_, ty));
+        l.body.self_local = self_ty.map(|ty| l.alloc_local(Local::Self_, ty));
 
         let result_ty = match item.kind(db) {
             ItemKind::Adt(_) => None,
             ItemKind::Function(f) => Some(f.return_ty(db)),
         };
-        l.body.result_slot = result_ty.map(|ty| l.alloc_slot(Slot::Result, ty));
+        l.body.result_local = result_ty.map(|ty| l.alloc_local(Local::Result, ty));
 
         l
     }
 
     fn alloc_tmp(&mut self, ty: Type) -> Place {
-        self.alloc_place(Slot::default(), ty)
+        self.alloc_place(Local::default(), ty)
     }
     fn alloc_place_for_expr(&mut self, expr: ExprPtr) -> Place {
         self.alloc_tmp(expr.ty())
     }
-    fn alloc_place(&mut self, slot: Slot, ty: Type) -> Place {
-        let s = self.alloc_slot(slot, ty);
+    fn alloc_place(&mut self, local: Local, ty: Type) -> Place {
+        let s = self.alloc_local(local, ty);
         self.place(s)
     }
-    fn alloc_quantified(&mut self, var: VariablePtr) -> SlotId {
-        self.alloc_slot(Slot::Quantified(var), var.ty())
+    fn alloc_quantified(&mut self, var: VariablePtr) -> LocalId {
+        self.alloc_local(Local::Quantified(var), var.ty())
     }
-    fn alloc_var(&mut self, var: VariablePtr) -> SlotId {
-        self.alloc_slot(Slot::Variable(var), var.ty())
+    fn alloc_var(&mut self, var: VariablePtr) -> LocalId {
+        self.alloc_local(Local::Variable(var), var.ty())
     }
-    fn alloc_slot(&mut self, slot: Slot, ty: Type) -> SlotId {
-        let id = match &slot {
-            Slot::Temp => self.body.slots.alloc(slot),
-            Slot::Param(var) | Slot::Variable(var) | Slot::Quantified(var) => {
+    fn alloc_local(&mut self, local: Local, ty: Type) -> LocalId {
+        let id = match &local {
+            Local::Temp => self.body.locals.alloc(local),
+            Local::Param(var) | Local::Variable(var) | Local::Quantified(var) => {
                 let var = *var;
-                let id = self.body.slots.alloc(slot);
+                let id = self.body.locals.alloc(local);
                 self.source_map.register(var, id);
                 id
             }
-            Slot::Self_ => {
-                assert_eq!(self.body.self_slot, None);
-                let id = self.body.slots.alloc(Slot::Self_);
-                self.body.self_slot = Some(id);
+            Local::Self_ => {
+                assert_eq!(self.body.self_local, None);
+                let id = self.body.locals.alloc(Local::Self_);
+                self.body.self_local = Some(id);
                 id
             }
-            Slot::Result => {
-                assert_eq!(self.body.result_slot, None);
-                let id = self.body.slots.alloc(Slot::Result);
-                self.body.result_slot = Some(id);
+            Local::Result => {
+                assert_eq!(self.body.result_local, None);
+                let id = self.body.locals.alloc(Local::Result);
+                self.body.result_local = Some(id);
                 id
             }
         };
-        if let Some(old_ty) = self.body.slot_type.insert(id, ty) {
+        if let Some(old_ty) = self.body.local_type.insert(id, ty) {
             debug!(
                 "replaced a type. old was '{}' and new was '{}'",
                 old_ty.display(self.db),
@@ -194,14 +194,14 @@ impl<'a> MirLower<'a> {
             self.source_map.register(source, bid);
         }
     }
-    fn self_slot(&self) -> Option<SlotId> {
-        self.body.self_slot
+    fn self_local(&self) -> Option<LocalId> {
+        self.body.self_local
     }
     fn var_place(&mut self, var: VariablePtr) -> Place {
-        if let Some(slot) = self.source_map.find(var) {
-            slot.place(self.db, &self.body)
+        if let Some(local) = self.source_map.find(var) {
+            local.place(self.db, &self.body)
         } else {
-            MirErrors::push(self.db, MirError::SlotUseBeforeAlloc { var, span: None });
+            MirErrors::push(self.db, MirError::LocalUseBeforeAlloc { var, span: None });
             self.alloc_tmp(var.ty())
         }
     }
@@ -217,7 +217,7 @@ impl<'a> MirLower<'a> {
         old
     }
 
-    fn place(&self, s: SlotId) -> Place {
+    fn place(&self, s: LocalId) -> Place {
         s.place(self.db, &self.body)
     }
 }
@@ -235,8 +235,8 @@ impl MirLower<'_> {
     fn put(&mut self, bid: BlockId, dest: Placement, source: Option<ExprPtr>, expr: MExpr) {
         match dest {
             Placement::Ignore => {}
-            Placement::Assign(slot) => {
-                self.alloc_instruction(source, bid, Instruction::Assign(slot, expr));
+            Placement::Assign(local) => {
+                self.alloc_instruction(source, bid, Instruction::Assign(local, expr));
             }
             Placement::IntoOperand(ty, u) => match &expr {
                 MExpr::Use(op) => *u = Some(*op),
@@ -285,8 +285,8 @@ impl MirLower<'_> {
                 target.unwrap_or_else(|| self.alloc_block(None)),
                 None,
             ),
-            Placement::Assign(slot) => {
-                (slot, target.unwrap_or_else(|| self.alloc_block(None)), None)
+            Placement::Assign(local) => {
+                (local, target.unwrap_or_else(|| self.alloc_block(None)), None)
             }
             Placement::IntoOperand(ty, into) => {
                 let tmp = self.alloc_tmp(ty);
@@ -348,7 +348,7 @@ impl MirLower<'_> {
                 let dest = if let Some(var) = variable {
                     self.alloc_var(var)
                 } else {
-                    self.alloc_tmp(initializer.ty()).slot()
+                    self.alloc_tmp(initializer.ty()).local()
                 };
                 self.expr(initializer, bid, target, Placement::Assign(self.place(dest)))
             }
@@ -504,7 +504,7 @@ impl MirLower<'_> {
                 let idx = self.alloc_tmp(index.ty());
                 let bid = self.expr(index, bid, None, Placement::Assign(idx));
                 let (bid, place) = self.lhs_expr(base, bid, None);
-                (bid, place.project_deeper(self.db, &[Projection::Index(idx.slot(), expr.ty())]))
+                (bid, place.project_deeper(self.db, &[Projection::Index(idx.local(), expr.ty())]))
             }
             ExprData::List { .. } => todo!(),
             ExprData::Quantifier { .. } => todo!(),
@@ -535,7 +535,7 @@ impl MirLower<'_> {
         *bid = self.expr(expr, *bid, target, Placement::IntoPlace(expr.ty(), &mut tmp));
         tmp.unwrap_or_else(|| {
             let ty = expr.ty();
-            self.alloc_place(Slot::Temp, ty)
+            self.alloc_place(Local::Temp, ty)
         })
     }
     fn expr(
@@ -553,12 +553,12 @@ impl MirLower<'_> {
                 bid
             }
             ExprData::Self_ => {
-                if let Some(self_slot) = self.self_slot() {
+                if let Some(self_local) = self.self_local() {
                     self.put(
                         bid,
                         dest,
                         Some(expr),
-                        MExpr::Use(Operand::Move(self.place(self_slot))),
+                        MExpr::Use(Operand::Move(self.place(self_local))),
                     );
                 } else {
                     MirErrors::push(self.db, MirError::SelfInItemWithout { expr, span: None })
@@ -738,16 +738,16 @@ impl MirLower<'_> {
                 next_bid
             }
             ExprData::Result => {
-                if let Some(result_slot) = self.body.result_slot() {
-                    let place = self.place(result_slot);
+                if let Some(result_local) = self.body.result_local() {
+                    let place = self.place(result_local);
                     self.put(bid, dest, Some(expr), MExpr::Use(Operand::Move(place)));
                 } else {
                     MirErrors::push(
                         self.db,
-                        MirError::ResultWithoutReturnSlot { expr, span: None },
+                        MirError::ResultWithoutReturnLocal { expr, span: None },
                     );
                     todo!();
-                    // self.alloc_slot(Slot::Result, expr_ty)
+                    // self.alloc_local(Local::Result, expr_ty)
                 };
                 bid
             }
@@ -770,18 +770,18 @@ impl MirLower<'_> {
             }
             ExprData::Return(it) => {
                 if let Some(inner) = it {
-                    let result_slot = if let Some(result_slot) = self.body.result_slot() {
-                        result_slot
+                    let result_local = if let Some(result_local) = self.body.result_local() {
+                        result_local
                     } else {
                         MirErrors::push(
                             self.db,
-                            MirError::ResultWithoutReturnSlot { expr, span: None },
+                            MirError::ResultWithoutReturnLocal { expr, span: None },
                         );
                         todo!()
-                        // self.alloc_slot(Slot::Result, expr_ty)
+                        // self.alloc_local(Local::Result, expr_ty)
                     };
                     let result_operand = self.expr_into_operand(inner, &mut bid, None);
-                    let result_place = self.place(result_slot);
+                    let result_place = self.place(result_local);
                     self.assign(bid, Some(expr), result_place, MExpr::Use(result_operand));
                     // TODO: dest is unused?
                 }
@@ -887,7 +887,7 @@ impl MirLower<'_> {
             let cond_inv_bid = self.alloc_block(None);
             let mut end_bid = cond_inv_bid;
             let inv_result = self.expr_into_operand(it.expr, &mut end_bid, None);
-            let some_place = self.alloc_place(Slot::Temp, Type::bool(self.db));
+            let some_place = self.alloc_place(Local::Temp, Type::bool(self.db));
             self.alloc_instruction(
                 Some(it.expr),
                 end_bid,
@@ -918,18 +918,18 @@ impl MirLower<'_> {
         self.set_block_invariants(cond_bid_last, invariants);
         let body_bid = self.alloc_block(None);
         let mut next_bid = body_bid;
-        let variant_slot = match it.decreases {
+        let variant_local = match it.decreases {
             Decreases::Unspecified => None,
             Decreases::Expr(variant) => {
-                let variant_slot = self.alloc_tmp(variant.ty());
-                next_bid = self.expr(variant, next_bid, None, Placement::Assign(variant_slot));
-                Some(variant_slot)
+                let variant_local = self.alloc_tmp(variant.ty());
+                next_bid = self.expr(variant, next_bid, None, Placement::Assign(variant_local));
+                Some(variant_local)
             }
             Decreases::Inferred => None,
         };
         let mut body_bid_last = self.expr(it.body, next_bid, None, Placement::Ignore);
-        if let (Decreases::Expr(variant), Some(variant_slot)) = (it.decreases, variant_slot) {
-            self.emit_decreases_assertion(variant_slot, variant, &mut body_bid_last);
+        if let (Decreases::Expr(variant), Some(variant_local)) = (it.decreases, variant_local) {
+            self.emit_decreases_assertion(variant_local, variant, &mut body_bid_last);
         }
         let exit_bid = self.alloc_block(None);
         assert_ne!(body_bid_last, cond_block);

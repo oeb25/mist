@@ -3,12 +3,12 @@ pure struct FoldingTree {
 }
 
 pure struct Place {
-    slot: int,
+    local: int,
     projection: [int],
 }
 
 // invariant Place {
-//     0 <= self.slot && self.slot <= 0 &&
+//     0 <= self.local && self.local <= 0 &&
 //     forall idx in 0..self.projection.len {
 //         0 <= self.projection[idx] &&
 //              self.projection[idx] <= 0
@@ -20,7 +20,7 @@ pure fn prefix(p: Place) -> Set[Place] {
         [p].to_set()
     } else {
         let parent = Place {
-            slot: p.slot,
+            local: p.local,
             projection: p.projection[0..p.projection.len - 1],
         };
         prefix(parent).union([p].to_set())
@@ -56,7 +56,7 @@ pure fn fields_of_ty(ty: int) -> Set[int] {
 
 pure fn fields(p: Place) -> Set[Place] {
     let fs =  if p.projection == [] {
-        fields_of_ty(p.slot).to_list()
+        fields_of_ty(p.local).to_list()
     } else {
         fields_of_ty(p.projection[p.projection.len - 1]).to_list()
     };
@@ -67,7 +67,7 @@ pure fn fields_helper(p: Place, fs: [int]) -> Set[Place] {
         [].to_set()
     } else {
         let np = Place {
-            slot: p.slot,
+            local: p.local,
             projection: p.projection + [fs[0]],
         };
         [np].to_set().union(fields_helper(p, fs[1..]))

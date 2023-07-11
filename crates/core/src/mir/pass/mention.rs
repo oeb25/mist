@@ -26,7 +26,7 @@ impl Pass for MentionPass {
             }
             let entry_loc = entry.first_body_loc(ib);
             let mut seen = IdxSet::default();
-            for s in ib.slots_referenced(db, scc.blocks()) {
+            for s in ib.locals_referenced(db, scc.blocks()) {
                 if liveness.entry(entry_loc).contains_idx(s) {
                     seen.insert(s);
                 }

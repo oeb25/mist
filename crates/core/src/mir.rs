@@ -10,7 +10,7 @@ use crate::mono::exprs::{ExprPtr, VariablePtr};
 
 pub use def::{
     lower::lower_item,
-    place::{Place, Projection, ProjectionList, Slot, SlotId},
+    place::{Local, LocalId, Place, Projection, ProjectionList},
     source_map::BodySourceMap,
     Action, Block, BlockId, BlockLocation, BlockOrInstruction, Body, BodyLocation, BorrowKind,
     Folding, Function, InBlock, Instruction, InstructionId, ItemBody, MExpr, Operand, RangeKind,
@@ -34,14 +34,14 @@ pub enum MirError {
         #[label]
         span: Option<SourceSpan>,
     },
-    #[error("variable used before its slot was allocated")]
-    SlotUseBeforeAlloc {
+    #[error("variable used before its local was allocated")]
+    LocalUseBeforeAlloc {
         var: VariablePtr,
         #[label]
         span: Option<SourceSpan>,
     },
-    #[error("result seen in function without return slot set")]
-    ResultWithoutReturnSlot {
+    #[error("result seen in function without return local set")]
+    ResultWithoutReturnLocal {
         expr: ExprPtr,
         #[label]
         span: Option<SourceSpan>,
@@ -61,8 +61,8 @@ impl MirError {
     ) {
         match self {
             MirError::NotYetImplemented { msg: _, expr, span } => *span = expr_f(*expr),
-            MirError::SlotUseBeforeAlloc { var, span } => *span = var_f(*var),
-            MirError::ResultWithoutReturnSlot { expr, span } => *span = expr_f(*expr),
+            MirError::LocalUseBeforeAlloc { var, span } => *span = var_f(*var),
+            MirError::ResultWithoutReturnLocal { expr, span } => *span = expr_f(*expr),
             MirError::SelfInItemWithout { expr, span } => *span = expr_f(*expr),
         }
     }

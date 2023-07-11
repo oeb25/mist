@@ -18,7 +18,7 @@ impl Liveness {
 pub struct LivenessAnalysis;
 
 impl MonotoneFramework for LivenessAnalysis {
-    type Domain = IdxSet<mir::SlotId>;
+    type Domain = IdxSet<mir::LocalId>;
 
     type Direction = monotone::Backward;
 
@@ -30,10 +30,10 @@ impl MonotoneFramework for LivenessAnalysis {
         prev: &mut Self::Domain,
     ) {
         for p in act.places_written_to(db, body) {
-            prev.remove(p.slot());
+            prev.remove(p.local());
         }
         for p in act.places_referenced(db, body) {
-            prev.insert(p.slot());
+            prev.insert(p.local());
         }
     }
 
@@ -69,7 +69,7 @@ impl MonotoneFramework for FoldingAnalysis {
 
     fn initial(&self, db: &dyn crate::Db, ib: &mir::ItemBody) -> Self::Domain {
         // TODO: We should look at params, return type, and post-conditions, to
-        // see which slots should be folded at the exit
+        // see which locals should be folded at the exit
         let mut t = FoldingForrest::default();
         for &param in ib.params() {
             if param.ty(db, ib).is_ref(db) {

@@ -1,8 +1,9 @@
 #[cfg(test)]
 mod tests;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
+use indexmap::IndexMap;
 use itertools::Itertools;
 use petgraph::{visit::Control, Direction};
 
@@ -16,7 +17,7 @@ use super::{
 
 #[derive(Debug)]
 pub struct MonoDep {
-    nodes: HashMap<Item, petgraph::graph::NodeIndex>,
+    nodes: IndexMap<Item, petgraph::graph::NodeIndex>,
     graph: petgraph::Graph<Item, Level>,
 }
 
@@ -62,8 +63,8 @@ impl MonoDep {
 
         type Table = ena::unify::InPlaceUnificationTable<Key>;
         let mut clusters = Table::new();
-        let mut keys = HashMap::new();
-        let mut back = HashMap::new();
+        let mut keys = IndexMap::new();
+        let mut back = IndexMap::new();
         let mut key = |clusters: &mut Table, n: petgraph::graph::NodeIndex| {
             let item = *self.graph.node_weight(n).unwrap();
             let id = *keys.entry(item).or_insert_with(|| clusters.new_key(()));
@@ -99,7 +100,7 @@ impl MonoDep {
             },
         );
 
-        let mut result: HashMap<_, Vec<_>> = HashMap::new();
+        let mut result: IndexMap<_, Vec<_>> = IndexMap::new();
         for (&item, &id) in keys.iter() {
             let g_id = clusters.find(id);
             result.entry(back[&g_id]).or_default().push(item);
@@ -160,7 +161,7 @@ pub enum Level {
 }
 
 struct GraphBuilder {
-    nodes: HashMap<Item, petgraph::graph::NodeIndex>,
+    nodes: IndexMap<Item, petgraph::graph::NodeIndex>,
     g: petgraph::Graph<Item, Level>,
 
     queue: Vec<Queue>,

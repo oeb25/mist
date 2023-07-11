@@ -26,8 +26,8 @@ pub(super) fn fold_stmt(
                 let ptr = if p.has_projection(db) {
                     l.place_to_ref(p)?
                 } else {
-                    let slot_var = l.slot_to_var(p.slot())?;
-                    l.allocs(AbstractLocalVar::LocalVar(slot_var))
+                    let local_var = l.local_to_var(p.local())?;
+                    l.allocs(AbstractLocalVar::LocalVar(local_var))
                 };
                 let perm = l.allocs(PermExp::Full);
 
@@ -71,8 +71,8 @@ pub(super) fn folding_expr(
                 let ptr = if unfolding_place.has_projection(db) {
                     l.place_to_ref(unfolding_place)?
                 } else {
-                    let slot_var = l.slot_to_var(unfolding_place.slot())?;
-                    l.allocs(AbstractLocalVar::LocalVar(slot_var))
+                    let local_var = l.local_to_var(unfolding_place.local())?;
+                    l.allocs(AbstractLocalVar::LocalVar(local_var))
                 };
                 let perm = l.allocs(PermExp::Wildcard);
                 Ok(q_ref_unfolding(l.db, l, adt, ptr, perm, exp))

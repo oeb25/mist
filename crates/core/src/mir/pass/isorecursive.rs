@@ -33,7 +33,7 @@ impl Pass for IsorecursivePass {
                 tree_from_returns.require(db, None, RequireType::Folded, ib.place(db, s));
             }
         }
-        if let Some(s) = ib.result_slot() {
+        if let Some(s) = ib.result_local() {
             tree_from_returns.require(db, None, RequireType::Folded, ib.place(db, s));
         }
         let tree_from_params = tree_from_params;
