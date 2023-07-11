@@ -26,6 +26,8 @@ fn check_dep(src: impl fmt::Display, f: impl FnOnce(String), g: impl FnOnce(Stri
             let l = dep.graph.edge_weight(e)?;
             Some(format!("{a:<15} -> {b:<15} [{l}]"))
         })
+        .sorted()
+        .dedup()
         .join("\n");
     g(s);
 }
@@ -72,9 +74,9 @@ ghost fn main(x: S);
             └──────┘
             "###),
         expect!(@r###"
-            main            -> S               [sig]
-            S               -> T               [sig]
-            "###),
+        S               -> T               [sig]
+        main            -> S               [sig]
+        "###),
     );
 }
 
@@ -114,12 +116,12 @@ ghost fn h() req { T {} };
                          └──────┘
             "###),
         expect!(@r###"
-            h               -> T               [sig]
-            g               -> h               [bod]
-            f               -> g               [bod]
-            f               -> S               [sig]
-            S               -> T               [sig]
-            "###),
+        S               -> T               [sig]
+        f               -> S               [sig]
+        f               -> g               [bod]
+        g               -> h               [bod]
+        h               -> T               [sig]
+        "###),
     );
     check_dep(
         r#"
@@ -152,10 +154,10 @@ pure fn i() { }
             └──────┘
             "###),
         expect!(@r###"
-            h               -> i               [sig]
-            g               -> h               [bod]
-            f               -> g               [bod]
-            "###),
+        f               -> g               [bod]
+        g               -> h               [bod]
+        h               -> i               [sig]
+        "###),
     );
 }
 
@@ -195,10 +197,10 @@ ghost fn g(x: T[int, int]);
             └─────────────┘
             "###),
         expect!(@r###"
-            g               -> T[int, int]     [sig]
-            f               -> T[int, S]       [sig]
-            T[int, S]       -> S               [sig]
-            "###),
+        T[int, S]       -> S               [sig]
+        f               -> T[int, S]       [sig]
+        g               -> T[int, int]     [sig]
+        "###),
     );
 
     check_dep(
@@ -208,54 +210,54 @@ struct B[S, T] { x: A[S], y: A[T] }
 ghost fn f(x: B[A[int], B[bool, int]]);
 "#,
         expect!(@r###"
-                         ┌─────────────────┐
-                         │        f        │
-                         └─────────────────┘
-                           │
-                           │ sig
-                           ▼
-                         ┌─────────────────────────┐  sig   ┌───────────┐
-                   ┌──── │ B[A[int], B[bool, int]] │ ─────▶ │ A[A[int]] │
-                   │     └─────────────────────────┘        └───────────┘
-                   │       │                  │               │
-                   │       │ sig              │               │
-                   │       ▼                  │               │
-                   │     ┌─────────────────┐  │               │
-                   │     │ A[B[bool, int]] │  │               │
-                   │     └─────────────────┘  │               │
-                   │       │                  │ sig           │
-                   │       │ sig              │               │
-                   │       ▼                  │               │
-                   │     ┌─────────────────┐  │               │
-              ┌────┼──── │  B[bool, int]   │ ◀┘               │
-              │    │     └─────────────────┘                  │
-              │    │       │                                  │
-              │    │ sig   │ sig                              │
-              │    │       ▼                                  │
-              │    │     ┌─────────────────┐         sig      │
-              │    └───▶ │     A[int]      │ ◀────────────────┘
-              │          └─────────────────┘
-              │   sig    ┌─────────────────┐
-              └────────▶ │     A[bool]     │
-                         └─────────────────┘
-                         ┌─────────────────┐
-                         │      A[T]       │
-                         └─────────────────┘
-                         ┌─────────────────┐
-                         │      A[S]       │
-                         └─────────────────┘
-            "###),
+                   ┌─────────────────┐
+                   │        f        │
+                   └─────────────────┘
+                     │
+                     │ sig
+                     ▼
+                   ┌─────────────────────────┐  sig   ┌───────────┐
+             ┌──── │ B[A[int], B[bool, int]] │ ─────▶ │ A[A[int]] │
+             │     └─────────────────────────┘        └───────────┘
+             │       │                  │               │
+             │       │ sig              │               │
+             │       ▼                  │               │
+             │     ┌─────────────────┐  │               │
+             │     │ A[B[bool, int]] │  │               │
+             │     └─────────────────┘  │               │
+             │       │                  │ sig           │
+             │       │ sig              │               │
+             │       ▼                  │               │
+             │     ┌─────────────────┐  │               │
+        ┌────┼──── │  B[bool, int]   │ ◀┘               │
+        │    │     └─────────────────┘                  │
+        │    │       │                                  │
+        │    │ sig   │ sig                              │
+        │    │       ▼                                  │
+        │    │     ┌─────────────────┐         sig      │
+        │    └───▶ │     A[int]      │ ◀────────────────┘
+        │          └─────────────────┘
+        │   sig    ┌─────────────────┐
+        └────────▶ │     A[bool]     │
+                   └─────────────────┘
+                   ┌─────────────────┐
+                   │      A[S]       │
+                   └─────────────────┘
+                   ┌─────────────────┐
+                   │      A[T]       │
+                   └─────────────────┘
+        "###),
         expect!(@r###"
-            f               -> B[A[int], B[bool, int]] [sig]
-            B[A[int], B[bool, int]] -> A[B[bool, int]] [sig]
-            A[B[bool, int]] -> B[bool, int]    [sig]
-            B[bool, int]    -> A[int]          [sig]
-            B[bool, int]    -> A[bool]         [sig]
-            B[A[int], B[bool, int]] -> A[A[int]]       [sig]
-            A[A[int]]       -> A[int]          [sig]
-            B[A[int], B[bool, int]] -> B[bool, int]    [sig]
-            B[A[int], B[bool, int]] -> A[int]          [sig]
-            "###),
+        A[A[int]]       -> A[int]          [sig]
+        A[B[bool, int]] -> B[bool, int]    [sig]
+        B[A[int], B[bool, int]] -> A[A[int]]       [sig]
+        B[A[int], B[bool, int]] -> A[B[bool, int]] [sig]
+        B[A[int], B[bool, int]] -> A[int]          [sig]
+        B[A[int], B[bool, int]] -> B[bool, int]    [sig]
+        B[bool, int]    -> A[bool]         [sig]
+        B[bool, int]    -> A[int]          [sig]
+        f               -> B[A[int], B[bool, int]] [sig]
+        "###),
     );
 }
 

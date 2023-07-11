@@ -171,7 +171,9 @@ impl GraphBuilder {
     fn dep(&mut self, a: Item, b: Item, level: Level) {
         let a = self.add_node(a);
         let b = self.add_node(b);
-        self.g.add_edge(a, b, level);
+        if !self.g.edges_connecting(a, b).any(|l| l.weight() == &level) {
+            self.g.add_edge(a, b, level);
+        }
     }
 
     fn add_node(&mut self, a: Item) -> petgraph::graph::NodeIndex {
