@@ -182,7 +182,7 @@ impl<'a> MirLower<'a> {
     fn alloc_block(&mut self, expr: Option<ExprPtr>) -> BlockId {
         let id = self.body.blocks.alloc(Default::default());
         if let Some(expr) = expr {
-            self.source_map.register(expr, id);
+            self.source_map.register_multi(expr, id);
         }
         id
     }
@@ -190,8 +190,8 @@ impl<'a> MirLower<'a> {
         self.body.block_invariants.insert(bid, invariants);
     }
     fn hint_block_source(&mut self, source: ExprPtr, bid: BlockId) {
-        if !self.source_map.has_back(bid) {
-            self.source_map.register(source, bid);
+        if self.source_map.back_multi(bid).is_none() {
+            self.source_map.register_multi(source, bid);
         }
     }
     fn self_local(&self) -> Option<LocalId> {
@@ -276,19 +276,22 @@ impl MirLower<'_> {
         target: Option<BlockId>,
     ) -> BlockId {
         let (destination, next_bid) = match dest {
-            Placement::Ignore => {
-                (self.alloc_place_for_expr(expr), target.unwrap_or_else(|| self.alloc_block(None)))
+            Placement::Ignore => (
+                self.alloc_place_for_expr(expr),
+                target.unwrap_or_else(|| self.alloc_block(Some(expr))),
+            ),
+            Placement::Assign(local) => {
+                (local, target.unwrap_or_else(|| self.alloc_block(Some(expr))))
             }
-            Placement::Assign(local) => (local, target.unwrap_or_else(|| self.alloc_block(None))),
             Placement::IntoOperand(ty, into) => {
                 let tmp = self.alloc_tmp(ty);
                 *into = Some(Operand::Move(tmp));
-                (tmp, target.unwrap_or_else(|| self.alloc_block(None)))
+                (tmp, target.unwrap_or_else(|| self.alloc_block(Some(expr))))
             }
             Placement::IntoPlace(ty, into) => {
                 let tmp = self.alloc_tmp(ty);
                 *into = Some(tmp);
-                (tmp, target.unwrap_or_else(|| self.alloc_block(None)))
+                (tmp, target.unwrap_or_else(|| self.alloc_block(Some(expr))))
             }
         };
 
@@ -565,7 +568,7 @@ impl MirLower<'_> {
                 bid
             }
             ExprData::Block(block) => {
-                let next_bid = self.alloc_block(None);
+                let next_bid = self.alloc_block(Some(expr));
                 assert_ne!(bid, next_bid);
                 self.set_terminator(bid, Terminator::goto(self.db, next_bid));
                 self.block(&block, next_bid, target, dest)

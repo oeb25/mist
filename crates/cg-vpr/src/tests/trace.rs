@@ -22,7 +22,7 @@ fn check_trace(src: impl fmt::Display, f: impl FnOnce(String)) {
         .filter_map(|(bo, _)| {
             let back = viper_output.trace_expr(SourceSpan::new_start_end(bo, bo))?;
             let (item, back) = viper_source_map.trace_exp(back)?;
-            let item_mir = mir::lower_item(&db, item)?;
+            let item_mir = mir::lower_item(&db, item).unwrap();
             let expr = item_mir.source_map(&db).trace_expr(back)?;
             if expr.ast(&db).span().contains_span(m) {
                 // if m.contains_span(expr.ast(&db).span()) {
@@ -218,4 +218,58 @@ fn f(t: T) {
         }
         "###),
     )
+}
+
+#[test]
+fn trace_assert() {
+    check_trace(
+        r#"
+    fn f() {
+        assert $0false$0;
+    }
+        "#,
+        expect!(@r###"
+            method f() {
+              assert false
+                     ^^^^^
+              label end
+            }
+            "###),
+    );
+    check_trace(
+        r#"
+    fn f() {
+        assert $0false && false$0;
+    }
+        "#,
+        expect!(@r###"
+            method f() {
+              var _1: Bool;
+              _1 := (false && false)
+                    ^^^^^^^^^^^^^^^^
+              assert _1
+                     ^^
+              label end
+            }
+            "###),
+    );
+
+    check_trace(
+        r#"
+fn f() -> bool {
+    assert $0f()$0;
+    false
+}
+    "#,
+        expect!(@r###"
+        method f() returns (_0: Bool) {
+          var _1: Bool;
+          _1 := f()
+          assert _1
+                 ^^
+          _0 := false
+          label end
+        }
+        "###),
+    );
 }
