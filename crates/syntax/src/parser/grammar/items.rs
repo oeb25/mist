@@ -66,7 +66,12 @@ pub fn fn_def(p: &mut Parser, attr_checkpoint: Checkpoint) {
             }
         }
 
+        if p.at(T![proof]) {
+            p.bump();
+        }
+
         match p.current() {
+            // TODO: handle proof without body
             T![;] => p.bump(),
             T!['{'] => block(p),
             _ => p.push_error(

@@ -115,6 +115,7 @@ pub(crate) const KINDS_SRC: KindsSrc<'_> = KindsSrc {
         "null",
         "result",
         "ghost",
+        "proof",
         "pure",
         "requires",
         "ensures",
