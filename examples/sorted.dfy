@@ -1,18 +1,15 @@
 class Sorted {
   var xs: seq<int>
   ghost var min: int
-}
-
-ghost predicate IsSorted(s: Sorted)
-  reads s
-{
-  (forall i, j :: 0 <= i <= j < |s.xs| ==> s.xs[i] <= s.xs[j]) &&
-  (s.xs != [] ==> s.xs[0] == s.min)
+  ghost predicate IsSorted() reads this {
+    (forall i, j :: 0 <= i <= j < |xs| ==> xs[i] <= xs[j]) &&
+    (xs != [] ==> xs[0] == min)
+  }
 }
 
 method sum(s: Sorted) returns (res: int)
-  requires IsSorted(s)
-  ensures IsSorted(s)
+  requires s.IsSorted()
+  ensures s.IsSorted()
   ensures res >= s.min * |s.xs|
   // modifies s
 {
@@ -26,7 +23,7 @@ method sum(s: Sorted) returns (res: int)
 }
 
 method Nice(s: Sorted)
-  requires IsSorted(s)
+  requires s.IsSorted()
   // modifies s
 {
   var a := sum(s);

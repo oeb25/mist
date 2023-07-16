@@ -1,0 +1,89 @@
+struct BTree {
+  value: int,
+  left: ?BTree,
+  right: ?BTree,
+}
+
+invariant BTree {
+  (self.left == null) == (self.right == null)
+}
+
+pure fn values(t: BTree) -> Set[int] {
+  [t.value].to_set()
+    .union(if t.left != null {
+      values(t.left!).union(values(t.right!))
+    } else {
+      [].to_set()
+    })
+}
+
+pure fn height(b: BTree) -> int
+  ens result >= 0
+{
+  if b.left == null {
+    0
+  } else {
+    let l = height(b.left!);
+    let r = height(b.right!);
+    1 + if l > r { l } else { r }
+  }
+}
+
+invariant BTree {
+  if self.left != null { height(self.left!) == height(self.right!) }
+}
+
+pure fn size(b: BTree) -> int
+  ens result >= 1
+  dec height(b)
+{
+  if b.left == null {
+    1
+  } else {
+    let l = size(b.left!);
+    let r = size(b.right!);
+    1 + l + r
+  }
+}
+
+pure fn pow2(n: int) -> int
+  req n >= 0
+  dec n
+{ if n == 0 { 1 } else { 2 * pow2(n - 1) } }
+
+ghost fn lemma_complete(b: BTree)
+  ens size(b) == pow2(height(b) + 1) - 1
+  dec height(b)
+{
+  if b.left == null {
+    assert pow2(1) == 2 * pow2(0);
+  } else {
+    lemma_complete(b.left!);
+    lemma_complete(b.right!);
+  }
+}
+
+ghost fn flip(b: BTree) -> BTree
+  ens values(b) == values(result),
+      height(b) == -1 * height(result);
+
+ghost fn unsoundness(b: BTree) {
+  if height(b) != 0 {
+    flip(b);
+    assert 1 == 2;
+  }
+}
+
+pure ghost fn old(b: Set[int]) -> Set[int];
+
+fn increment(b: &mut BTree, amount: int)
+  ens forall x in old(values(b)) exists y in values(b) { x + amount == y }
+  dec height(b)
+{
+  b.value = b.value + amount;
+  if b.left != null {
+    increment(b.left!, amount);
+    increment(b.right!, amount);
+    assert old(values(b) == [t.value].to_set().union(values(t.left!).union(values(t.right!))));
+  }
+}

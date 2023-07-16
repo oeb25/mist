@@ -1,0 +1,196 @@
+field value: Int
+field left: Ref
+field right: Ref
+function values(_1: Ref): Set[Int]
+  requires
+    acc(BTree(_1), wildcard)
+{
+  (unfolding acc(BTree(_1), wildcard) in (let _0 == (((_1.left != null)
+      ? ((Set(_1.value)) union (values(_1.left) union values(_1.right)))
+      : (Set()))) in
+  _0))
+}
+function height(_1: Ref): Int
+  requires
+    acc(BTree(_1), wildcard)
+  ensures result >= 0
+{
+  (unfolding acc(BTree(_1), wildcard) in ((_1.left == null)
+    ? 0
+    : (let l_3 == (height(_1.left)) in
+      (let r_4 == (height(_1.right)) in
+      1+((l_3 > r_4)
+        ? l_3
+        : r_4)))))
+}
+function size(_1: Ref): Int
+  requires
+    acc(BTree(_1), wildcard)
+  ensures result >= 1
+{
+  (unfolding acc(BTree(_1), wildcard) in ((_1.left == null)
+    ? 1
+    : ((1 + size(_1.left)) + size(_1.right))))
+}
+function pow2(_1: Int): Int
+  requires _1 >= 0
+//   ensures result >= 1
+{
+  ((_1 == 0)
+    ? 1
+    : 2*pow2((_1 - 1)))
+}
+predicate BTree(_0: Ref) {
+  ((((acc(_0.value, write) && (acc(_0.left, write) && ((_0.left != null) ==> acc(BTree(_0.left), write)))) && (acc(_0.right, write) && ((_0.right != null) ==> acc(BTree(_0.right), write)))) && ((_0.left == null) == (_0.right == null))) && ((_0.left != null)
+    ? (height(_0.left) == height(_0.right))
+    : true))
+}
+method lemma_complete(_1: Ref)
+  requires
+    acc(BTree(_1), wildcard)
+  ensures
+    acc(BTree(_1), wildcard)
+  ensures
+    unfolding acc(BTree(_1), wildcard) in ((_1.left != null) ==>
+      size(_1.left) == size(_1.right))
+  ensures
+    (size(_1) == pow2(height(_1)+1)-1)
+{
+  unfold acc(BTree(_1), wildcard)
+  if (_1.left == null) {
+    assert pow2(1) == 2*pow2(0)
+  } else {
+    lemma_complete(_1.left)
+    lemma_complete(_1.right)
+  }
+  fold acc(BTree(_1), wildcard)
+}
+method increment(b: Ref, amount: Int)
+  requires
+    acc(BTree(b), write)
+  ensures
+    acc(BTree(b), write)
+  ensures
+    height(b) == old(height(b))
+  ensures
+    // unfolding acc(BTree(b), write) in
+      forall x: Int :: x in old(values(b)) ==> x + amount in values(b)
+{
+  unfold acc(BTree(b), write)
+  b.value := b.value + amount
+  if (b.left != null) {
+    increment(b.left, amount)
+    increment(b.right, amount)
+    assert old(values(b) == unfolding acc(BTree(b), write) in Set(b.value) union values(b.left) union values(b.right))
+  }
+  fold acc(BTree(b), write)
+}
+domain ListToSet[T] {
+  function list_to_set(l: Seq[T]): Set[T]
+  function set_to_list(s: Set[T]): Seq[T]
+  function multi_set_to_list(s: Multiset[T]): Seq[T]
+  function list_to_multi_set(l: Seq[T]): Multiset[T]
+
+  axiom {
+    forall l: Seq[T] :: |l| >= |list_to_set(l)|
+  }
+  axiom {
+    forall l: Seq[T] :: forall e: T :: e in l == e in list_to_set(l)
+  }
+  axiom {
+    forall s: Set[T] :: |s| == |set_to_list(s)|
+  }
+  axiom {
+    forall s: Set[T] :: forall e: T :: e in s == e in set_to_list(s)
+  }
+
+  axiom {
+    forall l: Seq[T] :: list_to_multi_set(l) ==
+      ((|l| == 0)
+        ? Multiset()
+        : Multiset(l[0]) union list_to_multi_set(l[1..]))
+  }
+  // axiom {
+  //   forall l: Seq[T] :: |l| == |list_to_multi_set(l)|
+  // }
+  // axiom {
+  //   forall l: Seq[T] :: forall e: T :: e in l == e in list_to_multi_set(l)
+  // }
+  // axiom {
+  //   forall s: Multiset[T] :: |s| == |multi_set_to_list(s)|
+  // }
+  // axiom {
+  //   forall s: Multiset[T] :: forall e: T :: e in s == e in multi_set_to_list(s)
+  // }
+}
+
+domain Range {
+  function range_from(x: Int): Range
+  function range_to(x: Int): Range
+  function range_from_to(from: Int, to: Int): Range
+
+  function range_min(r: Range): Int
+  function range_max(r: Range): Int
+
+  function in_range(idx: Int, r: Range): Bool
+
+  axiom axRangeMin {
+    forall x: Int, y: Int ::
+      range_min(range_from(x)) == x &&
+      range_min(range_from_to(x, y)) == x
+  }
+  axiom axRangeMax {
+    forall x: Int, y: Int ::
+      range_max(range_from_to(x, y)) == y &&
+      range_max(range_to(y)) == y
+  }
+
+  axiom axRangeIn {
+    forall x: Int, y: Int, idx: Int ::
+      in_range(idx, range_from(x)) == (x <= idx) &&
+      in_range(idx, range_from_to(x, y)) == (x <= idx && idx < y) &&
+      in_range(idx, range_to(y)) == (idx < y)
+  }
+
+  axiom axRangeOrdered {
+    forall r: Range, idx: Int ::
+      in_range(idx, r) ==> range_min(r) < range_max(r)
+  }
+}
+
+domain RangeIndex[T] {
+  function range_index(x: Seq[T], r: Range): Seq[T]
+  axiom axRangefrom {
+    forall x: Int, s: Seq[T] :: range_index(s, range_from(x)) == s[x..]
+  }
+  axiom axRangeto {
+    forall x: Int, s: Seq[T] :: range_index(s, range_to(x)) == s[x..]
+  }
+  axiom axRangeFromTo {
+    forall from: Int, to: Int, s: Seq[T] :: range_index(s, range_from_to(from, to)) == s[from..to]
+  }
+}
+
+define QRefAcc(T, x, p) acc(T(fst(x)), snd(x) * p)
+define QRefUnfold(T, x, p) { unfold acc(T(fst(x)), snd(x) * p) }
+define QRefUnfolding(T, x, p, e) unfolding acc(T(fst(x)), snd(x) * p) in e
+define QRefFold(T, x, p) { fold acc(T(fst(x)), snd(x) * p) }
+define QRefReborrow(x) ( create(fst(x), snd(x) * 1/256) )
+define QRefProject(x, f) (create(fst(x).f, snd(x)))
+
+
+domain QRef {
+  function create($a: Ref, $b: Perm): QRef;
+  function fst($q: QRef): Ref;
+  function snd($q: QRef): Perm;
+
+  axiom {
+    forall $a: Ref, $b: Perm :: fst(create($a, $b)) == $a
+  }
+  axiom {
+    forall $a: Ref, $b: Perm :: snd(create($a, $b)) == $b
+  }
+  axiom {
+    forall $q: QRef :: snd($q) >= none
+  }
+}

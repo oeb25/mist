@@ -1,0 +1,85 @@
+struct ZeroOrTwo[A, B] {
+    fst: ?A,
+    snd: ?A,
+}
+
+pure fn is_zero(zot: ZeroOrTwo[BTree, BTree]) -> bool {
+    zot.fst == null
+}
+
+invariant[A, B] ZeroOrTwo[A, B] {
+    (self.fst == null) == (self.snd == null)
+}
+
+struct BTree {
+  value: int,
+  height: int,
+  children: ZeroOrTwo[BTree, BTree],
+}
+
+invariant BTree {
+    if is_zero(self.children) {
+       self.height == 0
+    } else {
+        self.height == 1 + self.children.fst!.height
+    }
+}
+
+// invariant BTree {
+//   (self.left == null) == (self.right == null)
+// }
+
+// pure fn values(t: BTree) -> Set[int] {
+//   [t.value].to_set()
+//     .union(if t.left != null {
+//       values(t.left!).union(values(t.right!))
+//     } else {
+//       [].to_set()
+//     })
+// }
+
+// pure fn height(b: BTree) -> int
+//   ens result >= 0
+// {
+//   if b.left == null {
+//     0
+//   } else {
+//     let l = height(b.left!);
+//     let r = height(b.right!);
+//     1 + if l > r { l } else { r }
+//   }
+// }
+
+// invariant BTree {
+//   if self.left != null { height(self.left!) == height(self.right!) }
+// }
+
+// pure fn size(b: BTree) -> int
+//   ens result >= 1
+//   dec height(b)
+// {
+//   if b.left == null {
+//     1
+//   } else {
+//     let l = size(b.left!);
+//     let r = size(b.right!);
+//     1 + l + r
+//   }
+// }
+
+// pure fn pow2(n: int) -> int
+//   req n >= 0
+//   dec n
+// { if n == 0 { 1 } else { 2 * pow2(n - 1) } }
+
+// ghost fn lemma_complete(b: BTree)
+//   ens size(b) == pow2(height(b) + 1) - 1
+//   dec height(b)
+// {
+//   if b.left == null {
+//     assert pow2(1) == 2 * pow2(0);
+//   } else {
+//     lemma_complete(b.left!);
+//     lemma_complete(b.right!);
+//   }
+// }

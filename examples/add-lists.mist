@@ -1,0 +1,60 @@
+// fn add(x: [int], y: [int]) -> [int]
+//   req x.len == y.len
+//   ens result.len == x.len,
+//       forall i in 0..x.len { result[i] == x[i] + y[i] }
+// {
+//   let mut z = [];
+//   for idx in 0..x.len
+//     inv z.len == idx,
+//         forall i in 0..idx { z[i] == x[i] + y[i] }
+//   {
+//     z = z + [x[idx] + y[idx]];
+//   }
+//   z
+// }
+
+pure fn intertwine_p(x: [int], y: [int]) -> [int]
+  req x.len == y.len
+  ens result.len == x.len + y.len
+{
+  if x == [] {
+    []
+  } else {
+    [x[0]] + [y[0]] + intertwine_p(x[1..], y[1..])
+  }
+}
+
+// fn intertwine(x: [int], y: [int]) -> [int]
+//   req x.len == y.len
+//   ens result.len == x.len + y.len,
+//       forall i in 0..result.len { result[i] == if (i / 2) * 2 == i { x[i/2] } else { y[i/2] } },
+//       result == intertwine_p(x, y)
+// {
+//   let mut z = [];
+//   for idx in 0..x.len
+//     inv z.len == 2*idx,
+//         forall i in 0..z.len { z[i] == if (i / 2) * 2 == i { x[i/2] } else { y[i/2] } },
+//         z == intertwine_p(x[0..idx], y[0..idx])
+//   {
+//     z = z + [x[idx]] + [y[idx]];
+//   }
+//   z
+// }
+
+ghost fn lemma_intertwine_split(a: [int], b: [int])
+  req a.len == b.len
+  ens forall i in 0..a.len { intertwine_p(a, b) == intertwine_p(a[0..i], b[0..i]) + intertwine_p(a[i..], b[i..]) }
+{
+  if a != [] {
+    let n = a.len - 1;
+    lemma_intertwine_split(a[0..n], b[0..n]);
+    lemma_intertwine_split(a[1..], b[1..]);
+    for i in 1..a.len
+      inv forall x in 0..i, y in x..i+1 { intertwine_p(a[0..y], b[0..y]) == intertwine_p(a[0..x], b[0..x]) + intertwine_p(a[x..y], b[x..y]) }
+      inv intertwine_p(a[0..i-1], b[0..i-1]) + intertwine_p(a[i-1..i], b[i-1..i]) == intertwine_p(a[0..i], b[0..i])
+      inv intertwine_p(a[0..i-1], b[0..i-1]) + intertwine_p(a[i-1..], b[i-1..]) == intertwine_p(a, b)
+    {
+      assert intertwine_p(a[0..i], b[0..i]) + intertwine_p(a[i..], b[i..]) == intertwine_p(a, b);
+    }
+  }
+}
