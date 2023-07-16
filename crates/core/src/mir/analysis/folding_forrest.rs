@@ -267,7 +267,7 @@ pub(crate) fn debug_folding_tree(
 
 #[cfg(test)]
 mod test {
-    use std::{fmt, sync::Arc};
+    use std::{fmt, rc::Rc};
 
     use itertools::Itertools;
     use proptest::prelude::*;
@@ -282,7 +282,7 @@ mod test {
 
     #[derive(Clone)]
     struct Context {
-        db: Arc<crate::db::Database>,
+        db: Rc<crate::db::Database>,
         items: Vec<Item>,
         ib: mir::ItemBody,
     }
@@ -339,7 +339,7 @@ mod test {
             let item = items[1];
             let ib = mir::lower_item(&db, item).unwrap().ib(&db).clone();
 
-            Context { db: Arc::new(db), items, ib }
+            Context { db: Rc::new(db), items, ib }
         }
     }
     fn debug_folding_tree_ctx(ctx: &Context, tree: &FoldingForrest) -> String {

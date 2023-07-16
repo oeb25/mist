@@ -250,7 +250,7 @@ impl BodyLower<'_> {
                                         });
                                     }
                                     let cond = match value {
-                                        1 => l.operand_to_ref(test)?,
+                                        1 => l.operand_to_ref(*test)?,
                                         _ => todo!(), // Exp::new_bin(BinOp::EqCmp, test, value)
                                     };
                                     Ok(PureLowerResult::UnassignedExpression(
@@ -353,7 +353,7 @@ impl BodyLower<'_> {
         }
         let exp = Exp::FuncApp {
             funcname: mangle::mangled_adt(self.db, *adt) + "_init",
-            args: fields.iter().map(|(_, op)| self.operand_to_ref(op)).collect::<Result<_>>()?,
+            args: fields.iter().map(|&(_, op)| self.operand_to_ref(op)).collect::<Result<_>>()?,
         };
         Ok(self.alloc(inst, exp))
     }

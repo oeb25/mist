@@ -350,8 +350,8 @@ fn check_impl(tc: &mut TypeChecker, expr: ast::Expr) -> Either<ExprIdx, Expr> {
                     x_ty
                 }
                 (Some(lhs), Some(rhs)) => {
-                    let lhs_ty = tc.expr_ty(lhs);
-                    let rhs_ty = tc.expr_ty(rhs);
+                    let lhs_ty = tc.expr_ty(lhs).strip_ghost(tc);
+                    let rhs_ty = tc.expr_ty(rhs).strip_ghost(tc);
                     tc.expect_ty(tc.expr_span(lhs), ghost_int(), lhs_ty);
                     tc.expect_ty(tc.expr_span(rhs), ghost_int(), rhs_ty);
                     lhs_ty

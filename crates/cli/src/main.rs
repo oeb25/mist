@@ -115,6 +115,7 @@ async fn cli() -> Result<()> {
 
                 if dump_mir {
                     let a = mir::analysis::liveness::FoldingAnalysisResults::compute(&db, &ib);
+                    // println!("{}", ib.serialize(&db, mir::serialize::Color::Yes));
                     println!(
                         "{}",
                         ib.serialize_with_annotation(&db, mir::serialize::Color::Yes, |act| {

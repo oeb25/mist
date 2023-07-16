@@ -51,7 +51,7 @@ use crate::{
 
 use self::folding::{q_ref_acc, q_ref_perm, q_ref_strip_value, q_ref_unfolding, q_ref_value};
 
-fn lower_binop(op: &BinaryOp) -> Option<BinOp> {
+fn lower_binop(op: BinaryOp) -> Option<BinOp> {
     use BinOp::*;
 
     Some(match op {
@@ -85,11 +85,11 @@ fn lower_binop(op: &BinaryOp) -> Option<BinOp> {
     })
 }
 
-fn lower_lit(l: &hir::Literal) -> Exp<VExprId> {
+fn lower_lit(l: hir::Literal) -> Exp<VExprId> {
     match l {
         hir::Literal::Null => Exp::null(),
-        hir::Literal::Int(i) => Exp::int(*i),
-        hir::Literal::Bool(b) => Exp::boolean(*b),
+        hir::Literal::Int(i) => Exp::int(i),
+        hir::Literal::Bool(b) => Exp::boolean(b),
     }
 }
 
@@ -415,25 +415,25 @@ impl BodyLower<'_> {
         Ok(match f {
             mir::Function::Named(v) => Exp::new_func_app(
                 v.name(self.db).to_string(),
-                args.iter().map(|s| self.operand_to_ref(s)).collect::<Result<_>>()?,
+                args.iter().map(|&s| self.operand_to_ref(s)).collect::<Result<_>>()?,
             ),
             mir::Function::BuiltinMethod(bf) => match bf {
                 BuiltinField::List(_, lf) => match lf {
                     ListField::Len => todo!(),
                     ListField::ToSet => {
-                        let list = self.operand_to_ref(&args[0])?;
+                        let list = self.operand_to_ref(args[0])?;
                         Exp::new_func_app("list_to_set".to_string(), vec![list])
                     }
                     ListField::ToMultiSet => {
-                        let list = self.operand_to_ref(&args[0])?;
+                        let list = self.operand_to_ref(args[0])?;
                         Exp::new_func_app("list_to_multi_set".to_string(), vec![list])
                     }
                 },
                 BuiltinField::Set(_, sf) => match sf {
                     SetField::Cardinality => todo!(),
                     SetField::Contains => {
-                        let set = self.operand_to_ref(&args[0])?;
-                        let element = self.operand_to_ref(&args[1])?;
+                        let set = self.operand_to_ref(args[0])?;
+                        let element = self.operand_to_ref(args[1])?;
                         Exp::new_set(SetExp::Bin {
                             op: silvers::expression::SetBinOp::Contains,
                             left: element,
@@ -441,8 +441,8 @@ impl BodyLower<'_> {
                         })
                     }
                     SetField::Union => {
-                        let a = self.operand_to_ref(&args[0])?;
-                        let b = self.operand_to_ref(&args[1])?;
+                        let a = self.operand_to_ref(args[0])?;
+                        let b = self.operand_to_ref(args[1])?;
                         Exp::new_set(SetExp::Bin {
                             op: silvers::expression::SetBinOp::Union,
                             left: a,
@@ -450,8 +450,8 @@ impl BodyLower<'_> {
                         })
                     }
                     SetField::Intersection => {
-                        let a = self.operand_to_ref(&args[0])?;
-                        let b = self.operand_to_ref(&args[1])?;
+                        let a = self.operand_to_ref(args[0])?;
+                        let b = self.operand_to_ref(args[1])?;
                         Exp::new_set(SetExp::Bin {
                             op: silvers::expression::SetBinOp::Intersection,
                             left: a,
@@ -459,60 +459,60 @@ impl BodyLower<'_> {
                         })
                     }
                     SetField::ToList => {
-                        let set = self.operand_to_ref(&args[0])?;
+                        let set = self.operand_to_ref(args[0])?;
                         Exp::new_func_app("set_to_list".to_string(), vec![set])
                     }
                 },
                 BuiltinField::MultiSet(_, mf) => match mf {
                     MultiSetField::Cardinality => todo!(),
                     MultiSetField::ToList => {
-                        let set = self.operand_to_ref(&args[0])?;
+                        let set = self.operand_to_ref(args[0])?;
                         Exp::new_func_app("multi_set_to_list".to_string(), vec![set])
                     }
                 },
                 BuiltinField::Range(_, _) => todo!(),
             },
             mir::Function::Index => {
-                let base = self.operand_to_ref(&args[0])?;
-                let index = self.operand_to_ref(&args[1])?;
+                let base = self.operand_to_ref(args[0])?;
+                let index = self.operand_to_ref(args[1])?;
                 SeqExp::new_index(base, index).into()
             }
             mir::Function::RangeIndex => {
-                let base = self.operand_to_ref(&args[0])?;
-                let index = self.operand_to_ref(&args[1])?;
+                let base = self.operand_to_ref(args[0])?;
+                let index = self.operand_to_ref(args[1])?;
                 Exp::new_func_app("range_index".to_string(), vec![base, index])
             }
             mir::Function::Range(op) => {
                 let (f, args) = match op {
                     mir::RangeKind::FromTo => (
                         "range_from_to",
-                        vec![self.operand_to_ref(&args[0])?, self.operand_to_ref(&args[1])?],
+                        vec![self.operand_to_ref(args[0])?, self.operand_to_ref(args[1])?],
                     ),
-                    mir::RangeKind::From => ("range_from", vec![self.operand_to_ref(&args[0])?]),
-                    mir::RangeKind::To => ("range_to", vec![self.operand_to_ref(&args[0])?]),
+                    mir::RangeKind::From => ("range_from", vec![self.operand_to_ref(args[0])?]),
+                    mir::RangeKind::To => ("range_to", vec![self.operand_to_ref(args[0])?]),
                     mir::RangeKind::Full => ("range_full", vec![]),
                 };
                 Exp::new_func_app(f.to_string(), args)
             }
             mir::Function::List => SeqExp::new_explicit(
-                args.iter().map(|s| self.operand_to_ref(s)).collect::<Result<_>>()?,
+                args.iter().map(|&s| self.operand_to_ref(s)).collect::<Result<_>>()?,
             )
             .into(),
             mir::Function::ListConcat => {
-                SeqExp::new_append(self.operand_to_ref(&args[0])?, self.operand_to_ref(&args[1])?)
+                SeqExp::new_append(self.operand_to_ref(args[0])?, self.operand_to_ref(args[1])?)
                     .into()
             }
             mir::Function::InRange => {
-                let idx = self.operand_to_ref(&args[0])?;
-                let r = self.operand_to_ref(&args[1])?;
+                let idx = self.operand_to_ref(args[0])?;
+                let r = self.operand_to_ref(args[1])?;
                 Exp::new_func_app("in_range".to_string(), vec![idx, r])
             }
             mir::Function::RangeMin => {
-                let r = self.operand_to_ref(&args[0])?;
+                let r = self.operand_to_ref(args[0])?;
                 Exp::new_func_app("range_min".to_string(), vec![r])
             }
             mir::Function::RangeMax => {
-                let r = self.operand_to_ref(&args[0])?;
+                let r = self.operand_to_ref(args[0])?;
                 Exp::new_func_app("range_max".to_string(), vec![r])
             }
         })
@@ -640,10 +640,10 @@ impl BodyLower<'_> {
             })
         })
     }
-    fn operand_to_ref(&mut self, o: &mir::Operand) -> Result<VExprId> {
+    fn operand_to_ref(&mut self, o: mir::Operand) -> Result<VExprId> {
         Ok(match o {
-            mir::Operand::Copy(s) => self.place_to_ref(*s)?,
-            mir::Operand::Move(s) => self.place_to_ref(*s)?,
+            mir::Operand::Copy(s) => self.place_to_ref(s)?,
+            mir::Operand::Move(s) => self.place_to_ref(s)?,
             mir::Operand::Literal(l) => self.allocs(lower_lit(l)),
         })
     }
@@ -657,7 +657,7 @@ impl BodyLower<'_> {
 
     fn expr(&mut self, inst: mir::InstructionId, e: &mir::MExpr) -> Result<VExprId> {
         let exp = match e {
-            mir::MExpr::Use(s) => {
+            &mir::MExpr::Use(s) => {
                 let item_id = self.ib.item();
                 let id = self.operand_to_ref(s)?;
                 self.source_map.inst_expr.insert((item_id, inst), id);
@@ -674,13 +674,13 @@ impl BodyLower<'_> {
                 self.source_map.inst_expr_back.insert(id, (item_id, inst));
                 return Ok(id);
             }
-            mir::MExpr::BinaryOp(op, l, r) => {
+            &mir::MExpr::BinaryOp(op, l, r) => {
                 let op = lower_binop(op).expect("assignment should have been filtered out by now");
                 let lhs = self.operand_to_ref(l)?;
                 let rhs = self.operand_to_ref(r)?;
                 Exp::new_bin(op, lhs, rhs)
             }
-            mir::MExpr::UnaryOp(op, x) => {
+            &mir::MExpr::UnaryOp(op, x) => {
                 use mist_syntax::ast::operators::UnaryOp;
 
                 let x = self.operand_to_ref(x)?;

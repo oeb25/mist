@@ -279,7 +279,7 @@ impl Type {
             TypeData::Builtin(b) => b
                 .generic_args(db)
                 .iter()
-                .fold(Some(true), |acc, ty| Some(acc? && ty.is_pure_fixpoint(db, seen)?)),
+                .try_fold(true, |acc, ty| Some(acc && ty.is_pure_fixpoint(db, seen)?)),
         }
     }
 

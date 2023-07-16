@@ -86,7 +86,7 @@ impl BodyLower<'_> {
                         todo!();
                     }
                     &mir::TerminatorKind::Assertion { kind, expr: e, target: b } => {
-                        let exp = l.operand_to_ref(&e)?;
+                        let exp = l.operand_to_ref(e)?;
                         let stmt = match kind {
                             hir::AssertionKind::Assert => Stmt::Assert { exp },
                             hir::AssertionKind::Assume => Stmt::Assume { exp },
@@ -115,7 +115,7 @@ impl BodyLower<'_> {
                             }
 
                             let cond = match value {
-                                1 => l.operand_to_ref(test)?,
+                                1 => l.operand_to_ref(*test)?,
                                 _ => todo!(), // Exp::new_bin(BinOp::EqCmp, test, value)
                             };
 
@@ -165,7 +165,7 @@ impl BodyLower<'_> {
                                 let thn = l.block(target, vec![], Some(next))?;
 
                                 let cond = match value {
-                                    1 => l.operand_to_ref(test)?,
+                                    1 => l.operand_to_ref(*test)?,
                                     _ => todo!(), // Exp::new_bin(BinOp::EqCmp, test, value)
                                 };
 
@@ -262,13 +262,13 @@ impl BodyLower<'_> {
                         );
                         new_fields
                             .push(VField::new(mangle::mangled_adt_field(l.db, adt, af), ty.vty));
-                        field_insts.push(Stmt::FieldAssign { lhs, rhs: l.operand_to_ref(&f)? });
+                        field_insts.push(Stmt::FieldAssign { lhs, rhs: l.operand_to_ref(f)? });
                     }
                     insts.push(Stmt::NewStmt {
                         lhs: l.place_for_assignment(t)?,
                         fields: new_fields,
                     });
-                    insts.extend(field_insts.into_iter());
+                    insts.extend(field_insts);
                     insts.push(Stmt::Fold {
                         acc: {
                             let name = mangle::mangled_adt(l.db, adt);
